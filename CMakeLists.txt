@@ -12,6 +12,7 @@ find_package(yaml-cpp REQUIRED)
 set(COMPOSE_SOURCES
     src/ComposeFile.cpp
     src/Service.cpp
+    src/Environment.cpp
 )
 
 # Statik kütüphane hedefi

@@ -56,4 +56,11 @@ bool Service::privileged() const {
     return node_["privileged"] ? node_["privileged"].as<bool>() : false;
 }
 
+Environment Service::environment() {
+    if (!node_["environment"]) {
+        node_["environment"] = YAML::Node(YAML::NodeType::Map);
+    }
+    return Environment(node_["environment"]);
+}
+
 }

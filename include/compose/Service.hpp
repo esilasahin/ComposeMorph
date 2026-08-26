@@ -1,11 +1,13 @@
 #pragma once
 #include <yaml-cpp/yaml.h>
 #include <string>
+#include "compose/Environment.hpp"
 
 namespace compose {
 
 class Service {
 public:
+    Environment environment();
     explicit Service(YAML::Node node);
 
     void setImage(const std::string& img);
