@@ -63,4 +63,11 @@ Environment Service::environment() {
     return Environment(node_["environment"]);
 }
 
+ExtraHosts Service::extraHosts() {
+    if (!node_["extra_hosts"]) {
+        node_["extra_hosts"] = YAML::Node(YAML::NodeType::Map);
+    }
+    return ExtraHosts(node_["extra_hosts"]);
+}
+
 }

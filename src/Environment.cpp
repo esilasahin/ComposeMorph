@@ -2,36 +2,36 @@
 
 namespace compose {
 
-Environment::Environment(YAML::Node node) : m_node(node) {}
+Environment::Environment(YAML::Node node) : node_(node) {}
 
 void Environment::set(const std::string& key, const std::string& value) {
-    if (!m_node) {
-        m_node = YAML::Node(YAML::NodeType::Map);
+    if (!node_) {
+        node_ = YAML::Node(YAML::NodeType::Map);
     }
-    m_node[key] = value;
+    node_[key] = value;
 }
 
 std::optional<std::string> Environment::get(const std::string& key) const {
-    if (m_node && m_node.IsMap() && m_node[key]) {
-        return m_node[key].as<std::string>();
+    if (node_ && node_.IsMap() && node_[key]) {
+        return node_[key].as<std::string>();
     }
     return std::nullopt;
 }
 
 bool Environment::has(const std::string& key) const {
-    return m_node && m_node.IsMap() && m_node[key].IsDefined();
+    return node_ && node_.IsMap() && node_[key].IsDefined();
 }
 
 void Environment::remove(const std::string& key) {
-    if (m_node && m_node.IsMap() && m_node[key]) {
-        m_node.remove(key);
+    if (node_ && node_.IsMap() && node_[key]) {
+        node_.remove(key);
     }
 }
 
 std::unordered_map<std::string, std::string> Environment::getAll() const {
     std::unordered_map<std::string, std::string> result;
-    if (m_node && m_node.IsMap()) {
-        for (const auto& kv : m_node) {
+    if (node_ && node_.IsMap()) {
+        for (const auto& kv : node_) {
             result[kv.first.as<std::string>()] = kv.second.as<std::string>();
         }
     }

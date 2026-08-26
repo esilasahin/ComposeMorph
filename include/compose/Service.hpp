@@ -1,19 +1,24 @@
 #pragma once
-#include <yaml-cpp/yaml.h>
+
 #include <string>
+#include <optional>
+#include <yaml-cpp/yaml.h>
 #include "compose/Environment.hpp"
+#include "compose/ExtraHosts.hpp"
 
 namespace compose {
 
+class Environment;
+class ExtraHosts;
+
 class Service {
 public:
-    Environment environment();
     explicit Service(YAML::Node node);
 
-    void setImage(const std::string& img);
+    void setImage(const std::string& image);
     std::string image() const;
 
-    void setHostname(const std::string& host);
+    void setHostname(const std::string& hostname);
     std::string hostname() const;
     void removeHostname();
 
@@ -21,15 +26,18 @@ public:
     std::string containerName() const;
     void removeContainerName();
 
-    void setRestart(const std::string& restartPolicy);
+    void setRestart(const std::string& restart);
     std::string restart() const;
     void removeRestart();
 
     void setPrivileged(bool priv);
     bool privileged() const;
 
+    Environment environment();
+    ExtraHosts extraHosts();
+
 private:
     YAML::Node node_;
 };
 
-}
+} // namespace compose
