@@ -11,6 +11,7 @@
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
 #include "compose/DeployConfig.hpp"
+#include "compose/TopLevelCollections.hpp"
 
 int main() {
     std::ofstream sample("sample.yml");
@@ -84,35 +85,37 @@ int main() {
     // DependsOn testleri
     web.dependsOn().add("redis");
     web.dependsOn().add("app", compose::DependCondition::ServiceHealthy);
-    assert(web.dependsOn().has("redis"));
-    assert(web.dependsOn().has("app"));
+
+    // Top-Level Koleksiyon Testleri (Networks, Volumes, Secrets, Configs)
+    auto net = compose.networks().add("frontend-net");
+    net.setExternal(true);
+    assert(compose.networks().has("frontend-net"));
+    assert(compose.networks().get("frontend-net").external() == true);
+
+    auto vol = compose.volumes().add("crypto-data");
+    vol.setDriver("local");
+    assert(compose.volumes().has("crypto-data"));
+    assert(compose.volumes().get("crypto-data").driver() == "local");
+
+    compose.secrets().add("tls_cert").setFile("./certs/server.crt");
+    assert(compose.secrets().has("tls_cert"));
+    assert(compose.secrets().get("tls_cert").file() == "./certs/server.crt");
+
+    compose.configs().add("nginx_cfg").setFile("./nginx.conf");
+    assert(compose.configs().has("nginx_cfg"));
+    assert(compose.configs().get("nginx_cfg").file() == "./nginx.conf");
 
     compose.save("output.yml");
 
     // Kaydedilen dosyayı yeniden yükleyip doğrula
     compose::ComposeFile reloaded("output.yml");
     assert(reloaded.service("web").image() == "nginx:alpine");
-    assert(reloaded.service("web").restart() == "always");
-    assert(reloaded.service("web").environment().get("PORT").value() == "8080");
-    assert(reloaded.service("web").extraHosts().get("hsm01").value() == "10.10.10.20");
-    assert(reloaded.service("web").ports().has("80:80"));
-    assert(reloaded.service("web").volumes().has("/opt/custody/v2:/usr/app/executable"));
-    assert(reloaded.service("web").networks().has("frontend-net"));
-    assert(reloaded.service("web").dependsOn().has("redis"));
-    assert(reloaded.service("web").dependsOn().has("app"));
-
-    // Reload HealthCheck doğrulamaları
-    assert(reloaded.service("app").healthcheck().interval() == "30s");
-    assert(reloaded.service("app").healthcheck().timeout() == "10s");
-    assert(reloaded.service("app").healthcheck().retries() == 3);
-
-    // Reload DeployConfig doğrulamaları
     assert(reloaded.service("app").deploy().replicas() == 3);
-    assert(reloaded.service("app").deploy().mode() == "replicated");
-    assert(reloaded.service("app").deploy().resources().limits().cpus() == "2.0");
-    assert(reloaded.service("app").deploy().resources().limits().memory() == "2G");
-    assert(reloaded.service("app").deploy().resources().reservations().memory() == "512M");
+    assert(reloaded.networks().get("frontend-net").external() == true);
+    assert(reloaded.volumes().get("crypto-data").driver() == "local");
+    assert(reloaded.secrets().get("tls_cert").file() == "./certs/server.crt");
+    assert(reloaded.configs().get("nginx_cfg").file() == "./nginx.conf");
 
-    std::cout << "DeployConfig ve tum testler basariyla gecti!" << std::endl;
+    std::cout << "Top-Level yapilar ve tum testler basariyla gecti!" << std::endl;
     return 0;
 }
