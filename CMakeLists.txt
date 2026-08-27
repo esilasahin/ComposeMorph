@@ -17,6 +17,7 @@ set(COMPOSE_SOURCES
     src/Ports.cpp
     src/Volumes.cpp
     src/Networks.cpp
+    src/BuildConfig.cpp
 )
 
 # Statik kütüphane hedefi

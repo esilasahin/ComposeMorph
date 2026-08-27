@@ -1,4 +1,5 @@
 #include "compose/Service.hpp"
+#include "compose/BuildConfig.hpp"
 
 namespace compose {
 
@@ -80,6 +81,10 @@ Volumes Service::volumes() {
 
 Networks Service::networks() {
     return Networks(node_);
+}
+
+BuildConfig Service::build() {
+    return BuildConfig(node_);
 }
 
 } // namespace compose
