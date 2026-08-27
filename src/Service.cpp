@@ -78,4 +78,8 @@ Volumes Service::volumes() {
     return Volumes(node_);
 }
 
+Networks Service::networks() {
+    return Networks(node_);
+}
+
 } // namespace compose

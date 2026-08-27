@@ -7,6 +7,7 @@
 #include "compose/ExtraHosts.hpp"
 #include "compose/Ports.hpp"
 #include "compose/Volumes.hpp"
+#include "compose/Networks.hpp"
 
 namespace compose {
 
@@ -14,6 +15,7 @@ class Environment;
 class ExtraHosts;
 class Ports;
 class Volumes;
+class Networks;
 
 class Service {
 public:
@@ -41,6 +43,7 @@ public:
     ExtraHosts extraHosts();
     Ports ports();
     Volumes volumes();
+    Networks networks();
 
 private:
     YAML::Node node_;

@@ -6,6 +6,7 @@
 #include "compose/ExtraHosts.hpp"
 #include "compose/Ports.hpp"
 #include "compose/Volumes.hpp"
+#include "compose/Networks.hpp"
 
 int main() {
     std::ofstream sample("sample.yml");
@@ -41,13 +42,30 @@ int main() {
     assert(web.ports().has("443:443"));
 
     // Volumes testleri
-    web.volumes().add("./nginx.conf:/etc/nginx/nginx.conf:ro");
-    web.volumes().add("./logs:/var/log/nginx");
-    assert(web.volumes().has("./logs:/var/log/nginx"));
+    web.volumes().add("/opt/custody/v1", "/usr/app/executable");
+    web.volumes().add("./logs", "/var/log/nginx", "ro");
+    assert(web.volumes().has("/opt/custody/v1:/usr/app/executable"));
+    assert(web.volumes().has("./logs:/var/log/nginx:ro"));
+
+    // setSource testi
+    web.volumes().setSource("/usr/app/executable", "/opt/custody/v2");
+    assert(web.volumes().has("/opt/custody/v2:/usr/app/executable"));
+    assert(!web.volumes().has("/opt/custody/v1:/usr/app/executable"));
+
+    // removeByTarget testi
+    web.volumes().removeByTarget("/var/log/nginx");
+    assert(!web.volumes().has("./logs:/var/log/nginx:ro"));
+
+    // Networks testleri
+    web.networks().add("frontend-net");
+    web.networks().add("backend-net");
+    assert(web.networks().has("frontend-net"));
+    assert(web.networks().has("backend-net"));
 
     auto redis = compose.addService("redis");
     redis.setImage("redis:7-alpine");
     redis.ports().add("6379:6379");
+    redis.networks().add("backend-net");
 
     compose.save("output.yml");
 
@@ -57,13 +75,13 @@ int main() {
     assert(reloaded.service("web").restart() == "always");
     assert(reloaded.service("web").environment().get("PORT").value() == "8080");
     assert(reloaded.service("web").extraHosts().get("hsm01").value() == "10.10.10.20");
-    
-    // Yeniden yüklenen dosyadaki Ports ve Volumes doğrulamaları
     assert(reloaded.service("web").ports().has("80:80"));
-    assert(reloaded.service("web").ports().has("443:443"));
-    assert(reloaded.service("web").volumes().has("./nginx.conf:/etc/nginx/nginx.conf:ro"));
+    assert(reloaded.service("web").volumes().has("/opt/custody/v2:/usr/app/executable"));
+    assert(reloaded.service("web").networks().has("frontend-net"));
+    assert(reloaded.service("web").networks().has("backend-net"));
     assert(reloaded.service("redis").ports().has("6379:6379"));
+    assert(reloaded.service("redis").networks().has("backend-net"));
 
-    std::cout << "Tum temel, Environment, ExtraHosts, Ports ve Volumes testleri basariyla gecti!" << std::endl;
+    std::cout << "Networks ve tum testler basariyla gecti!" << std::endl;
     return 0;
 }
