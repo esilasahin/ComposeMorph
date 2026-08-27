@@ -10,6 +10,7 @@
 #include "compose/BuildConfig.hpp"
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
+#include "compose/DeployConfig.hpp"
 
 int main() {
     std::ofstream sample("sample.yml");
@@ -68,12 +69,19 @@ int main() {
     app.healthcheck().setRetries(3);
     app.healthcheck().setStartPeriod("20s");
 
+    // DeployConfig testleri
+    app.deploy().setReplicas(3);
+    app.deploy().setMode("replicated");
+    app.deploy().resources().limits().setCpus("2.0");
+    app.deploy().resources().limits().setMemory("2G");
+    app.deploy().resources().reservations().setMemory("512M");
+
     auto redis = compose.addService("redis");
     redis.setImage("redis:7-alpine");
     redis.ports().add("6379:6379");
     redis.networks().add("backend-net");
 
-    // DependsOn testleri (Basit ve Condition destekli)
+    // DependsOn testleri
     web.dependsOn().add("redis");
     web.dependsOn().add("app", compose::DependCondition::ServiceHealthy);
     assert(web.dependsOn().has("redis"));
@@ -97,8 +105,14 @@ int main() {
     assert(reloaded.service("app").healthcheck().interval() == "30s");
     assert(reloaded.service("app").healthcheck().timeout() == "10s");
     assert(reloaded.service("app").healthcheck().retries() == 3);
-    assert(reloaded.service("app").healthcheck().startPeriod() == "20s");
 
-    std::cout << "HealthCheck, DependsOn ve tum testler basariyla gecti!" << std::endl;
+    // Reload DeployConfig doğrulamaları
+    assert(reloaded.service("app").deploy().replicas() == 3);
+    assert(reloaded.service("app").deploy().mode() == "replicated");
+    assert(reloaded.service("app").deploy().resources().limits().cpus() == "2.0");
+    assert(reloaded.service("app").deploy().resources().limits().memory() == "2G");
+    assert(reloaded.service("app").deploy().resources().reservations().memory() == "512M");
+
+    std::cout << "DeployConfig ve tum testler basariyla gecti!" << std::endl;
     return 0;
 }

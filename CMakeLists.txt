@@ -20,6 +20,7 @@ set(COMPOSE_SOURCES
     src/BuildConfig.cpp
     src/HealthCheck.cpp
     src/DependsOn.cpp
+    src/DeployConfig.cpp
 )
 
 # Statik kütüphane hedefi

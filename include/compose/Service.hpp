@@ -11,6 +11,7 @@
 #include "compose/BuildConfig.hpp"
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
+#include "compose/DeployConfig.hpp"
 
 namespace compose {
 
@@ -22,6 +23,7 @@ class Networks;
 class BuildConfig;
 class HealthCheck;
 class DependsOn;
+class DeployConfig;
 
 class Service {
 public:
@@ -53,6 +55,7 @@ public:
     BuildConfig build();
     HealthCheck healthcheck();
     DependsOn dependsOn();
+    DeployConfig deploy();
 
 private:
     YAML::Node node_;

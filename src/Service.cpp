@@ -97,4 +97,8 @@ DependsOn Service::dependsOn() {
     return DependsOn(node_);
 }
 
+DeployConfig Service::deploy() {
+    return DeployConfig(node_);
+}
+
 } // namespace compose
