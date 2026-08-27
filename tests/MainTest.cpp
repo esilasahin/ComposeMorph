@@ -27,6 +27,15 @@ int main() {
     auto web = compose.service("web");
     web.setImage("nginx:alpine");
     web.setRestart("always");
+    web.setWorkingDir("/usr/share/nginx/html");
+    web.setUser("1001:1001");
+    web.setCommand("nginx -g 'daemon off;'");
+    web.labels().set("traefik.enable", "true");
+
+    assert(web.workingDir() == "/usr/share/nginx/html");
+    assert(web.user() == "1001:1001");
+    assert(web.command() == "nginx -g 'daemon off;'");
+    assert(web.labels().get("traefik.enable").value() == "true");
 
     // Environment testleri
     web.environment().set("PORT", "8080");
@@ -86,36 +95,31 @@ int main() {
     web.dependsOn().add("redis");
     web.dependsOn().add("app", compose::DependCondition::ServiceHealthy);
 
-    // Top-Level Koleksiyon Testleri (Networks, Volumes, Secrets, Configs)
+    // Top-Level Koleksiyon Testleri
     auto net = compose.networks().add("frontend-net");
     net.setExternal(true);
-    assert(compose.networks().has("frontend-net"));
-    assert(compose.networks().get("frontend-net").external() == true);
 
     auto vol = compose.volumes().add("crypto-data");
     vol.setDriver("local");
-    assert(compose.volumes().has("crypto-data"));
-    assert(compose.volumes().get("crypto-data").driver() == "local");
 
     compose.secrets().add("tls_cert").setFile("./certs/server.crt");
-    assert(compose.secrets().has("tls_cert"));
-    assert(compose.secrets().get("tls_cert").file() == "./certs/server.crt");
-
     compose.configs().add("nginx_cfg").setFile("./nginx.conf");
-    assert(compose.configs().has("nginx_cfg"));
-    assert(compose.configs().get("nginx_cfg").file() == "./nginx.conf");
 
     compose.save("output.yml");
 
     // Kaydedilen dosyayı yeniden yükleyip doğrula
     compose::ComposeFile reloaded("output.yml");
     assert(reloaded.service("web").image() == "nginx:alpine");
+    assert(reloaded.service("web").workingDir() == "/usr/share/nginx/html");
+    assert(reloaded.service("web").user() == "1001:1001");
+    assert(reloaded.service("web").command() == "nginx -g 'daemon off;'");
+    assert(reloaded.service("web").labels().get("traefik.enable").value() == "true");
     assert(reloaded.service("app").deploy().replicas() == 3);
     assert(reloaded.networks().get("frontend-net").external() == true);
     assert(reloaded.volumes().get("crypto-data").driver() == "local");
     assert(reloaded.secrets().get("tls_cert").file() == "./certs/server.crt");
     assert(reloaded.configs().get("nginx_cfg").file() == "./nginx.conf");
 
-    std::cout << "Top-Level yapilar ve tum testler basariyla gecti!" << std::endl;
+    std::cout << "Milestone 2 (Tum Compose API'leri) basariyla tamamlandi ve gecti!" << std::endl;
     return 0;
 }

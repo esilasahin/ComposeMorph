@@ -2,6 +2,7 @@
 #include "compose/BuildConfig.hpp"
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
+#include "compose/DeployConfig.hpp"
 
 namespace compose {
 
@@ -59,11 +60,92 @@ bool Service::privileged() const {
     return node_["privileged"] ? node_["privileged"].as<bool>() : false;
 }
 
+void Service::setWorkingDir(const std::string& dir) {
+    node_["working_dir"] = dir;
+}
+
+std::string Service::workingDir() const {
+    return node_["working_dir"] ? node_["working_dir"].as<std::string>() : "";
+}
+
+void Service::removeWorkingDir() {
+    node_.remove("working_dir");
+}
+
+void Service::setUser(const std::string& user) {
+    node_["user"] = user;
+}
+
+std::string Service::user() const {
+    return node_["user"] ? node_["user"].as<std::string>() : "";
+}
+
+void Service::removeUser() {
+    node_.remove("user");
+}
+
+void Service::setCommand(const std::string& cmd) {
+    node_["command"] = cmd;
+}
+
+void Service::setCommand(const std::vector<std::string>& cmdSeq) {
+    YAML::Node seq(YAML::NodeType::Sequence);
+    for (const auto& item : cmdSeq) {
+        seq.push_back(item);
+    }
+    node_["command"] = seq;
+}
+
+std::string Service::command() const {
+    if (!node_["command"]) return "";
+    if (node_["command"].IsScalar()) {
+        return node_["command"].as<std::string>();
+    }
+    std::string res;
+    for (std::size_t i = 0; i < node_["command"].size(); ++i) {
+        if (i > 0) res += " ";
+        res += node_["command"][i].as<std::string>();
+    }
+    return res;
+}
+
+void Service::setEntrypoint(const std::string& entrypoint) {
+    node_["entrypoint"] = entrypoint;
+}
+
+void Service::setEntrypoint(const std::vector<std::string>& entrypointSeq) {
+    YAML::Node seq(YAML::NodeType::Sequence);
+    for (const auto& item : entrypointSeq) {
+        seq.push_back(item);
+    }
+    node_["entrypoint"] = seq;
+}
+
+std::string Service::entrypoint() const {
+    if (!node_["entrypoint"]) return "";
+    if (node_["entrypoint"].IsScalar()) {
+        return node_["entrypoint"].as<std::string>();
+    }
+    std::string res;
+    for (std::size_t i = 0; i < node_["entrypoint"].size(); ++i) {
+        if (i > 0) res += " ";
+        res += node_["entrypoint"][i].as<std::string>();
+    }
+    return res;
+}
+
 Environment Service::environment() {
     if (!node_["environment"]) {
         node_["environment"] = YAML::Node(YAML::NodeType::Map);
     }
     return Environment(node_["environment"]);
+}
+
+Environment Service::labels() {
+    if (!node_["labels"]) {
+        node_["labels"] = YAML::Node(YAML::NodeType::Map);
+    }
+    return Environment(node_["labels"]);
 }
 
 ExtraHosts Service::extraHosts() {

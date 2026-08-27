@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <optional>
 #include <yaml-cpp/yaml.h>
 #include "compose/Environment.hpp"
@@ -29,6 +30,7 @@ class Service {
 public:
     explicit Service(YAML::Node node);
 
+    // Temel Alanlar (Madde 4)
     void setImage(const std::string& image);
     std::string image() const;
 
@@ -47,7 +49,26 @@ public:
     void setPrivileged(bool priv);
     bool privileged() const;
 
+    void setWorkingDir(const std::string& dir);
+    std::string workingDir() const;
+    void removeWorkingDir();
+
+    void setUser(const std::string& user);
+    std::string user() const;
+    void removeUser();
+
+    // Komut ve Giriş Noktaları (Madde 16)
+    void setCommand(const std::string& cmd);
+    void setCommand(const std::vector<std::string>& cmdSeq);
+    std::string command() const;
+
+    void setEntrypoint(const std::string& entrypoint);
+    void setEntrypoint(const std::vector<std::string>& entrypointSeq);
+    std::string entrypoint() const;
+
+    // Alt Koleksiyonlar (Madde 5-15)
     Environment environment();
+    Environment labels();
     ExtraHosts extraHosts();
     Ports ports();
     Volumes volumes();
