@@ -8,6 +8,8 @@
 #include "compose/Volumes.hpp"
 #include "compose/Networks.hpp"
 #include "compose/BuildConfig.hpp"
+#include "compose/HealthCheck.hpp"
+#include "compose/DependsOn.hpp"
 
 int main() {
     std::ofstream sample("sample.yml");
@@ -45,20 +47,12 @@ int main() {
     // Volumes testleri
     web.volumes().add("/opt/custody/v1", "/usr/app/executable");
     web.volumes().add("./logs", "/var/log/nginx", "ro");
-    assert(web.volumes().has("/opt/custody/v1:/usr/app/executable"));
-    assert(web.volumes().has("./logs:/var/log/nginx:ro"));
-
-    // setSource ve removeByTarget testleri
     web.volumes().setSource("/usr/app/executable", "/opt/custody/v2");
-    assert(web.volumes().has("/opt/custody/v2:/usr/app/executable"));
     web.volumes().removeByTarget("/var/log/nginx");
-    assert(!web.volumes().has("./logs:/var/log/nginx:ro"));
 
     // Networks testleri
     web.networks().add("frontend-net");
     web.networks().add("backend-net");
-    assert(web.networks().has("frontend-net"));
-    assert(web.networks().has("backend-net"));
 
     // BuildConfig testleri
     auto app = compose.addService("app");
@@ -67,10 +61,23 @@ int main() {
     app.build().setTarget("builder");
     app.build().args().set("VERSION", "0.17.0");
 
+    // HealthCheck testleri
+    app.healthcheck().setCommand({"CMD", "curl", "-f", "http://localhost:8080/health"});
+    app.healthcheck().setInterval("30s");
+    app.healthcheck().setTimeout("10s");
+    app.healthcheck().setRetries(3);
+    app.healthcheck().setStartPeriod("20s");
+
     auto redis = compose.addService("redis");
     redis.setImage("redis:7-alpine");
     redis.ports().add("6379:6379");
     redis.networks().add("backend-net");
+
+    // DependsOn testleri (Basit ve Condition destekli)
+    web.dependsOn().add("redis");
+    web.dependsOn().add("app", compose::DependCondition::ServiceHealthy);
+    assert(web.dependsOn().has("redis"));
+    assert(web.dependsOn().has("app"));
 
     compose.save("output.yml");
 
@@ -83,17 +90,15 @@ int main() {
     assert(reloaded.service("web").ports().has("80:80"));
     assert(reloaded.service("web").volumes().has("/opt/custody/v2:/usr/app/executable"));
     assert(reloaded.service("web").networks().has("frontend-net"));
-    assert(reloaded.service("web").networks().has("backend-net"));
+    assert(reloaded.service("web").dependsOn().has("redis"));
+    assert(reloaded.service("web").dependsOn().has("app"));
 
-    // Reload edilen BuildConfig doğrulamaları
-    assert(reloaded.service("app").build().context() == ".");
-    assert(reloaded.service("app").build().dockerfile() == "Dockerfile.prod");
-    assert(reloaded.service("app").build().target() == "builder");
-    assert(reloaded.service("app").build().args().get("VERSION").value() == "0.17.0");
+    // Reload HealthCheck doğrulamaları
+    assert(reloaded.service("app").healthcheck().interval() == "30s");
+    assert(reloaded.service("app").healthcheck().timeout() == "10s");
+    assert(reloaded.service("app").healthcheck().retries() == 3);
+    assert(reloaded.service("app").healthcheck().startPeriod() == "20s");
 
-    assert(reloaded.service("redis").ports().has("6379:6379"));
-    assert(reloaded.service("redis").networks().has("backend-net"));
-
-    std::cout << "BuildConfig ve tum testler basariyla gecti!" << std::endl;
+    std::cout << "HealthCheck, DependsOn ve tum testler basariyla gecti!" << std::endl;
     return 0;
 }

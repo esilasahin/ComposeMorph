@@ -1,5 +1,7 @@
 #include "compose/Service.hpp"
 #include "compose/BuildConfig.hpp"
+#include "compose/HealthCheck.hpp"
+#include "compose/DependsOn.hpp"
 
 namespace compose {
 
@@ -85,6 +87,14 @@ Networks Service::networks() {
 
 BuildConfig Service::build() {
     return BuildConfig(node_);
+}
+
+HealthCheck Service::healthcheck() {
+    return HealthCheck(node_);
+}
+
+DependsOn Service::dependsOn() {
+    return DependsOn(node_);
 }
 
 } // namespace compose

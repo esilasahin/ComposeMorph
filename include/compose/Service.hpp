@@ -9,6 +9,8 @@
 #include "compose/Volumes.hpp"
 #include "compose/Networks.hpp"
 #include "compose/BuildConfig.hpp"
+#include "compose/HealthCheck.hpp"
+#include "compose/DependsOn.hpp"
 
 namespace compose {
 
@@ -18,6 +20,8 @@ class Ports;
 class Volumes;
 class Networks;
 class BuildConfig;
+class HealthCheck;
+class DependsOn;
 
 class Service {
 public:
@@ -47,6 +51,8 @@ public:
     Volumes volumes();
     Networks networks();
     BuildConfig build();
+    HealthCheck healthcheck();
+    DependsOn dependsOn();
 
 private:
     YAML::Node node_;

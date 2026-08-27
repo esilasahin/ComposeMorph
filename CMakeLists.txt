@@ -18,6 +18,8 @@ set(COMPOSE_SOURCES
     src/Volumes.cpp
     src/Networks.cpp
     src/BuildConfig.cpp
+    src/HealthCheck.cpp
+    src/DependsOn.cpp
 )
 
 # Statik kütüphane hedefi
