@@ -5,11 +5,15 @@
 #include <yaml-cpp/yaml.h>
 #include "compose/Environment.hpp"
 #include "compose/ExtraHosts.hpp"
+#include "compose/Ports.hpp"
+#include "compose/Volumes.hpp"
 
 namespace compose {
 
 class Environment;
 class ExtraHosts;
+class Ports;
+class Volumes;
 
 class Service {
 public:
@@ -35,6 +39,8 @@ public:
 
     Environment environment();
     ExtraHosts extraHosts();
+    Ports ports();
+    Volumes volumes();
 
 private:
     YAML::Node node_;

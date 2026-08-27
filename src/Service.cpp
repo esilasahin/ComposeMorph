@@ -70,4 +70,12 @@ ExtraHosts Service::extraHosts() {
     return ExtraHosts(node_["extra_hosts"]);
 }
 
+Ports Service::ports() {
+    return Ports(node_);
 }
+
+Volumes Service::volumes() {
+    return Volumes(node_);
+}
+
+} // namespace compose

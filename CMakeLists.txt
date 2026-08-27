@@ -14,6 +14,8 @@ set(COMPOSE_SOURCES
     src/Service.cpp
     src/Environment.cpp
     src/ExtraHosts.cpp
+    src/Ports.cpp
+    src/Volumes.cpp
 )
 
 # Statik kütüphane hedefi
