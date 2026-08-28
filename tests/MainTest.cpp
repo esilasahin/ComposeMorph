@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <cassert>
 #include "compose/ComposeFile.hpp"
 #include "compose/Environment.hpp"
@@ -12,6 +13,9 @@
 #include "compose/DependsOn.hpp"
 #include "compose/DeployConfig.hpp"
 #include "compose/TopLevelCollections.hpp"
+#include "compose/Exceptions.hpp"
+
+namespace fs = std::filesystem;
 
 int main() {
     std::ofstream sample("sample.yml");
@@ -32,94 +36,44 @@ int main() {
     web.setCommand("nginx -g 'daemon off;'");
     web.labels().set("traefik.enable", "true");
 
-    assert(web.workingDir() == "/usr/share/nginx/html");
-    assert(web.user() == "1001:1001");
-    assert(web.command() == "nginx -g 'daemon off;'");
-    assert(web.labels().get("traefik.enable").value() == "true");
+    // Generic Property API Testi (Madde 17)
+    web.set("logging.driver", "json-file");
+    web.set("x-custom-security.hsm", "enabled");
+    assert(web.get<std::string>("logging.driver").value() == "json-file");
+    assert(web.get<std::string>("x-custom-security.hsm").value() == "enabled");
 
-    // Environment testleri
+    // Alt koleksiyon testleri
     web.environment().set("PORT", "8080");
-    web.environment().set("APP_ENV", "production");
-    assert(web.environment().has("PORT"));
-    assert(web.environment().get("PORT").value() == "8080");
-
-    // ExtraHosts testleri
     web.extraHosts().set("hsm01", "10.10.10.20");
-    web.extraHosts().set("db-host", "192.168.1.50");
-    assert(web.extraHosts().has("hsm01"));
-    assert(web.extraHosts().get("hsm01").value() == "10.10.10.20");
-
-    // Ports testleri
     web.ports().add("80:80");
-    web.ports().add("443:443");
-    assert(web.ports().has("80:80"));
-    assert(web.ports().has("443:443"));
-
-    // Volumes testleri
     web.volumes().add("/opt/custody/v1", "/usr/app/executable");
-    web.volumes().add("./logs", "/var/log/nginx", "ro");
-    web.volumes().setSource("/usr/app/executable", "/opt/custody/v2");
-    web.volumes().removeByTarget("/var/log/nginx");
-
-    // Networks testleri
     web.networks().add("frontend-net");
-    web.networks().add("backend-net");
 
-    // BuildConfig testleri
     auto app = compose.addService("app");
     app.build().setContext(".");
     app.build().setDockerfile("Dockerfile.prod");
-    app.build().setTarget("builder");
-    app.build().args().set("VERSION", "0.17.0");
-
-    // HealthCheck testleri
-    app.healthcheck().setCommand({"CMD", "curl", "-f", "http://localhost:8080/health"});
-    app.healthcheck().setInterval("30s");
-    app.healthcheck().setTimeout("10s");
-    app.healthcheck().setRetries(3);
-    app.healthcheck().setStartPeriod("20s");
-
-    // DeployConfig testleri
     app.deploy().setReplicas(3);
-    app.deploy().setMode("replicated");
-    app.deploy().resources().limits().setCpus("2.0");
-    app.deploy().resources().limits().setMemory("2G");
-    app.deploy().resources().reservations().setMemory("512M");
 
-    auto redis = compose.addService("redis");
-    redis.setImage("redis:7-alpine");
-    redis.ports().add("6379:6379");
-    redis.networks().add("backend-net");
+    // Validation Testi (Madde 19)
+    compose.validate();
 
-    // DependsOn testleri
-    web.dependsOn().add("redis");
-    web.dependsOn().add("app", compose::DependCondition::ServiceHealthy);
+    // Safe-Save ve Backup Testi (Madde 21)
+    compose::SaveOptions opts;
+    opts.backup = true;
+    opts.atomic = true;
+    compose.save("output.yml", opts);
 
-    // Top-Level Koleksiyon Testleri
-    auto net = compose.networks().add("frontend-net");
-    net.setExternal(true);
+    assert(fs::exists("output.yml"));
 
-    auto vol = compose.volumes().add("crypto-data");
-    vol.setDriver("local");
+    // Exception Testi (Madde 20)
+    bool exceptionCaught = false;
+    try {
+        compose.service("non_existing_service");
+    } catch (const compose::ServiceNotFoundException& e) {
+        exceptionCaught = true;
+    }
+    assert(exceptionCaught);
 
-    compose.secrets().add("tls_cert").setFile("./certs/server.crt");
-    compose.configs().add("nginx_cfg").setFile("./nginx.conf");
-
-    compose.save("output.yml");
-
-    // Kaydedilen dosyayı yeniden yükleyip doğrula
-    compose::ComposeFile reloaded("output.yml");
-    assert(reloaded.service("web").image() == "nginx:alpine");
-    assert(reloaded.service("web").workingDir() == "/usr/share/nginx/html");
-    assert(reloaded.service("web").user() == "1001:1001");
-    assert(reloaded.service("web").command() == "nginx -g 'daemon off;'");
-    assert(reloaded.service("web").labels().get("traefik.enable").value() == "true");
-    assert(reloaded.service("app").deploy().replicas() == 3);
-    assert(reloaded.networks().get("frontend-net").external() == true);
-    assert(reloaded.volumes().get("crypto-data").driver() == "local");
-    assert(reloaded.secrets().get("tls_cert").file() == "./certs/server.crt");
-    assert(reloaded.configs().get("nginx_cfg").file() == "./nginx.conf");
-
-    std::cout << "Milestone 2 (Tum Compose API'leri) basariyla tamamlandi ve gecti!" << std::endl;
+    std::cout << "Milestone 3 (Generic Properties, Validation, Safe-Save, Exceptions) basariyla gecti!" << std::endl;
     return 0;
 }

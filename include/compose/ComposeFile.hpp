@@ -5,8 +5,14 @@
 #include <yaml-cpp/yaml.h>
 #include "compose/Service.hpp"
 #include "compose/TopLevelCollections.hpp"
+#include "compose/Exceptions.hpp"
 
 namespace compose {
+
+struct SaveOptions {
+    bool backup = false;
+    bool atomic = true;
+};
 
 class ComposeFile {
 public:
@@ -16,6 +22,11 @@ public:
     void load(const std::string& filepath);
     void save();
     void save(const std::string& filepath);
+    void save(const SaveOptions& options);
+    void save(const std::string& filepath, const SaveOptions& options);
+
+    // Validation (Madde 19)
+    void validate() const;
 
     Service service(const std::string& name);
     bool hasService(const std::string& name) const;
@@ -32,6 +43,8 @@ public:
 private:
     std::string filepath_;
     YAML::Node rootNode_;
+
+    void validateService(const std::string& name, const YAML::Node& node) const;
 };
 
 } // namespace compose

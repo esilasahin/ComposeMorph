@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <sstream>
 #include <yaml-cpp/yaml.h>
 #include "compose/Environment.hpp"
 #include "compose/ExtraHosts.hpp"
@@ -13,6 +14,7 @@
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
 #include "compose/DeployConfig.hpp"
+#include "compose/Exceptions.hpp"
 
 namespace compose {
 
@@ -30,7 +32,7 @@ class Service {
 public:
     explicit Service(YAML::Node node);
 
-    // Temel Alanlar (Madde 4)
+    // Temel Alanlar
     void setImage(const std::string& image);
     std::string image() const;
 
@@ -57,7 +59,7 @@ public:
     std::string user() const;
     void removeUser();
 
-    // Komut ve Giriş Noktaları (Madde 16)
+    // Komut ve Entrypoint
     void setCommand(const std::string& cmd);
     void setCommand(const std::vector<std::string>& cmdSeq);
     std::string command() const;
@@ -66,7 +68,7 @@ public:
     void setEntrypoint(const std::vector<std::string>& entrypointSeq);
     std::string entrypoint() const;
 
-    // Alt Koleksiyonlar (Madde 5-15)
+    // Alt Koleksiyonlar
     Environment environment();
     Environment labels();
     ExtraHosts extraHosts();
@@ -78,8 +80,65 @@ public:
     DependsOn dependsOn();
     DeployConfig deploy();
 
+    // Generic Property API (Pointer & Address Hatasi Icerermeyen Temiz Node Referans Mantigi)
+    template <typename T>
+    void set(const std::string& keyPath, const T& value) {
+        std::vector<std::string> keys = splitKeyPath(keyPath);
+        if (keys.empty()) return;
+
+        YAML::Node current = node_;
+        for (std::size_t i = 0; i < keys.size() - 1; ++i) {
+            if (!current[keys[i]] || !current[keys[i]].IsMap()) {
+                current[keys[i]] = YAML::Node(YAML::NodeType::Map);
+            }
+            current.reset(current[keys[i]]);
+        }
+        current[keys.back()] = value;
+    }
+
+    template <typename T>
+    std::optional<T> get(const std::string& keyPath) const {
+        std::vector<std::string> keys = splitKeyPath(keyPath);
+        if (keys.empty()) return std::nullopt;
+
+        YAML::Node current = node_;
+        for (const auto& key : keys) {
+            if (!current[key] || !current[key].IsDefined()) {
+                return std::nullopt;
+            }
+            current.reset(current[key]);
+        }
+        try {
+            return current.as<T>();
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+
+    void remove(const std::string& keyPath) {
+        std::vector<std::string> keys = splitKeyPath(keyPath);
+        if (keys.empty()) return;
+
+        YAML::Node current = node_;
+        for (std::size_t i = 0; i < keys.size() - 1; ++i) {
+            if (!current[keys[i]]) return;
+            current.reset(current[keys[i]]);
+        }
+        current.remove(keys.back());
+    }
+
 private:
     YAML::Node node_;
+
+    static std::vector<std::string> splitKeyPath(const std::string& path) {
+        std::vector<std::string> tokens;
+        std::stringstream ss(path);
+        std::string token;
+        while (std::getline(ss, token, '.')) {
+            if (!token.empty()) tokens.push_back(token);
+        }
+        return tokens;
+    }
 };
 
 } // namespace compose
