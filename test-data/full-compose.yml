@@ -1,0 +1,51 @@
+services:
+  custody-crypto:
+    image: custody/cus-crypto:0.16.0
+    container_name: custody-crypto
+    hostname: crypto01
+    restart: unless-stopped
+    privileged: false
+    working_dir: /usr/app
+    user: "1000:1000"
+    environment:
+      SPRING_PROFILES_ACTIVE: staging
+      PORT: "8080"
+    extra_hosts:
+      hsm-server: "10.10.10.20"
+    ports:
+      - "8080:8080"
+    volumes:
+      - /opt/custody/executable:/usr/app/executable
+      - crypto-data:/var/lib/crypto
+    networks:
+      - custody-network
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    x-company-security:
+      hsm: enabled
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: secretpassword
+    networks:
+      - custody-network
+
+networks:
+  custody-network:
+    external: false
+
+volumes:
+  crypto-data:
+    driver: local

@@ -116,3 +116,30 @@ TEST_F(ComposeEditorTest, ExceptionsAndValidation) {
     EXPECT_THROW(compose.service("non_existent_service"), compose::ServiceNotFoundException);
     EXPECT_NO_THROW(compose.validate());
 }
+
+TEST_F(ComposeEditorTest, RoundTripPreservationAndModification) {
+    // 1. Load full-compose
+    compose::ComposeFile compose("../test-data/full-compose.yml");
+    ASSERT_TRUE(compose.hasService("custody-crypto"));
+
+    auto crypto = compose.service("custody-crypto");
+    
+    // 2. Modify
+    crypto.setImage("registry/custody-crypto:0.17.0");
+    crypto.volumes().setSource("/usr/app/executable", "/opt/custody/executable-0.17.0");
+    crypto.environment().set("SPRING_PROFILES_ACTIVE", "production");
+
+    // 3. Save
+    compose.save("generated-compose.yml");
+
+    // 4. Reload & Verify
+    compose::ComposeFile reloaded("generated-compose.yml");
+    auto reloadedCrypto = reloaded.service("custody-crypto");
+
+    EXPECT_EQ(reloadedCrypto.image(), "registry/custody-crypto:0.17.0");
+    EXPECT_TRUE(reloadedCrypto.volumes().has("/opt/custody/executable-0.17.0:/usr/app/executable"));
+    EXPECT_EQ(reloadedCrypto.environment().get("SPRING_PROFILES_ACTIVE").value(), "production");
+    
+    // x-* preservation
+    EXPECT_EQ(reloadedCrypto.get<std::string>("x-company-security.hsm").value(), "enabled");
+}
