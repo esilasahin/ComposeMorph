@@ -5,8 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Gerekli dış kütüphane
+# Gerekli dış kütüphaneler
 find_package(yaml-cpp REQUIRED)
+find_package(GTest REQUIRED)
 
 # Çekirdek kaynak kodlar
 set(COMPOSE_SOURCES
@@ -26,11 +27,15 @@ set(COMPOSE_SOURCES
 
 # Statik kütüphane hedefi
 add_library(compose-editor STATIC ${COMPOSE_SOURCES})
-
-# Modern target bazlı include ve linkleme
 target_include_directories(compose-editor PUBLIC include)
 target_link_libraries(compose-editor PUBLIC yaml-cpp)
 
-# Test çalıştırılabilir dosyası
-add_executable(run_test tests/MainTest.cpp)
-target_link_libraries(run_test PRIVATE compose-editor)
+# Testleri etkinleştir
+enable_testing()
+
+# Google Test çalıştırılabilir hedefi
+add_executable(unit_tests tests/UnitTests.cpp)
+target_link_libraries(unit_tests PRIVATE compose-editor GTest::GTest GTest::Main)
+
+include(GoogleTest)
+gtest_discover_tests(unit_tests)
