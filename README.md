@@ -1,33 +1,32 @@
 # ComposeMorph
 
-A modern, robust, and lightweight C++20 library designed to programmatically parse, inspect, modify, and serialize Docker Compose configuration files while preserving custom metadata and schema structures.
-
-
----
-
-## Project Description
-
-ComposeMorph simplifies automated orchestration workflows by providing a strongly-typed, intuitive C++ API over Docker Compose specifications. Instead of manually manipulating raw YAML trees, developers can safely query services, update container properties, adjust resource constraints, manage networks and volumes, and safely emit valid Compose YAML files.
+Docker Compose yapılandırma dosyalarını programatik olarak ayrıştırmak, incelemek, değiştirmek ve serileştirmek için tasarlanmış; özel metadata'ları ve şema yapılarını koruyan, modern, sağlam ve hafif bir C++20 kütüphanesi.
 
 ---
 
-## Dependencies
+## Proje Tanımı
 
-The project relies on standard, modern C++ tooling and libraries:
-- C++ Compiler: GCC 11+ or Clang 13+ (Must support C++20)
-- Build System: CMake (>= 3.16) and Make / Ninja
-- YAML Engine: yaml-cpp (>= 0.7.0)
-- Testing Framework: GoogleTest (GTest)
+ComposeMorph, Docker Compose spesifikasyonları üzerinde tip güvenli ve sezgisel bir C++ API sunarak otomasyon iş akışlarını basitleştirir. Ham YAML ağaçlarını elle işlemek yerine, geliştiriciler servisleri güvenli şekilde sorgulayabilir, konteyner özelliklerini güncelleyebilir, kaynak sınırlarını ayarlayabilir, ağları ve volume'ları yönetebilir ve geçerli Compose YAML dosyalarını güvenle üretebilir.
 
-Installing Dependencies (Debian / Ubuntu):
+---
+
+## Bağımlılıklar
+
+Proje, standart ve modern C++ araç ve kütüphanelerine dayanır:
+- C++ Derleyicisi: GCC 11+ veya Clang 13+ (C++20 desteklemeli)
+- Derleme Sistemi: CMake (>= 3.16) ve Make / Ninja
+- YAML Motoru: yaml-cpp (>= 0.7.0)
+- Test Framework'ü: GoogleTest (GTest)
+
+Bağımlılıkların Kurulumu (Debian / Ubuntu):
 sudo apt-get update
 sudo apt-get install -y build-essential cmake libyaml-cpp-dev libgtest-dev
 
 ---
 
-## Build Instructions
+## Derleme Talimatları
 
-Follow the standard CMake workflow:
+Standart CMake iş akışını takip edin:
 
 git clone [https://github.com/esilasahin/ComposeMorph.git](https://github.com/esilasahin/ComposeMorph.git)
 cd ComposeMorph
@@ -37,21 +36,21 @@ make -j$(nproc)
 
 ---
 
-## Installation
+## Kurulum
 
-Linking via CMake (Recommended):
+CMake ile Bağlama (Önerilen):
 add_subdirectory(path/to/ComposeMorph)
 target_link_libraries(your_application PRIVATE composemorph)
 
-System-wide Install:
+Sistem Geneline Kurulum:
 cd build
 sudo make install
 
 ---
 
-## Basic API Usage
+## Temel API Kullanımı
 
-Load and Save Example:
+Yükleme ve Kaydetme Örneği:
 
 #include <iostream>
 #include "compose/ComposeFile.hpp"
@@ -69,7 +68,7 @@ int main() {
 
 ---
 
-## Service Modification Example
+## Servis Değiştirme Örneği
 
 #include "compose/ComposeFile.hpp"
 
@@ -87,7 +86,7 @@ api.set("logging.driver", "json-file");
 
 ---
 
-## Environment Example
+## Environment (Ortam Değişkeni) Örneği
 
 auto service = compose.service("web");
 
@@ -102,7 +101,7 @@ service.environment().remove("TEMP_KEY");
 
 ---
 
-## extra_hosts Example
+## extra_hosts Örneği
 
 auto service = compose.service("web");
 
@@ -115,7 +114,7 @@ if (service.extraHosts().has("hsm01")) {
 
 ---
 
-## Volume Example
+## Volume Örneği
 
 auto service = compose.service("api");
 
@@ -127,7 +126,7 @@ service.volumes().removeByTarget("/var/log");
 
 ---
 
-## Network Example
+## Network Örneği
 
 compose.networks().add("isolated-backend").setExternal(true);
 
@@ -136,7 +135,7 @@ service.networks().add("isolated-backend");
 
 ---
 
-## Error Handling
+## Hata Yönetimi
 
 #include "compose/ComposeFile.hpp"
 #include "compose/Exceptions.hpp"
@@ -154,27 +153,27 @@ try {
 
 ---
 
-## Testing
+## Test
 
-The library includes an automated test suite implemented via GoogleTest and managed through CTest.
+Kütüphane, GoogleTest ile yazılmış ve CTest üzerinden yönetilen otomatik bir test paketi içerir.
 
 cd build
 make
 ctest --output-on-failure
 
-Verified Test Cases:
-- ServiceBasicProperties: Attribute getters, setters, and state persistence.
-- EnvironmentAndLabels: Key-value map operations for environment variables and labels.
-- VolumesAdvancedOperations: Path bindings, dynamic source mutation, and target deletion.
-- TopLevelAndDeployConfigs: Replicas, resource constraints (CPU/Memory), and root networks/volumes.
-- GenericPropertiesAndSafeSave: Dynamic dot-notation properties, atomic write, and backup (.bak) creation.
-- ExceptionsAndValidation: Exception triggering on invalid service lookups and schema faults.
-- RoundTripPreservationAndModification: Preserving unrecognized tags (e.g., x-* custom metadata extensions) during full load/modify/save cycles.
+Doğrulanmış Test Senaryoları:
+- ServiceBasicProperties: Özellik getter/setter'ları ve durumun kalıcılığı.
+- EnvironmentAndLabels: Ortam değişkenleri ve etiketler için anahtar-değer map işlemleri.
+- VolumesAdvancedOperations: Path bağlamaları, dinamik kaynak (source) değişimi ve hedef (target) silme.
+- TopLevelAndDeployConfigs: Replica sayısı, kaynak sınırları (CPU/Memory) ve üst seviye networks/volumes.
+- GenericPropertiesAndSafeSave: Dinamik dot-notation property'leri, atomic yazma ve yedek (.bak) oluşturma.
+- ExceptionsAndValidation: Geçersiz servis aramalarında ve şema hatalarında istisna (exception) fırlatılması.
+- RoundTripPreservationAndModification: Tam yükleme/değiştirme/kaydetme döngüsünde tanınmayan etiketlerin (örn. x-* özel metadata uzantıları) korunması.
 
 ---
 
-## Limitations
+## Kısıtlamalar
 
-- Comment Preservation: Like standard yaml-cpp emitters, structural and inline YAML comments are not preserved during file re-serialization.
-- Anchor & Alias Expansion: YAML anchors (&) and aliases (*) are expanded to concrete values upon parsing and may not retain reference aliases when re-emitted.
-- Strict Compose V2 Spec: Designed primarily around modern Compose V2 specification standards.
+- Yorum Satırı Koruması: Standart yaml-cpp emitter'larında olduğu gibi, dosya yeniden serileştirilirken yapısal ve satır içi YAML yorumları korunmaz.
+- Anchor & Alias Genişletmesi: YAML anchor (&) ve alias (*) yapıları parse sırasında somut değerlere genişletilir ve yeniden yazılırken referans bağı korunmayabilir.
+- Katı Compose V2 Spesifikasyonu: Öncelikli olarak modern Compose V2 spesifikasyon standartları etrafında tasarlanmıştır.
