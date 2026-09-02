@@ -2,7 +2,6 @@
 
 A modern, robust, and lightweight C++20 library designed to programmatically parse, inspect, modify, and serialize Docker Compose configuration files while preserving custom metadata and schema structures.
 
-> **Not:** Bu proje daha önce `cpp-compose-editor` adıyla yayımlanmıştı. Kütüphanenin C++ API'si ve `namespace compose` değişmedi; yalnızca proje/repository adı **ComposeMorph** olarak güncellendi.
 
 ---
 
