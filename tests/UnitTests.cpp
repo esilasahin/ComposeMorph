@@ -6,7 +6,7 @@
 
 namespace fs = std::filesystem;
 
-class ComposeEditorTest : public ::testing::Test {
+class ComposeMorphTest : public ::testing::Test {
 protected:
     void SetUp() override {
         std::ofstream out("test_sample.yml");
@@ -24,7 +24,7 @@ protected:
     }
 };
 
-TEST_F(ComposeEditorTest, ServiceBasicProperties) {
+TEST_F(ComposeMorphTest, ServiceBasicProperties) {
     compose::ComposeFile compose("test_sample.yml");
     auto api = compose.service("api");
 
@@ -44,7 +44,7 @@ TEST_F(ComposeEditorTest, ServiceBasicProperties) {
     EXPECT_TRUE(api.privileged());
 }
 
-TEST_F(ComposeEditorTest, EnvironmentAndLabels) {
+TEST_F(ComposeMorphTest, EnvironmentAndLabels) {
     compose::ComposeFile compose("test_sample.yml");
     auto api = compose.service("api");
 
@@ -56,7 +56,7 @@ TEST_F(ComposeEditorTest, EnvironmentAndLabels) {
     EXPECT_EQ(api.labels().get("version").value(), "1.0.0");
 }
 
-TEST_F(ComposeEditorTest, VolumesAdvancedOperations) {
+TEST_F(ComposeMorphTest, VolumesAdvancedOperations) {
     compose::ComposeFile compose("test_sample.yml");
     auto api = compose.service("api");
 
@@ -74,7 +74,7 @@ TEST_F(ComposeEditorTest, VolumesAdvancedOperations) {
     EXPECT_FALSE(api.volumes().has("./logs:/var/log:ro"));
 }
 
-TEST_F(ComposeEditorTest, TopLevelAndDeployConfigs) {
+TEST_F(ComposeMorphTest, TopLevelAndDeployConfigs) {
     compose::ComposeFile compose("test_sample.yml");
     auto api = compose.service("api");
 
@@ -92,7 +92,7 @@ TEST_F(ComposeEditorTest, TopLevelAndDeployConfigs) {
     EXPECT_EQ(compose.volumes().get("app-storage").driver(), "local");
 }
 
-TEST_F(ComposeEditorTest, GenericPropertiesAndSafeSave) {
+TEST_F(ComposeMorphTest, GenericPropertiesAndSafeSave) {
     compose::ComposeFile compose("test_sample.yml");
     auto api = compose.service("api");
 
@@ -110,14 +110,14 @@ TEST_F(ComposeEditorTest, GenericPropertiesAndSafeSave) {
     EXPECT_EQ(reloaded.service("api").get<std::string>("logging.driver").value(), "json-file");
 }
 
-TEST_F(ComposeEditorTest, ExceptionsAndValidation) {
+TEST_F(ComposeMorphTest, ExceptionsAndValidation) {
     compose::ComposeFile compose("test_sample.yml");
     
     EXPECT_THROW(compose.service("non_existent_service"), compose::ServiceNotFoundException);
     EXPECT_NO_THROW(compose.validate());
 }
 
-TEST_F(ComposeEditorTest, RoundTripPreservationAndModification) {
+TEST_F(ComposeMorphTest, RoundTripPreservationAndModification) {
     // 1. Load full-compose
     compose::ComposeFile compose("../test-data/full-compose.yml");
     ASSERT_TRUE(compose.hasService("custody-crypto"));

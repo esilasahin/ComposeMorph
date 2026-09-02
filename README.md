@@ -1,12 +1,14 @@
-# cpp-compose-editor
+# ComposeMorph
 
 A modern, robust, and lightweight C++20 library designed to programmatically parse, inspect, modify, and serialize Docker Compose configuration files while preserving custom metadata and schema structures.
+
+> **Not:** Bu proje daha önce `cpp-compose-editor` adıyla yayımlanmıştı. Kütüphanenin C++ API'si ve `namespace compose` değişmedi; yalnızca proje/repository adı **ComposeMorph** olarak güncellendi.
 
 ---
 
 ## Project Description
 
-cpp-compose-editor simplifies automated orchestration workflows by providing a strongly-typed, intuitive C++ API over Docker Compose specifications. Instead of manually manipulating raw YAML trees, developers can safely query services, update container properties, adjust resource constraints, manage networks and volumes, and safely emit valid Compose YAML files.
+ComposeMorph simplifies automated orchestration workflows by providing a strongly-typed, intuitive C++ API over Docker Compose specifications. Instead of manually manipulating raw YAML trees, developers can safely query services, update container properties, adjust resource constraints, manage networks and volumes, and safely emit valid Compose YAML files.
 
 ---
 
@@ -28,8 +30,8 @@ sudo apt-get install -y build-essential cmake libyaml-cpp-dev libgtest-dev
 
 Follow the standard CMake workflow:
 
-git clone [https://github.com/esilasahin/cpp-compose-editor.git](https://github.com/esilasahin/cpp-compose-editor.git)
-cd cpp-compose-editor
+git clone [https://github.com/esilasahin/ComposeMorph.git](https://github.com/esilasahin/ComposeMorph.git)
+cd ComposeMorph
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
@@ -39,8 +41,8 @@ make -j$(nproc)
 ## Installation
 
 Linking via CMake (Recommended):
-add_subdirectory(path/to/cpp-compose-editor)
-target_link_libraries(your_application PRIVATE compose-editor)
+add_subdirectory(path/to/ComposeMorph)
+target_link_libraries(your_application PRIVATE composemorph)
 
 System-wide Install:
 cd build
