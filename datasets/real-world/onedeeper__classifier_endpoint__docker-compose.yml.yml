@@ -1,0 +1,9 @@
+version: "3.8"  # optional since v1.27.0
+services:
+  app:
+    container_name: mycontainer2
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/src/app

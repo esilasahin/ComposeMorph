@@ -1,0 +1,341 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=rootpassword
+    networks:
+      - skillswap-network
+
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - skillswap-network
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=skillswap_payments
+    networks:
+      - skillswap-network
+
+  # MongoDB Express (Web-based MongoDB admin interface)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=root
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=rootpassword
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+    depends_on:
+      - mongodb
+    networks:
+      - skillswap-network
+
+  # f Service
+  auth-service:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_auth?authSource=admin
+      - JWT_SECRET=skillswap_jwt_secret_development
+      - JWT_REFRESH_SECRET=skillswap_jwt_refresh_secret_development
+      - JWT_EXPIRES_IN=1h
+      - JWT_REFRESH_EXPIRES_IN=7d
+      - EMAIL_FROM=noreply@skillswap.com
+      - SMTP_HOST=smtp.ethereal.email
+      - SMTP_PORT=587
+      - SMTP_USER=ethereal_user
+      - SMTP_PASS=ethereal_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PREFIX=skillswap_auth:
+      - REDIS_CACHE_TTL=3600
+      - JWT_REFRESH_EXPIRY_SECONDS=604800
+    volumes:
+      - ./services/auth:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - skillswap-network
+
+  # Projects Service
+  projects-service:
+    build:
+      context: ./services/projects
+      dockerfile: Dockerfile
+    container_name: projects-service
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_projects?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:3005
+    volumes:
+      - ./services/projects:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+      - auth-service
+    networks:
+      - skillswap-network
+
+  # Bids Service
+  bids-service:
+    build:
+      context: ./services/bids
+      dockerfile: Dockerfile
+    container_name: bids-service
+    restart: always
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=development
+      - PORT=3003
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_bids?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PROJECTS_SERVICE_URL=http://projects-service:3002
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:3005
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+    volumes:
+      - ./services/bids:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+      - auth-service
+      - projects-service
+    networks:
+      - skillswap-network
+
+  # Messages Service
+  messages-service:
+    build:
+      context: ./services/messages
+      dockerfile: Dockerfile
+    container_name: messages-service
+    restart: always
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_messages?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:3005
+      - MESSAGE_HASH_SECRET=skillswap_message_hash_secret_development
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+    volumes:
+      - ./services/messages:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+      - auth-service
+    networks:
+      - skillswap-network
+
+  # Notifications Service
+  notifications-service:
+    build:
+      context: ./services/notifications
+      dockerfile: Dockerfile
+    container_name: notifications-service
+    restart: always
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=development
+      - PORT=3005
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_notifications?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - SMTP_HOST=smtp.ethereal.email
+      - SMTP_PORT=587
+      - SMTP_USER=ethereal_user
+      - SMTP_PASS=ethereal_password
+      - EMAIL_FROM=noreply@skillswap.com
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+    volumes:
+      - ./services/notifications:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+      - auth-service
+    networks:
+      - skillswap-network
+
+  # Voice Search Service
+  voice-search-service:
+    build:
+      context: ./services/voice-search
+      dockerfile: Dockerfile
+    container_name: voice-search-service
+    restart: always
+    ports:
+      - "3006:3006"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=True
+      - PORT=3006
+      - MONGO_URI=mongodb://root:rootpassword@mongodb:27017/skillswap_voice_search?authSource=admin
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=1
+      - REDIS_PREFIX=skillswap_voice_search:
+      - REDIS_CACHE_TTL=3600
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PROJECTS_SERVICE_URL=http://projects-service:3002
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+      - SPEECH_RECOGNITION_LANGUAGE=en-US
+    volumes:
+      - ./services/voice-search:/app
+    depends_on:
+      - mongodb
+      - redis
+      - auth-service
+      - projects-service
+    networks:
+      - skillswap-network
+
+  # Payment Service
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    restart: always
+    ports:
+      - "3007:3007"
+    environment:
+      - NODE_ENV=development
+      - PORT=3007
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/skillswap_payments
+      - SUPABASE_URL=your_supabase_url
+      - SUPABASE_KEY=your_supabase_key
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+      - JWT_PRIVATE_KEY=skillswap_jwt_private_key_development
+      - STRIPE_SECRET_KEY=your_stripe_secret_key
+      - STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
+      - STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+      - STRIPE_ACCOUNT_COUNTRY=US
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PROJECTS_SERVICE_URL=http://projects-service:3002
+      - BIDS_SERVICE_URL=http://bids-service:3003
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:3005
+      - PLATFORM_FEE_PERCENTAGE=10
+      - WITHDRAWAL_FEE_PERCENTAGE=2.5
+      - MINIMUM_WITHDRAWAL_AMOUNT=50
+    volumes:
+      - ./services/payment-service:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - postgres
+      - auth-service
+      - projects-service
+      - bids-service
+      - notifications-service
+    networks:
+      - skillswap-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PROJECTS_SERVICE_URL=http://projects-service:3002
+      - BIDS_SERVICE_URL=http://bids-service:3003
+      - MESSAGES_SERVICE_URL=http://messages-service:3004
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:3005
+      - VOICE_SEARCH_SERVICE_URL=http://voice-search-service:3006
+      - PAYMENT_SERVICE_URL=http://payment-service:3007
+      - FRONTEND_URL=http://localhost:5173
+      - JWT_PUBLIC_KEY=skillswap_jwt_public_key_development
+    volumes:
+      - ./api-gateway:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - auth-service
+      - projects-service
+      - bids-service
+      - messages-service
+      - notifications-service
+      - voice-search-service
+      - payment-service
+    networks:
+      - skillswap-network
+
+  # Frontend (Development mode)
+  frontend-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: frontend-dev
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api-gateway
+    networks:
+      - skillswap-network
+
+networks:
+  skillswap-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:
+  postgres_data:

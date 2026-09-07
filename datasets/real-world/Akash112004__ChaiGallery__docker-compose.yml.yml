@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: chaigallery-db
+    environment:
+      POSTGRES_DB: chaigallery
+      POSTGRES_USER: chaiuser
+      POSTGRES_PASSWORD: chaipassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+  

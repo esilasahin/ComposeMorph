@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: transconnect
+      POSTGRES_USER: transconnect
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transconnect123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./transconnect-backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://transconnect:${POSTGRES_PASSWORD:-transconnect123}@postgres:5432/transconnect
+      JWT_SECRET: ${JWT_SECRET:-your-super-secure-jwt-secret}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      CORS_ORIGIN: http://localhost:3001,http://localhost:3000
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./transconnect-backend/prisma:/app/prisma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Admin Dashboard
+  admin:
+    build:
+      context: ./transconnect-admin
+      dockerfile: Dockerfile
+    environment:
+      REACT_APP_API_URL: http://localhost:5000
+      REACT_APP_APP_NAME: TransConnect Admin
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+
+  # Web Application (when ready)
+  web:
+    build:
+      context: ./transconnect-web
+      dockerfile: Dockerfile
+    environment:
+      REACT_APP_API_URL: http://localhost:5000
+      REACT_APP_APP_NAME: TransConnect
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: transconnect-network

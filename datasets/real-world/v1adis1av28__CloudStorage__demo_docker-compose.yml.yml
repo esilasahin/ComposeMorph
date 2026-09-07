@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  app:
+    image: openjdk:17-jdk-slim
+    container_name: cloud-storage-app
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./demo-0.0.1-SNAPSHOT.jar:/app.jar
+    command: java -jar /app.jar
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - MINIO_HOST=${MINIO_HOST}
+    depends_on:
+      - db
+      - redis
+      - minio
+      - minio-init
+    networks:
+      - MainNetwork
+
+  db:
+    image: postgres:15
+    container_name: cloud-storage-db
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - MainNetwork
+
+  redis:
+    image: redis:6.2
+    container_name: cloud-storage-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - MainNetwork
+
+  minio:
+    image: minio/minio
+    container_name: cloud-storage-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    networks:
+      - MainNetwork
+
+  minio-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.init
+    container_name: minio-init
+    depends_on:
+      - minio
+    networks:
+      - MainNetwork
+
+networks:
+  MainNetwork:
+
+volumes:
+  db_data:
+  redis_data:
+  minio_data:

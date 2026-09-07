@@ -1,0 +1,105 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: todo-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # IMPORTANT: no ports exposed
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: api.Dockerfile
+    container_name: todo-api
+    env_file:
+      - ./.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+      - ./seed_corpus:/seed_corpus:ro
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    command: ["npm", "run", "start:dev"]
+  ocr-worker:
+    build:
+      context: ./apps/ocr-worker
+      dockerfile: ocrw.Dockerfile
+    container_name: todo-ocr-worker
+    env_file:
+      - ./.env
+    networks:
+      - backend
+    expose:
+      - 4000
+  ml-service:
+    build:
+      context: ./apps/ml-service
+      dockerfile: ml.Dockerfile
+    container_name: todo-ml-service
+    networks:
+      - backend
+    expose:
+      - 5000
+  preprocessor:
+    build:
+      context: ./apps/preprocessor
+      dockerfile: preprocessor.Dockerfile
+    container_name: todo-preprocessor
+    networks:
+      - backend
+    expose:
+      - 6000
+  ollama:
+    image: ollama/ollama:latest
+    networks:
+      - backend
+    volumes:
+      - ollama_models:/root/.ollama
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull qwen2.5:1.5b && ollama pull nomic-embed-text && wait"]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: web.Dockerfile
+    container_name: todo-web
+    environment:
+      # Web talks to API via Docker DNS on the frontend network
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+
+    depends_on:
+      - api
+    networks:
+      - frontend
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3001:3000"
+
+volumes:
+  pgdata:
+  ml_models:
+  ollama_models:
+
+networks:
+  frontend:
+  backend:

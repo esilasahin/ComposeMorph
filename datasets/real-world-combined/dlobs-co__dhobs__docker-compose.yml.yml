@@ -1,0 +1,744 @@
+services:
+  # Pin: major.minor.patch (stable releases, safe to pin)
+  jellyfin:
+    image: jellyfin/jellyfin:10.10.6
+    container_name: project-s-jellyfin
+    networks:
+      - backend
+    ports:
+      - '8096:8096'
+    volumes:
+      - ./data/jellyfin/config:/config
+      - ./data/jellyfin/cache:/cache
+      - ./data/media:/media
+    restart: 'unless-stopped'
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.jellyfin.entrypoints=websecure"
+      - "traefik.http.routers.jellyfin.tls=true"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+
+  # Secure Docker Socket Proxy
+  # Prevents containers from having full root access to the host via the socket.
+  # Docs: https://github.com/Tecnativa/docker-socket-proxy
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: project-s-socket-proxy
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Allow all Docker API endpoints for Traefik and internal services
+      - CONTAINERS=1
+      - EVENTS=1
+      - IMAGES=1
+      - INFO=1
+      - POST=1
+      - NETWORKS=1
+      - PLUGINS=1
+      - VOLUMES=1
+      - TASKS=1
+      - SWARM=1
+      - SECRETS=1
+      - CONFIGS=1
+      - NODES=1
+      - SYSTEM=1
+      - AUTH=1
+      - DISTRIBUTION=1
+      - BUILD=1
+      - COMMIT=1
+    # For Dashboard and OpenVPN-UI we restrict to read-only + POST (exec)
+    # For Theia we need full access, so it will use the raw socket.
+    # For Backup Sidecar we need CONTAINERS + EVENTS + POST (pause/unpause).
+
+  dashboard:
+    build:
+      context: ./Dashboard/Dashboard1
+      dockerfile: Dockerfile
+    container_name: project-s-dashboard
+    hostname: homeforge-dashboard
+    user: root
+    networks:
+      - frontend
+      - backend
+    ports:
+      - '3069:3069'
+      - '3070:3070'
+    volumes:
+      - ./data:/data:ro
+      - ./data/security:/app/data/security
+      # Host metrics for Linux support (graceful degrade on macOS/Windows)
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    environment:
+      - PORT=3069
+      - WS_PORT=3070
+      - SECURITY_DIR=/app/data/security
+      - DOCKER_HOST=tcp://socket-proxy:2375
+    restart: 'unless-stopped'
+    depends_on:
+      - jellyfin
+      - nextcloud
+      - socket-proxy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3069/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      # Dashboard — explicit host only (no PathPrefix catch-all)
+      - "traefik.http.routers.dashboard.rule=Host(`dashboard.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.service=dashboard"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=3069"
+      # Dashboard WebSocket (terminal)
+      - "traefik.http.routers.dashboard-ws.rule=Host(`dashboard.${HOMEFORGE_LAN_IP:-localhost}.nip.io`) && Path(`/ws-terminal`)"
+      - "traefik.http.routers.dashboard-ws.entrypoints=websecure"
+      - "traefik.http.routers.dashboard-ws.tls=true"
+      - "traefik.http.routers.dashboard-ws.service=dashboard"
+      - "traefik.http.routers.dashboard-ws.middlewares=dashboard-ws-mw"
+      - "traefik.http.middlewares.dashboard-ws-mw.headers.customrequestheaders.X-Forwarded-Proto=https"
+      # Catch-all router — root path goes to dashboard (lowest priority)
+      - "traefik.http.routers.dashboard-root.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.dashboard-root.entrypoints=websecure"
+      - "traefik.http.routers.dashboard-root.tls=true"
+      - "traefik.http.routers.dashboard-root.service=dashboard"
+      - "traefik.http.routers.dashboard-root.priority=1"
+
+  # Pin: major.minor (migration between major versions is one-way)
+  db:
+    image: mariadb:10.11
+    container_name: project-s-nextcloud-db
+    networks:
+      - database
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: always
+    volumes:
+      - ./data/nextcloud/db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/mysql_root_password
+      - MYSQL_PASSWORD_FILE=/run/secrets/mysql_password
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+    secrets:
+      - mysql_root_password
+      - mysql_password
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$(cat /run/secrets/mysql_root_password)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  # Pin: major only (minor updates include security fixes)
+  nextcloud:
+    image: nextcloud:30
+    container_name: project-s-nextcloud
+    networks:
+      - backend
+      - database
+    ports:
+      - '8081:80'
+    restart: on-failure:5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/nextcloud/html:/var/www/html
+      - ./data/nextcloud/data:/var/www/nextcloud_data
+      - ./data/.migration-locks:/data/.migration-locks
+      - ./scripts/wait-for-db.sh:/usr/local/bin/wait-for-db.sh:ro
+      - ./config/nextcloud/startup-waiter.sh:/docker-entrypoint-hooks.d/before-starting/00-startup-waiter.sh:ro
+      - ./config/nextcloud/setup-office.sh:/docker-entrypoint-hooks.d/before-starting/setup-office.sh:ro
+      - ./config/nextcloud/setup-office-post-install.sh:/docker-entrypoint-hooks.d/post-installation/setup-office-post-install.sh:ro
+    environment:
+      - MYSQL_PASSWORD_FILE=/run/secrets/mysql_password
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_HOST=db
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 ${HOMEFORGE_LAN_IP:-}
+      - NEXTCLOUD_DATA_DIR=/var/www/nextcloud_data
+      - NEXTCLOUD_INIT_HTACCESS=true
+      - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
+      - NEXTCLOUD_ADMIN_PASSWORD_FILE=/run/secrets/nextcloud_admin_password
+      - HOMEFORGE_LAN_IP=${HOMEFORGE_LAN_IP:-localhost}
+    secrets:
+      - mysql_password
+      - nextcloud_admin_password
+    depends_on:
+      db:
+        condition: service_healthy
+      collabora:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/status.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      # Nextcloud DAV redirects
+      - "traefik.http.middlewares.nextcloud-dav.redirectregex.regex=^https://(.*)/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud-dav.redirectregex.replacement=https://$${1}/remote.php/dav"
+      - "traefik.http.middlewares.nextcloud-dav.redirectregex.permanent=true"
+
+  # Pin: full version (known compatibility with Nextcloud 30)
+  collabora:
+    image: collabora/code:24.04.10.2.1
+    container_name: project-s-collabora
+    networks:
+      - backend
+    ports:
+      - '9980:9980'
+    restart: on-failure:5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config/collabora/coolwsd-override.xml:/etc/coolwsd/coolwsd.d/homeforge-wopi.xml:ro
+    environment:
+      # server_name must match LAN IP so browser CSP allows the Collabora iframe.
+      - aliasgroup1=http://nextcloud:80
+      - server_name=${HOMEFORGE_LAN_IP:-localhost}:9980
+      - dictionaries=en_US
+      - username=${COLLABORA_USERNAME}
+      - password=${COLLABORA_PASSWORD}
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:security.capabilities=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9980/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    cap_drop:
+      - ALL
+    cap_add:
+      - MKNOD
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.collabora.rule=Host(`collabora.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.collabora.entrypoints=websecure"
+      - "traefik.http.routers.collabora.tls=true"
+      - "traefik.http.services.collabora.loadbalancer.server.port=9980"
+      - "traefik.http.middlewares.collabora.headers.customrequestheaders.X-Forwarded-Proto=https"
+
+  # Pin: :latest only (upstream only publishes :latest)
+  theia:
+    image: ghcr.io/eclipse-theia/theia-ide/theia-ide:latest  # Theia only publishes :latest on GHCR
+    container_name: project-s-theia
+    networks:
+      - backend
+    ports:
+      - '3030:3000'
+    # Theia requires root + privileged for Docker integration features
+    # (container management, terminal with Docker access)
+    user: root
+    privileged: true
+    volumes:
+      - ./data/workspace:/home/project/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/homelab
+      - ./config/terminal/homelab-shell:/usr/local/bin/homelab-shell:ro
+    environment:
+      - SHELL=/usr/local/bin/homelab-shell
+    restart: 'unless-stopped'
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.theia.rule=Host(`theia.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.theia.entrypoints=websecure"
+      - "traefik.http.routers.theia.tls=true"
+      - "traefik.http.services.theia.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.theia.headers.customrequestheaders.X-Forwarded-Proto=https"
+
+  # Pin: major.minor (migration between major versions is one-way)
+  synapse-db:
+    image: postgres:15-alpine  # data volume was initialized with PG15 — do NOT bump without pg_upgrade
+    container_name: project-s-matrix-db
+    networks:
+      - database
+    environment:
+      - POSTGRES_USER=${MATRIX_DB_USER}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/mysql_password
+      - POSTGRES_DB=${MATRIX_DB_NAME}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - ./data/matrix/db:/var/lib/postgresql/data
+    secrets:
+      - mysql_password
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MATRIX_DB_USER} -d ${MATRIX_DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+
+  # Pin: full version (breaking changes between minors)
+  synapse:
+    image: matrixdotorg/synapse:v1.120.0
+    container_name: project-s-matrix-server
+    networks:
+      - backend
+      - database
+    ports:
+      - '8008:8008'
+    depends_on:
+      synapse-db:
+        condition: service_healthy
+    volumes:
+      - ./data/matrix/synapse:/data
+      - ./data/.migration-locks:/data/.migration-locks
+      - ./scripts/wait-for-db.sh:/usr/local/bin/wait-for-db.sh:ro
+      - ./config/matrix:/etc/synapse-config:ro
+    environment:
+      - MATRIX_SERVER_NAME=${MATRIX_SERVER_NAME:-localhost}
+      - MATRIX_REGISTRATION_SECRET_FILE=/run/secrets/matrix_registration_secret
+      - MATRIX_MACAROON_SECRET_KEY_FILE=/run/secrets/matrix_macaroon_secret_key
+      - MATRIX_FORM_SECRET_FILE=/run/secrets/matrix_form_secret
+      - MATRIX_DB_USER=${MATRIX_DB_USER}
+      - MATRIX_DB_PASSWORD_FILE=/run/secrets/mysql_password
+    secrets:
+      - matrix_registration_secret
+      - matrix_macaroon_secret_key
+      - matrix_form_secret
+      - mysql_password
+    entrypoint: ["/bin/sh", "/etc/synapse-config/entrypoint.sh"]
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.synapse.rule=Host(`synapse.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.synapse.entrypoints=websecure"
+      - "traefik.http.routers.synapse.tls=true"
+      - "traefik.http.services.synapse.loadbalancer.server.port=8008"
+
+  # Pin: full version (cosmetic updates only, safe to follow)
+  element:
+    image: vectorim/element-web:v1.11.90
+    container_name: project-s-matrix-client
+    networks:
+      - backend
+    ports:
+      - '8082:80'
+    volumes:
+      - ./config/matrix/element-config.json:/app/config.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.element.rule=Host(`element.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.element.entrypoints=websecure"
+      - "traefik.http.routers.element.tls=true"
+      - "traefik.http.services.element.loadbalancer.server.port=80"
+
+  # Pin: full version (database schema changes between minors)
+  vaultwarden:
+    image: vaultwarden/server:1.32.7
+    container_name: project-s-vaultwarden
+    networks:
+      - backend
+    ports:
+      - '8083:80'
+    volumes:
+      - ./data/vaultwarden:/data
+    environment:
+      - WEBSOCKET_ENABLED=true
+      - DATA_FOLDER=/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultwarden.rule=Host(`vaultwarden.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.vaultwarden.entrypoints=websecure"
+      - "traefik.http.routers.vaultwarden.tls=true"
+      - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
+
+  # Pin: full version (API changes between minors)
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:0.8.12
+    container_name: project-s-open-webui
+    networks:
+      - backend
+    ports:
+      - '8085:8080'
+    entrypoint: ["/bin/sh", "-c", "if [ -f /read-secrets.sh ]; then . /read-secrets.sh; fi && exec bash start.sh"]
+    volumes:
+      - ./data/open-webui:/app/backend/data
+      - ./config/scripts/read-secrets.sh:/read-secrets.sh:ro
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY_FILE=/run/secrets/webui_secret_key
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - CORS_ALLOW_ORIGIN=*
+      - WEBUI_AUTH=true
+      - JWT_EXPIRES_IN=7d
+      - ENABLE_PASSWORD_VALIDATION=true
+      - ENABLE_WEBSOCKET_SUPPORT=true
+      - WEBUI_URL=http://${HOMEFORGE_LAN_IP:-localhost}:8085
+      - WEBUI_NAME=HomeForge AI
+    secrets:
+      - webui_secret_key
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openwebui.rule=Host(`webui.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls=true"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+
+  # Pin: full version (model compatibility between versions)
+  ollama:
+    image: ollama/ollama:0.20.0
+    container_name: project-s-ollama
+    networks:
+      - backend
+    volumes:
+      - ./data/ollama:/root/.ollama
+      - ./data/workspace:/workspace
+      - ./config/ollama:/modelfiles:ro
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_KEEP_ALIVE=5m
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  # Pin: full version (ZIM format changes rarely)
+  kiwix:
+    image: ghcr.io/kiwix/kiwix-serve:3.7.0
+    container_name: project-s-kiwix-reader
+    networks:
+      - backend
+    ports:
+      - '8087:8080'
+    volumes:
+      - ./data/kiwix:/data
+    entrypoint: ["sh", "-c"]
+    command: >
+      "rm -f /data/library.xml &&
+      if ls /data/*.zim >/dev/null 2>&1; then
+        kiwix-manage /data/library.xml add /data/*.zim &&
+        kiwix-serve --port=8080 --library /data/library.xml;
+      else
+        echo 'No ZIM files found. Add .zim files to ./data/kiwix and click Refresh.' && sleep infinity;
+      fi"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/ || pgrep sleep"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kiwix.rule=Host(`kiwix.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.kiwix.entrypoints=websecure"
+      - "traefik.http.routers.kiwix.tls=true"
+      - "traefik.http.services.kiwix.loadbalancer.server.port=8080"
+
+  # Pin: full version (cosmetic, stable)
+  kiwix-manager:
+    image: filebrowser/filebrowser:v2.31.2
+    container_name: project-s-kiwix-manager
+    user: "${UID:-1000}:${GID:-1000}"
+    networks:
+      - backend
+    ports:
+      - '8086:80'
+    volumes:
+      - ./data/kiwix:/srv
+      - ./data/filebrowser/database.db:/database.db
+    command: ["--database", "/database.db", "--noauth", "--root", "/srv"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kiwix-manager.rule=Host(`kiwix-manager.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.kiwix-manager.entrypoints=websecure"
+      - "traefik.http.routers.kiwix-manager.tls=true"
+      - "traefik.http.services.kiwix-manager.loadbalancer.server.port=80"
+
+  # Pin: :latest (stable, no breaking changes in years)
+  openvpn:
+    image: d3vilh/openvpn-server:latest
+    container_name: project-s-openvpn
+    networks:
+      - backend
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    ports:
+      - '1194:1194/udp'
+    volumes:
+      - ./data/vpn:/etc/openvpn
+      - ./config/vpn:/etc/openvpn/config:ro
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "pgrep", "openvpn"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  # Pin: :latest (stable, cosmetic updates only)
+  openvpn-ui:
+    image: d3vilh/openvpn-ui:latest
+    container_name: project-s-openvpn-ui
+    networks:
+      - backend
+    ports:
+      - '8090:8080'
+    privileged: true
+    depends_on:
+      - openvpn
+    environment:
+      - OPENVPN_ADMIN_USERNAME=${VPN_ADMIN_USERNAME}
+      - OPENVPN_ADMIN_PASSWORD=${VPN_ADMIN_PASSWORD}
+    volumes:
+      - ./data/vpn:/etc/openvpn
+      - ./data/vpn/db:/opt/openvpn-ui/db
+      - ./data/vpn/pki:/usr/share/easy-rsa/pki
+      - socket-data:/var/run/docker-proxy.sock:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openvpn.rule=Host(`openvpn.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.openvpn.entrypoints=websecure"
+      - "traefik.http.routers.openvpn.tls=true"
+      - "traefik.http.services.openvpn.loadbalancer.server.port=8080"
+
+  # Traefik Reverse Proxy — auto-discovers services via Docker labels
+  # Replaces manual nginx.conf with zero-config routing
+  traefik:
+    image: traefik:latest
+    container_name: project-s-traefik
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+    ports:
+      - '80:80'
+      - '443:443'
+      - '8080:8080'  # Traefik Dashboard (debug only, restrict in production)
+    volumes:
+      - ./config/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./config/traefik/acme.json:/acme.json
+      - ./config/traefik/dynamic:/etc/traefik/dynamic:ro
+    environment:
+      - DOCKER_HOST=tcp://socket-proxy:2375
+      - HOMEFORGE_LAN_IP=${HOMEFORGE_LAN_IP:-localhost}
+    depends_on:
+      - dashboard
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--spider", "-q", "http://localhost:8080/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+    labels:
+      - "traefik.enable=true"
+      # Traefik dashboard UI
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${HOMEFORGE_LAN_IP:-localhost}.nip.io`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
+  homeforge-backup:
+    build:
+      context: ./backup-sidecar
+      dockerfile: Dockerfile
+    container_name: homeforge-backup
+    restart: unless-stopped
+    networks:
+      - backend
+      - database
+    environment:
+      - NODE_ENV=production
+      - BACKUP_PORT=3070
+      - SNAPSHOT_DIR=/backups
+      - SECURITY_DIR=/data/security
+      - DOCKER_HOST=unix:///var/run/docker-proxy.sock
+      - RESTIC_REPO=/data/backups/restic
+      - RESTIC_PASSWORD_FILE=/data/secrets/restic_password
+    volumes:
+      - socket-data:/var/run/docker-proxy.sock:ro
+      - ./data/security:/data/security:ro
+      - ./data/secrets:/data/secrets:ro
+      - ./data:/snapshots/dashboard:ro
+      - ./data/jellyfin/config:/snapshots/jellyfin:ro
+      - ./data/nextcloud/data:/snapshots/nextcloud:ro
+      - ./data/nextcloud/db:/snapshots/mariadb:ro
+      - ./data/matrix/db:/snapshots/matrix:ro
+      - ./data/vaultwarden:/snapshots/vaultwarden:ro
+      - ./data/media:/snapshots/media:ro
+      - ./data/backups:/data/backups
+      - backup-db:/app/data
+    expose:
+      - "3070"
+    depends_on:
+      - dashboard
+
+  # Tailscale — secure remote access via WireGuard mesh
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: project-s-tailscale
+    hostname: homeforge
+    restart: unless-stopped
+    networks:
+      - frontend
+    cap_add:
+      - net_admin
+      - sys_module
+    volumes:
+      - ./data/tailscale/state:/var/lib/tailscale
+      - ./data/secrets/tailscale_authkey:/run/secrets/tailscale_authkey:ro
+    environment:
+      - TS_AUTHKEY_FILE=/run/secrets/tailscale_authkey
+      - TS_EXTRA_ARGS=--accept-routes --accept-dns=false
+      - TS_USERSPACE=false
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+  database:
+    driver: bridge
+    internal: true
+
+volumes:
+  backup-db:
+  socket-data:
+
+secrets:
+  mysql_root_password:
+    file: ./data/secrets/mysql_root_password
+  mysql_password:
+    file: ./data/secrets/mysql_password
+  nextcloud_admin_password:
+    file: ./data/secrets/nextcloud_admin_password
+  collabora_password:
+    file: ./data/secrets/collabora_password
+  matrix_registration_secret:
+    file: ./data/secrets/matrix_registration_secret
+  matrix_macaroon_secret_key:
+    file: ./data/secrets/matrix_macaroon_secret_key
+  matrix_form_secret:
+    file: ./data/secrets/matrix_form_secret
+  webui_secret_key:
+    file: ./data/secrets/webui_secret_key
+  vpn_admin_password:
+    file: ./data/secrets/vpn_admin_password

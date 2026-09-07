@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: berzaMK
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ./back-end BerzaMK
+    container_name: spring-boot-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/berzaMK
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_PROFILES_ACTIVE: prod
+      CSV_FILE_PATH: /data/all_companies_analysis.csv
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+    volumes:
+      - C:\Users\boris\Desktop\Domasna 3\data:/data
+
+  frontend:
+    build:
+      context: ./front-end BerzaMK/berza-mk
+    container_name: react-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

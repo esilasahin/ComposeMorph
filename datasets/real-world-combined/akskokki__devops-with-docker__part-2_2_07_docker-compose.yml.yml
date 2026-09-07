@@ -1,0 +1,25 @@
+services:
+
+  frontend:
+    image: example-frontend
+    ports:
+      - 5000:5000
+
+  backend:
+    image: example-backend
+    ports:
+      - 8080:8080
+    environment:
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=db
+
+  redis:
+    image: redis:alpine
+
+  db:
+    image: postgres:13.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./database:/var/lib/postgresql/data

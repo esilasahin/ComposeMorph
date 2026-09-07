@@ -1,0 +1,339 @@
+services:
+  # Unified YouTube API (Piped API + yt-dlp hybrid)
+  youtube-unified:
+    build:
+      context: ./services/youtube-unified
+      dockerfile: Dockerfile
+    container_name: youtube-unified
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8085:8085"
+    environment:
+      - PORT=8085
+      - YOUTUBE_RATE_LIMIT=100
+      - CACHE_TTL=3600
+      - ENABLE_IPV6=true
+      - AUTO_UPDATE=true
+      - AUTO_UPDATE_INTERVAL=86400
+      - YTDL_UPDATE_INTERVAL=604800
+      - MAX_RESULTS=20
+      - CACHE_MAX_SIZE=1000
+    volumes:
+      - youtube-data:/app/data
+      - youtube-cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # IntentForge Rust application (HTTP API)
+  intentforge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    container_name: intentforge
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "9100:9100"
+    environment:
+      - API_PORT=9100
+      - RUST_LOG=info
+      - REDIS_URL=redis://redis:6379
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - TRAFILATURA_URL=http://trafilatura:8080
+      - WHOOGLE_URL=http://whoogle:5000
+      - LIBREX_URL=http://librex:8080
+      - SEARXNG_URL=http://searxng:8080
+      - CC_DATA_DIR=/app/cc_data
+      - HF_TOKEN=${HF_TOKEN}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - PIXABAY_API_KEY=${PIXABAY_API_KEY}
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
+    volumes:
+      - ./models:/app/models
+      - ./config.yaml:/app/config.yaml
+      - ./sources.yaml:/app/sources.yaml
+      - cc_data:/app/cc_data
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/app/target
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      trafilatura:
+        condition: service_healthy
+      whoogle:
+        condition: service_started
+      librex:
+        condition: service_started
+      youtube-unified:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Meilisearch v1.13+ (supports binary quantization for vectors)
+  meilisearch:
+    image: getmeili/meilisearch:v1.13
+    container_name: meilisearch
+    ports:
+      - "7700:7700"
+    volumes:
+      - ./meili_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MEILI_ENV=${MEILI_ENV:-development}
+      - MEILI_NO_ANALYTICS=true
+      # Memory optimization for modest hardware
+      - MEILI_MAX_INDEXING_MEMORY=4096
+      - MEILI_MAX_INDEXING_THREADS=4
+    command: ["meilisearch", "--experimental-enable-metrics"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 7 with RedisBloom module for probabilistic deduplication
+  redis:
+    image: redis/redis-stack:7.2.0-v9
+    container_name: redis
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight
+    volumes:
+      - ./redis_data:/data
+    environment:
+      - REDIS_ARGS=--appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "2gb", "--maxmemory-policy", "allkeys-lru", "--protected-mode", "no"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Trafilatura microservice for content extraction
+  trafilatura:
+    build:
+      context: ./services/trafilatura
+      dockerfile: Dockerfile
+      network: host
+    container_name: trafilatura
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Whoogle - Self-hosted, ad-free, privacy-respecting Google metasearch
+  whoogle:
+    image: benbusby/whoogle-search:latest
+    container_name: whoogle
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "5000:5000"
+    environment:
+      - EXPOSE_PORT=5000
+      - WHOOGLE_ALT_TW=farside.link/nitter
+      - WHOOGLE_ALT_YT=farside.link/invidious
+      - WHOOGLE_ALT_IG=farside.link/libreddit
+      - WHOOGLE_ALT_RD=farside.link/libreddit
+      - WHOOGLE_AUTOCOMPLETE=0
+      - WHOOGLE_MINIMAL=1
+      - WHOOGLE_CONFIG_DISABLE=1
+      - WHOOGLE_CONFIG_SEARCH_LANGUAGE=lang_en
+      - WHOOGLE_CONFIG_COUNTRY=US
+      - WHOOGLE_CONFIG_ALTS=1
+      - WHOOGLE_CONFIG_NEW_TAB=1
+      # Route Whoogle's upstream Google requests through Tor
+      - WHOOGLE_PROXY_LOC=tor-proxy:9050
+      - WHOOGLE_PROXY_TYPE=socks5
+    depends_on:
+      tor:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+
+  # LibreX - Self-hosted, lightweight PHP metasearch engine
+  librex:
+    image: librex/librex:latest
+    container_name: librex
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8081:8080"
+    environment:
+      - LIBREX_DEFAULT_ENGINE=google
+      - LIBREX_DEFAULT_LANGUAGE=en
+      - LIBREX_DEFAULT_THEME=LibreX
+      - LIBREX_SILENT_UPGRADE=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Tor daemon - Routes traffic through the Tor network for anonymity and bypassing IP blocks
+  # Used by all self-hosted search engines (Whoogle, LibreX, SearXNG)
+  tor:
+    image: alpine:latest
+    container_name: tor-proxy
+    command: >
+      sh -c "apk add --no-cache tor &&
+             mkdir -p /tmp/tor-data &&
+             echo 'SOCKSPort 0.0.0.0:9050' > /etc/tor/torrc &&
+             echo 'DataDirectory /tmp/tor-data' >> /etc/tor/torrc &&
+             echo 'ExitRelay 0' >> /etc/tor/torrc &&
+             tor -f /etc/tor/torrc"
+    ports:
+      - "9050:9050"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9050"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # SearXNG - Industry standard self-hosted meta-search (70+ engines)
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8082:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8082/
+      - SEARXNG_SECRET=lightningfast2026
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    depends_on:
+      tor:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+
+  # FastAPI Query Layer for semantic/hybrid search
+  query-layer:
+    build:
+      context: ./services/query_layer
+      dockerfile: Dockerfile
+      network: host
+    container_name: query-layer
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8000:8000"
+    environment:
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-masterKey}
+      - MODEL_PATH=/models/all-MiniLM-L6-v2.onnx
+      - INDEX_NAME=intentforge
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ./models:/models
+      - pip-cache:/root/.cache/pip
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis exporter for Prometheus metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: redis-exporter
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # Optional: Prometheus for monitoring (Phase 6)
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # Optional: Grafana for dashboards (Phase 6)
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  pip-cache:
+  cc_data:
+  cargo-registry:
+  cargo-target:
+  youtube-data:
+  youtube-cache:
+

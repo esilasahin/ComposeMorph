@@ -1,0 +1,28 @@
+services:
+    experiment-api:
+        container_name: experiment-api-dev
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.dev
+        ports:
+            - "8080:8080"
+        volumes:
+            - .:/app
+            - /app/tmp
+        env_file:
+            - .env
+        depends_on:
+            - experiment-db
+
+    experiment-db:
+        image: postgres:18
+        container_name: experiment-db
+        env_file:
+            - .env
+        ports:
+            - "5432:5432"
+        volumes:
+            - experiment_db_data:/var/lib/postgresql/data
+
+volumes:
+    experiment_db_data:

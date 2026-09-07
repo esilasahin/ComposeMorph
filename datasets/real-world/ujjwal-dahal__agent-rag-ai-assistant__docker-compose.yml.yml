@@ -1,0 +1,74 @@
+services:
+
+  # ==================================================
+  # Backend
+  # ==================================================
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: ai-assistant
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+
+    depends_on:
+      ollama:
+        condition: service_started
+
+
+  # ==================================================
+  # Frontend
+  # ==================================================
+
+  frontend:
+    image: python:3.11-slim
+
+    container_name: ai-assistant-frontend
+
+    working_dir: /app
+
+    volumes:
+      - ./frontend:/app
+
+    command: >
+      sh -c "pip install --no-cache-dir streamlit requests &&
+      streamlit run streamlit_app.py
+      --server.address=0.0.0.0
+      --server.port=8501"
+
+    ports:
+      - "8501:8501"
+
+    depends_on:
+      backend:
+        condition: service_started
+
+
+  # ==================================================
+  # Ollama
+  # ==================================================
+
+  ollama:
+    image: ollama/ollama:latest
+
+    container_name: ollama
+
+    ports:
+      - "11434:11434"
+
+    volumes:
+      - ollama_data:/root/.ollama
+
+
+# ====================================================
+# Persistent Volume
+# ====================================================
+
+volumes:
+  ollama_data:

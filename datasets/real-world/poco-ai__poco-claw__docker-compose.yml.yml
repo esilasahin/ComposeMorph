@@ -1,0 +1,354 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-poco}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-poco}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mem0-postgres:
+    profiles: ["mem0"]
+    image: ankane/pgvector:v0.5.1
+    restart: on-failure
+    shm_size: "128mb"
+    environment:
+      POSTGRES_USER: ${MEM0_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${MEM0_POSTGRES_DB:-postgres}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -q -d ${MEM0_POSTGRES_DB:-postgres} -U ${MEM0_POSTGRES_USER:-postgres}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - mem0_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${MEM0_POSTGRES_EXPOSE_PORT:-8432}:5432"
+
+  mem0-neo4j:
+    profiles: ["mem0"]
+    image: neo4j:5.26.4
+    restart: on-failure
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    ports:
+      - "${MEM0_NEO4J_HTTP_PORT:-8474}:7474"
+      - "${MEM0_NEO4J_BOLT_PORT:-8687}:7687"
+    volumes:
+      - mem0_neo4j_data:/data
+    environment:
+      NEO4J_AUTH: ${MEM0_NEO4J_USERNAME:-neo4j}/${MEM0_NEO4J_PASSWORD:-mem0graph}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+
+  # NOTE: rustfs is expected to be S3-compatible.
+  # Default image is rustfs/rustfs:latest; override RUSTFS_IMAGE / RUSTFS_DATA_DIR if needed.
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:latest}
+    restart: unless-stopped
+    environment:
+      # Keep these generic; rustfs may read its own vars, but setting AWS-standard ones
+      # keeps it compatible with most S3-compatible server configs.
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-poco}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-poco-secret}
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-poco}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-poco-secret}
+    ports:
+      - "${S3_PORT:-9000}:9000"
+      - "${S3_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - ${RUSTFS_DATA_DIR:-./oss_data}:/data
+
+  rustfs-init:
+    image: ${RUSTFS_INIT_IMAGE:-minio/mc:latest}
+    profiles: ["init"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-poco}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-poco-secret}
+      S3_BUCKET: ${S3_BUCKET:-poco}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set rustfs http://rustfs:9000 "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"; do
+          sleep 2
+        done
+        mc mb -p "rustfs/$$S3_BUCKET" || true
+
+  backend:
+    # Default to pulling from GHCR; override via BACKEND_IMAGE if needed.
+    image: ${BACKEND_IMAGE:-ghcr.io/poco-ai/poco-backend:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-poco}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      SECRET_KEY: ${BACKEND_SECRET_KEY:-change-this-secret-key-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-this-token-in-production}
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-poco_session}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_SESSION_TTL_DAYS: ${AUTH_SESSION_TTL_DAYS:-30}
+      OAUTH_SESSION_COOKIE_NAME: ${OAUTH_SESSION_COOKIE_NAME:-poco_oauth}
+      AUTH_MODE: ${AUTH_MODE:-oauth_required}
+      SYSTEM_ADMIN_EMAILS: ${SYSTEM_ADMIN_EMAILS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      EXECUTOR_MANAGER_URL: http://executor-manager:8001
+      BACKEND_USER_ID: ${BACKEND_USER_ID:-default}
+      FRONTEND_PUBLIC_URL: ${FRONTEND_PUBLIC_URL:-http://localhost:3000}
+      FRONTEND_DEFAULT_LANG: ${FRONTEND_DEFAULT_LANG:-zh}
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-local}
+      IM_EVENT_DISPATCH_ENABLED: ${IM_EVENT_DISPATCH_ENABLED:-false}
+      IM_EVENT_DISPATCH_INTERVAL_SECONDS: ${IM_EVENT_DISPATCH_INTERVAL_SECONDS:-0.5}
+      IM_EVENT_DISPATCH_BATCH_SIZE: ${IM_EVENT_DISPATCH_BATCH_SIZE:-20}
+      IM_EVENT_DISPATCH_LEASE_SECONDS: ${IM_EVENT_DISPATCH_LEASE_SECONDS:-30}
+      SKILLSMP_API_KEY: ${SKILLSMP_API_KEY:-}
+
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: ${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}
+
+      DINGTALK_ENABLED: ${DINGTALK_ENABLED:-true}
+      DINGTALK_WEBHOOK_TOKEN: ${DINGTALK_WEBHOOK_TOKEN:-}
+      DINGTALK_STREAM_ENABLED: ${DINGTALK_STREAM_ENABLED:-true}
+      DINGTALK_STREAM_SUBSCRIBE_EVENTS: ${DINGTALK_STREAM_SUBSCRIBE_EVENTS:-false}
+      DINGTALK_CLIENT_ID: ${DINGTALK_CLIENT_ID:-}
+      DINGTALK_CLIENT_SECRET: ${DINGTALK_CLIENT_SECRET:-}
+      DINGTALK_ROBOT_CODE: ${DINGTALK_ROBOT_CODE:-}
+      DINGTALK_OPEN_BASE_URL: ${DINGTALK_OPEN_BASE_URL:-https://api.dingtalk.com}
+      DINGTALK_WEBHOOK_URL: ${DINGTALK_WEBHOOK_URL:-}
+
+      FEISHU_ENABLED: ${FEISHU_ENABLED:-false}
+      FEISHU_STREAM_ENABLED: ${FEISHU_STREAM_ENABLED:-true}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      FEISHU_OAUTH_CLIENT_ID: ${FEISHU_OAUTH_CLIENT_ID:-}
+      FEISHU_OAUTH_CLIENT_SECRET: ${FEISHU_OAUTH_CLIENT_SECRET:-}
+      FEISHU_OAUTH_REGION: ${FEISHU_OAUTH_REGION:-cn}
+      FEISHU_OAUTH_SCOPE: ${FEISHU_OAUTH_SCOPE:-}
+      FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
+      FEISHU_BASE_URL: ${FEISHU_BASE_URL:-https://open.feishu.cn}
+
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-poco}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-poco-secret}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-poco}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      S3_PUBLIC_READ: ${S3_PUBLIC_READ:-false}
+      S3_PUBLIC_ENDPOINT_BUCKET_BOUND: ${S3_PUBLIC_ENDPOINT_BUCKET_BOUND:-false}
+      S3_SIGNATURE_VERSION: ${S3_SIGNATURE_VERSION:-s3v4}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_PRESIGN_EXPIRES: ${S3_PRESIGN_EXPIRES:-300}
+
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-claude-sonnet-4-20250514}
+      MODEL_LIST: ${MODEL_LIST:-[]}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-100}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_AUDIO_TRANSCRIPTION_MODEL: ${OPENAI_AUDIO_TRANSCRIPTION_MODEL:-whisper-1}
+      MAX_AUDIO_UPLOAD_SIZE_MB: ${MAX_AUDIO_UPLOAD_SIZE_MB:-25}
+      MEM0_ENABLED: ${MEM0_ENABLED:-false}
+      MEM0_VECTOR_PROVIDER: ${MEM0_VECTOR_PROVIDER:-pgvector}
+      MEM0_POSTGRES_HOST: ${MEM0_POSTGRES_HOST:-mem0-postgres}
+      MEM0_POSTGRES_PORT: ${MEM0_POSTGRES_PORT:-5432}
+      MEM0_POSTGRES_DB: ${MEM0_POSTGRES_DB:-postgres}
+      MEM0_POSTGRES_USER: ${MEM0_POSTGRES_USER:-postgres}
+      MEM0_POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-postgres}
+      MEM0_POSTGRES_COLLECTION_NAME: ${MEM0_POSTGRES_COLLECTION_NAME:-memories}
+      MEM0_GRAPH_PROVIDER: ${MEM0_GRAPH_PROVIDER:-neo4j}
+      MEM0_NEO4J_URI: ${MEM0_NEO4J_URI:-bolt://mem0-neo4j:7687}
+      MEM0_NEO4J_USERNAME: ${MEM0_NEO4J_USERNAME:-neo4j}
+      MEM0_NEO4J_PASSWORD: ${MEM0_NEO4J_PASSWORD:-mem0graph}
+      MEM0_MEMGRAPH_URI: ${MEM0_MEMGRAPH_URI:-bolt://localhost:7687}
+      MEM0_MEMGRAPH_USERNAME: ${MEM0_MEMGRAPH_USERNAME:-memgraph}
+      MEM0_MEMGRAPH_PASSWORD: ${MEM0_MEMGRAPH_PASSWORD:-mem0graph}
+      MEM0_LLM_MODEL: ${MEM0_LLM_MODEL:-gpt-4.1-nano-2025-04-14}
+      MEM0_EMBEDDER_MODEL: ${MEM0_EMBEDDER_MODEL:-text-embedding-3-small}
+      MEM0_EMBEDDING_DIMS: ${MEM0_EMBEDDING_DIMS:-1024}
+      MEM0_HISTORY_DB_PATH: ${MEM0_HISTORY_DB_PATH:-/tmp/poco/memory/history.db}
+      WORKSPACE_ROOT: ${PWD}/tmp_workspace
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_TO_FILE: ${LOG_TO_FILE:-false}
+      LOG_DIR: ${LOG_DIR:-./logs}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-14}
+      LOG_SQL: ${LOG_SQL:-false}
+      UVICORN_ACCESS_LOG: ${UVICORN_ACCESS_LOG:-false}
+    volumes:
+      - ./tmp_workspace:${PWD}/tmp_workspace
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  executor-manager:
+    # Default to pulling from GHCR; override via EXECUTOR_MANAGER_IMAGE if needed.
+    image: ${EXECUTOR_MANAGER_IMAGE:-ghcr.io/poco-ai/poco-executor-manager:latest}
+    restart: unless-stopped
+    user: "${EXECUTOR_UID:-1000}:${EXECUTOR_GID:-1000}"
+    depends_on:
+      backend:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8001
+
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      # Must be reachable from *executor containers* spawned by the manager.
+      CALLBACK_BASE_URL: ${CALLBACK_BASE_URL:-http://host.docker.internal:8001}
+      CALLBACK_TOKEN: ${CALLBACK_TOKEN:-change-this-token-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-this-token-in-production}
+
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-claude-sonnet-4-20250514}
+
+      # Image used by the manager to spawn executor containers via docker.sock.
+      EXECUTOR_IMAGE: ${EXECUTOR_IMAGE:-ghcr.io/poco-ai/poco-executor:lite}
+      # Prefer local images first when enabled; fall back to the remote image settings below.
+      EXECUTOR_PREFER_LOCAL_IMAGE: ${EXECUTOR_PREFER_LOCAL_IMAGE:-false}
+      EXECUTOR_LOCAL_IMAGE: ${EXECUTOR_LOCAL_IMAGE:-}
+      # Optional: executor image with desktop/browser stack (used when browser_enabled=true).
+      EXECUTOR_BROWSER_IMAGE: ${EXECUTOR_BROWSER_IMAGE:-ghcr.io/poco-ai/poco-executor:full}
+      EXECUTOR_LOCAL_BROWSER_IMAGE: ${EXECUTOR_LOCAL_BROWSER_IMAGE:-}
+      # Default desktop viewport for browser-enabled runs (Playwright MCP).
+      POCO_BROWSER_VIEWPORT_SIZE: ${POCO_BROWSER_VIEWPORT_SIZE:-1366x768}
+      # Default Playwright MCP output handling for browser-enabled runs.
+      PLAYWRIGHT_MCP_OUTPUT_MODE: ${PLAYWRIGHT_MCP_OUTPUT_MODE:-file}
+      PLAYWRIGHT_MCP_IMAGE_RESPONSES: ${PLAYWRIGHT_MCP_IMAGE_RESPONSES:-omit}
+      # Timezone passed through to executor containers.
+      EXECUTOR_TIMEZONE: ${EXECUTOR_TIMEZONE:-Asia/Shanghai}
+      # Manager accesses executor containers through published host ports.
+      EXECUTOR_PUBLISHED_HOST: ${EXECUTOR_PUBLISHED_HOST:-host.docker.internal}
+
+      WORKSPACE_ROOT: ${PWD}/tmp_workspace
+
+      MAX_CONCURRENT_TASKS: ${MAX_CONCURRENT_TASKS:-5}
+      TASK_PULL_ENABLED: ${TASK_PULL_ENABLED:-true}
+      TASK_PULL_INTERVAL_SECONDS: ${TASK_PULL_INTERVAL_SECONDS:-2}
+      TASK_CLAIM_LEASE_SECONDS: ${TASK_CLAIM_LEASE_SECONDS:-900}
+
+      WORKSPACE_CLEANUP_ENABLED: ${WORKSPACE_CLEANUP_ENABLED:-false}
+      WORKSPACE_ARCHIVE_ENABLED: ${WORKSPACE_ARCHIVE_ENABLED:-true}
+      WORKSPACE_ARCHIVE_DAYS: ${WORKSPACE_ARCHIVE_DAYS:-7}
+      WORKSPACE_IGNORE_DOT_FILES: ${WORKSPACE_IGNORE_DOT_FILES:-true}
+
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-poco}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-poco-secret}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-poco}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      S3_PUBLIC_READ: ${S3_PUBLIC_READ:-false}
+      S3_PUBLIC_ENDPOINT_BUCKET_BOUND: ${S3_PUBLIC_ENDPOINT_BUCKET_BOUND:-false}
+      S3_SIGNATURE_VERSION: ${S3_SIGNATURE_VERSION:-s3v4}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_TO_FILE: ${LOG_TO_FILE:-false}
+      LOG_DIR: ${LOG_DIR:-./logs}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-14}
+      UVICORN_ACCESS_LOG: ${UVICORN_ACCESS_LOG:-false}
+    # Allow the non-root "app" user (APP_UID) to access the host Docker socket.
+    # On Linux the socket is usually `root:<docker_gid>` with mode 660.
+    group_add:
+      - "${DOCKER_GID:-0}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./tmp_workspace:${PWD}/tmp_workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${EXECUTOR_MANAGER_PORT:-8001}:8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    # Default to pulling from GHCR; override via FRONTEND_IMAGE if needed.
+    image: ${FRONTEND_IMAGE:-ghcr.io/poco-ai/poco-frontend:latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      # Runtime backend URL for the Next.js API proxy (/api/v1/* -> backend).
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      FRONTEND_PUBLIC_URL: ${FRONTEND_PUBLIC_URL:-http://localhost:3000}
+      NEXT_PUBLIC_AUTH_COOKIE_NAME: ${NEXT_PUBLIC_AUTH_COOKIE_NAME:-poco_session}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  mem0_postgres_data:
+  mem0_neo4j_data:

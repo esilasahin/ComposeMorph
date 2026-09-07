@@ -1,0 +1,30 @@
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # These mirror the environment variables ECS injects in AWS
+      # In AWS these come from Secrets Manager — locally we set them directly
+      SPRING_PROFILES_ACTIVE: local
+      APP_ENVIRONMENT: local
+      APP_SECRET_MESSAGE: "Hello from Docker Compose!"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s   # JVM takes time to start
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy   # wait for backend health check to pass before starting

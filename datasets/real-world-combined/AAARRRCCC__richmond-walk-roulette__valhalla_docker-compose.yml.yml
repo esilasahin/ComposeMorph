@@ -1,0 +1,45 @@
+# Self-hosted Valhalla for Walk Roulette. See README.md in this directory.
+#
+# Driven by ./scripts, which put a clipped Richmond extract in ./data and then
+# correct the isochrone limits this image ships with. Running it by hand works
+# too; it just leaves those limits too low for the dial's ladder.
+#
+# First run builds the routing graph from every .osm.pbf in ./data, then
+# serves HTTP on :8002. Later runs reuse the tiles; a changed PBF rebuilds.
+services:
+  valhalla:
+    # Pinned. `latest` means the engine can change under a graph that did not,
+    # and the app records a version in its health check that would then be a
+    # different thing from one deploy to the next.
+    image: ghcr.io/valhalla/valhalla-scripted:3.8.3
+    container_name: walk-roulette-valhalla
+    restart: unless-stopped
+    ports:
+      # Bind to loopback: the engine must only be reachable through the app's
+      # proxy, which enforces the walking costing and the Richmond bounds.
+      # Remove the 127.0.0.1 prefix only if something else fronts it.
+      - "127.0.0.1:8002:8002"
+    volumes:
+      # Only the clipped extract lives here. The state extract is kept in
+      # ../extracts precisely so this build never sees it.
+      - ./data:/custom_files
+    environment:
+      # The app never uses time-dependent or cross-border routing, and
+      # skipping these DBs keeps the first build fast.
+      - build_admins=False
+      - build_time_zones=False
+      - use_default_speeds_config=False
+      # Walking never needs more than a few threads; leave headroom on the box.
+      - server_threads=4
+      # Elevation is baked into the graph, not fetched from skadi per request,
+      # so this is a BUILD setting and not a serving one: turning it on for an
+      # existing graph does nothing at all until the tiles are rebuilt with
+      # REBUILD=1. Without it the engine still answers /route and /height - it
+      # answers them with -500.0 and null respectively, which is Valhalla's
+      # no-data sentinel and reads as a place five hundred metres below sea
+      # level. That is the failure build-graph.sh's smoke check now catches.
+      #
+      # One SRTM tile. The clipped bbox in ../richmond.env (-77.61,37.40 to
+      # -77.26,37.68) sits wholly inside N37W078, which spans -78..-77 and
+      # 37..38, so all four corners are inside it with room to spare.
+      - build_elevation=True

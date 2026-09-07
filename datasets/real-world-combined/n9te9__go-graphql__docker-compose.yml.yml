@@ -1,0 +1,21 @@
+version: "3"
+
+services:
+  server:
+    depends_on:
+      - db
+    build:
+      context: ./server
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./server:/go/src/app
+    ports:
+      - 8080:8080
+  db:
+    build:
+      context: ./db
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432

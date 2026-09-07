@@ -1,0 +1,130 @@
+version: "3.8"
+services: 
+
+ #mariadb-1
+  mariadb1: 
+    image: mariadb:10.5
+    container_name: mariadb1
+    ports:
+    - "3306:3306"
+    env_file: .env
+    environment:
+    - MARIADB_USER=${MARIADB_USER_1}
+    - MARIADB_PASSWORD=${MARIADB_PASSWORD_1}
+    - MARIADB_DATABASE=${MARIADB_DATABASE_1}
+    - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+    volumes:
+    - ./mariadb1/galera.cnf:/etc/mysql/mariadb.conf.d/galera.cnf
+    cap_add:
+    - all
+    networks:
+    - mariadb
+    # command: bash -c "mysql -u root -p${MARIADB_ROOT_PASSWORD} -e "
+
+ #mariadb-2
+  mariadb2:
+    image: mariadb:10.5
+    container_name: mariadb2
+    ports:
+    - "3307:3306"
+    env_file: .env   
+    environment:
+    - MARIADB_USER=${MARIADB_USER_2}
+    - MARIADB_PASSWORD=${MARIADB_PASSWORD_2}
+    - MARIADB_DATABASE=${MARIADB_DATABASE_2}
+    - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+    volumes:
+    - ./mariadb2/galera.cnf:/etc/mysql/mariadb.conf.d/galera.cnf
+    cap_add:
+    - all
+    networks:
+    - mariadb
+    depends_on:
+    - mariadb1
+
+  maxscale:
+    image: mariadb/maxscale:latest
+    container_name: maxscale
+    ports:
+      - "4006:4006"
+      - "4008:4008"
+      - "8989:8989"
+      - "3309:3309"
+    volumes:
+      - ./maxscale/maxscale.cnf:/etc/maxscale.cnf
+    depends_on:
+      - mariadb1
+      - mariadb2
+    networks:
+      - mariadb
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    # volumes:
+    #   - ./realm-export.json:/opt/keycloak/data/import/realm-export.json
+    command: 
+      - start-dev 
+      # - --import-realm
+    ports:
+      - "8080:8080"
+
+  react-app:
+    image: node:latest
+    working_dir: /app
+    volumes:
+      - ./react_docker:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm start"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - keycloak
+    networks:
+      - mariadb
+
+  backend:
+    image: node:latest
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - ./backend/node_modules:/app/node_modules
+      - ./backend/package.json:/app/package.json
+    command: ["sh", "-c", "npm install && npm start"]
+    ports:
+      - "5000:5000"
+    depends_on:
+      - keycloak
+    networks:
+      - mariadb
+
+networks:
+  mariadb:
+    driver: bridge
+
+     #proxysql
+#  proxysql: 
+#    image: proxysql/proxysql:latest
+#    container_name: proxysql
+#    ports:
+#     - "6032:6032"
+#     - "6070:6070"
+#     - "6080:6080"
+#    cap_add:
+#     - all
+#    networks:
+#     - mariadb
+
+    # maxscale
+  # maxscale:
+  #   build:
+  #     context: ./maxscale
+  #     dockerfile: Dockerfile
+  #   container_name: maxscale
+  #   ports:
+  #     - "4006:4006"
+  #     - "4008:4008"
+  #   networks:
+  #     - mariadb

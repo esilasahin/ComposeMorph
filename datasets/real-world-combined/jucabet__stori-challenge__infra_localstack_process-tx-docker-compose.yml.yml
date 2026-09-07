@@ -1,0 +1,15 @@
+version: '3.7'
+services:
+  process-transactions:
+    build: ../../src/process-transactions
+    container_name: process-transactions
+    network_mode: "host"
+    environment:
+      ENV: docker
+      AWS_REGION_PROJECT: us-east-1
+      AWS_DYNAMO_TABLE_NAME: stori-transactions-db
+      URL_ENDPOINT_LOCALSTACK: http://localhost:4566
+      AWS_BUCKET_NAME: transactions-bucket-stori
+      AWS_SQS_NAME: reports-queue
+      AWS_ACCESS_KEY_ID: "xyz123"
+      AWS_SECRET_ACCESS_KEY: "qL4lyH"

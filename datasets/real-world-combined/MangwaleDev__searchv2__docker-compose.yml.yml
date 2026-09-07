@@ -1,0 +1,384 @@
+version: "3.8"
+
+# Production Docker Compose for Mangwale Search System
+# This file includes all services needed for a complete deployment
+
+services:
+  # ============================================
+  # CORE SEARCH INFRASTRUCTURE
+  # ============================================
+  
+  traefik:
+    image: traefik:v2.10
+    container_name: search-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=devops@mangwale.ai"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${DASHBOARD_PORT:-8081}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik-config/dynamic:/etc/traefik/dynamic
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - search-network
+    restart: unless-stopped
+
+  search-opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: search-opensearch
+    environment:
+      discovery.type: "single-node"
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms2g -Xmx2g"  # Increased for production
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  search-opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.13.0
+    container_name: search-opensearch-dashboards
+    depends_on:
+      search-opensearch:
+        condition: service_healthy
+    environment:
+      - OPENSEARCH_HOSTS=["http://search-opensearch:9200"]
+    # ports:
+    #   - "5601:5601"
+    networks:
+      - search-network
+    restart: unless-stopped
+
+  # ============================================
+  # DATA STORAGE
+  # ============================================
+
+  search-mysql:
+    image: mysql:8.0
+    container_name: search-mysql
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mangwale}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secret}
+    # ports:
+    #   - "3306:3306"
+    command: 
+      - --default-authentication-plugin=mysql_native_password
+      - --binlog_format=ROW
+      - --server-id=1
+      - --binlog_row_image=FULL
+      - --max_allowed_packet=256M
+      - --innodb_buffer_pool_size=1G
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-secret}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  search-redis:
+    image: redis:7.2-alpine
+    container_name: search-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  search-clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: search-clickhouse
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse123}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    # ports:
+    #   - "8124:8123"
+    #   - "9003:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # STREAMING & CDC
+  # ============================================
+
+  search-redpanda:
+    image: redpandadata/redpanda:v24.1.6
+    container_name: search-redpanda
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp=1
+      - --memory=2G  # Increased for production
+      - --reserve-memory=0M
+      - --check=false
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=search-redpanda:8082
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://search-redpanda:9092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=search-redpanda:33145
+    # ports:
+    #   - "9092:9092"
+    #   - "8082:8082"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep 'Healthy:.*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  search-kafka-connect:
+    image: debezium/connect:2.6
+    container_name: search-kafka-connect
+    depends_on:
+      search-redpanda:
+        condition: service_healthy
+      search-mysql:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: search-redpanda:9092
+      REST_ADVERTISED_HOST_NAME: search-kafka-connect
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      PLUGIN_PATH: /kafka/connect
+    # ports:
+    #   - "8083:8083"
+    volumes:
+      - connect-data:/data
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================
+  # SEARCH SERVICES
+  # ============================================
+
+  search-embedding-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.embedding
+    container_name: search-embedding-service
+    # ports:
+    #   - "3101:3101"
+    networks:
+      - search-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; r = requests.get('http://localhost:3101/health'); exit(0 if r.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  search-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: search-api
+    depends_on:
+      search-opensearch:
+        condition: service_healthy
+      search-redis:
+        condition: service_healthy
+      search-embedding-service:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - OPENSEARCH_HOST=http://search-opensearch:9200
+      - REDIS_URL=redis://search-redis:6379/2
+      - ENABLE_SEARCH_CACHE=true
+      - MYSQL_HOST=${MYSQL_HOST:-search-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-mangwale}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-secret}
+      - KAFKA_BROKERS=search-redpanda:9092
+      - CLICKHOUSE_URL=http://search-clickhouse:8123
+      - CLICKHOUSE_HOST=http://search-clickhouse:8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse123}
+      - EMBEDDING_SERVICE_URL=http://search-embedding-service:3101
+      # Image Storage Configuration (MinIO primary, S3 fallback)
+      - STORAGE_TYPE=${STORAGE_TYPE:-minio}
+      - S3_URL=${S3_URL:-https://mangwale.s3.ap-south-1.amazonaws.com}
+      - S3_BUCKET=${S3_BUCKET:-mangwale}
+      - S3_REGION=${S3_REGION:-ap-south-1}
+      - MINIO_URL=${MINIO_URL:-https://storage.mangwale.ai}
+      - MINIO_BUCKET=${MINIO_BUCKET:-mangwale}
+      - IMAGE_FALLBACK_ENABLED=${IMAGE_FALLBACK_ENABLED:-true}
+    # ports:
+    #   - "3100:3100"
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  search-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: search-frontend
+    depends_on:
+      search-api:
+        condition: service_healthy
+    # ports:
+    #   - "6000:80"
+    networks:
+      - search-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  search-cdc-consumer:
+    image: node:20
+    container_name: search-cdc-consumer
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: node scripts/cdc-to-opensearch.js
+    environment:
+      - KAFKA_BROKER=search-redpanda:9092
+      - OPENSEARCH_HOST=http://search-opensearch:9200
+      - CDC_GROUP_ID=cdc-osync-prod
+    depends_on:
+      search-redpanda:
+        condition: service_healthy
+      search-opensearch:
+        condition: service_healthy
+    networks:
+      - search-network
+    restart: unless-stopped
+
+  # ============================================
+  # UTILITIES
+  # ============================================
+
+  search-adminer:
+    image: adminer:4
+    container_name: search-adminer
+    depends_on:
+      search-mysql:
+        condition: service_healthy
+    # ports:
+    #   - "8086:8080"
+    networks:
+      - search-network
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: search-mysql
+
+# ============================================
+# NETWORKS
+# ============================================
+
+networks:
+  search-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+#   traefik_proxy:
+#     external: true
+#     name: mangwaleai_traefik_proxy
+
+# ============================================
+# VOLUMES
+# ============================================
+
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  redpanda-data:
+    driver: local
+  connect-data:
+    driver: local
+  clickhouse-data:
+    driver: local
+  opensearch-data:
+    driver: local

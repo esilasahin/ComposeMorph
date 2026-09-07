@@ -1,0 +1,95 @@
+version: '3.9'
+
+services:
+  db:
+    container_name: Postgres
+    image: postgres:latest
+    restart: always
+    env_file:
+      - ./Backend/MedicationReminder/config/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  redis:
+    container_name: Redis
+    image: redis:latest
+    restart: always
+    networks:
+      - app_network
+
+  backend:
+    container_name: Backend
+    build:
+      context: ./Backend
+    environment:
+      - TZ=America/Mazatlan
+    volumes:
+      - ./Backend:/app
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Backend/MedicationReminder/config/.env
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app_network
+
+  web:
+    build:
+      context: ./Web
+    container_name: Web
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./Web:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    stdin_open: true
+    tty: true
+
+  celery:
+    container_name: Celery
+    build:
+      context: ./Backend
+    command: /bin/bash -c "cd /app/MedicationReminder && pipenv run celery -A MedicationReminder worker -l info"
+    volumes:
+      - ./Backend:/app
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=America/Mazatlan
+    env_file:
+      - ./Backend/MedicationReminder/config/.env
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - app_network
+
+  beat:
+    container_name: Beat
+    build:
+      context: ./Backend
+    command: /bin/bash -c "cd /app/MedicationReminder && pipenv run celery -A MedicationReminder beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    volumes:
+      - ./Backend:/app
+    env_file:
+      - ./Backend/MedicationReminder/config/.env
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:
+    driver: bridge

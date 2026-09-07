@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: yuban
+      POSTGRES_PASSWORD: yuban
+      POSTGRES_DB: yuban
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yuban"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://yuban:yuban@postgres:5432/yuban
+      TTS_CACHE_DIR: /data/tts-cache
+      OLLAMA_ORIGIN: http://host.docker.internal:11434 # gemma engine on the host Mac
+    ports:
+      - "8400:8400"
+    volumes:
+      - ttscache:/data/tts-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_ORIGIN: http://server:8400 # baked into rewrites at build time
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
+  ttscache:

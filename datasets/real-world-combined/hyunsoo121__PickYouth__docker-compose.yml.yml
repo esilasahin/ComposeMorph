@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pickyouth-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pickyouth
+      POSTGRES_USER: pickyouth
+      POSTGRES_PASSWORD: pickyouth
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/volumes/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pickyouth -d pickyouth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pickyouth-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./docker/volumes/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -1,0 +1,753 @@
+# ==========================================
+# OpenNVR — Standard Compose (NVR core + YOLOv8 adapter)
+# ==========================================
+# Fastest install: pre-built images, no source build. First boot pulls YOLOv8
+# ONNX weights into a cached volume (~5 min on x86 broadband).
+#
+# Quickstart (the launcher wraps these):
+#     ./start.sh                 # Linux/macOS  (start.ps1 on Windows)
+#   or manually:
+#     cp .env.example .env && ./scripts/generate-secrets.sh --write
+#     docker compose -f docker-compose.yml up -d
+# Then open https://localhost/ and follow the one-time setup.
+#
+# Overlays, extra adapters, and production notes: see DOCKER_QUICKSTART.md
+# and docs/ARCHITECTURE.md.
+# ==========================================
+
+# Bounded per-container logs (see docs/OBSERVABILITY.md "Logs"): every
+# service keeps a rolling ~30MB of its own history (3 x 10MB json files), so
+# `docker logs --since 1h <name>` always has the recent story after an
+# incident, and a chatty container can never fill the disk. Opt-in central
+# viewer: `COMPOSE_PROFILES=logs` adds a localhost-only Dozzle at :9999.
+x-default-logging: &svc-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ──────────────────────────────────────────────────────────────
+  # PostgreSQL — persistence for cameras, alerts, audit logs.
+  # ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: opennvr_db
+    logging: *svc-logs
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - opennvr_db_data:/var/lib/postgresql/data
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+
+  # MediaMTX cert init — one-shot self-signed cert generator.
+  mediamtx-certs-init:
+    # alpine/openssl ships the openssl CLI pre-baked (avoids a runtime apk
+    # fetch that some ISPs block). entrypoint: [] clears its default openssl
+    # entrypoint so our `sh -c` command runs.
+    image: alpine/openssl:3.3.2
+    entrypoint: []
+    container_name: opennvr_mediamtx_certs_init
+    logging: *svc-logs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -f /certs/server.crt ] && [ -f /certs/server.key ]; then
+          echo "MediaMTX certs already present; skipping generation."
+        else
+          umask 077
+          # Add OPENNVR_HOST_IP to the cert SAN so direct RTSPS clients (VLC,
+          # ffmpeg) get a matching cert. Browsers use nginx's cert instead.
+          SAN="DNS:localhost,DNS:mediamtx,IP:127.0.0.1,IP:::1"
+          if [ -n "$${OPENNVR_HOST_IP}" ]; then
+            SAN="$${SAN},IP:$${OPENNVR_HOST_IP}"
+          fi
+          openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout /certs/server.key -out /certs/server.crt \
+            -subj "/CN=opennvr-mediamtx" \
+            -addext "subjectAltName=$${SAN}" \
+            -addext "basicConstraints=critical,CA:FALSE" \
+            -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+            -addext "extendedKeyUsage=serverAuth"
+          echo "Wrote /certs/server.{crt,key} with SAN=$${SAN}"
+        fi
+        # mediamtx runs as uid 1000 (non-root, see the mediamtx service) so
+        # the key must be readable by that uid — on fresh AND pre-existing
+        # installs (older installs wrote it root-owned mode 600).
+        chown 1000:1000 /certs/server.key /certs/server.crt
+        chmod 0600 /certs/server.key
+        chmod 0644 /certs/server.crt
+    environment:
+      - OPENNVR_HOST_IP=${OPENNVR_HOST_IP:-}
+    volumes:
+      - ./mediamtx-certs:/certs
+
+  # MediaMTX — RTSP / HLS / WebRTC streaming server. Inline build =
+  # official MediaMTX binary + curl (for runOnInit webhooks).
+  mediamtx:
+    build:
+      context: .
+      dockerfile_inline: |
+        # Base on curlimages/curl (working curl for the healthcheck +
+        # runOnInit hooks, no `apk add`), then copy in the statically-linked
+        # mediamtx binary. If you change the FROM line, re-audit inherited
+        # USER/WORKDIR/ENTRYPOINT/CMD/ENV so the boot doesn't silently break.
+        FROM postgres:15-alpine AS tz-source
+        FROM bluenviron/mediamtx:1.15.4 AS mediamtx-base
+        FROM curlimages/curl:8.10.1
+        USER root
+        WORKDIR /
+        # TZ=<IANA name> only takes effect if the zoneinfo database is present —
+        # without it the Go runtime silently falls back to UTC and recording
+        # directories get named in UTC while opennvr_core parses them in the
+        # configured zone. Copy the database out of postgres:15-alpine (already
+        # pinned and pulled by this stack, so no extra image) instead of
+        # `apk add tzdata`: an apk install makes every build of this image
+        # depend on the Alpine package CDN being reachable, and when it blips
+        # ("temporary error (try again later)") the whole stack fails to build.
+        # zoneinfo files are plain TZif data — arch- and libc-independent.
+        COPY --from=tz-source /usr/share/zoneinfo /usr/share/zoneinfo
+        # Clear any inherited CMD so it isn't passed to mediamtx as a config arg.
+        CMD []
+        COPY --from=mediamtx-base /mediamtx /mediamtx
+        ENTRYPOINT ["/mediamtx"]
+    container_name: opennvr_mediamtx
+    logging: *svc-logs
+    restart: unless-stopped
+    # Run as the same uid as the opennvr-core backend (Dockerfile useradd -u
+    # 1000). MediaMTX used to run as root, so every segment dir it created
+    # under the shared recordings mount was root-owned — and the backend
+    # (uid 1000) could not delete a single file from it: retention aging and
+    # the camera hard-delete purge (#243) both failed with EACCES. All ports
+    # are >1024 and the config mounts are read-only, so nothing here needs
+    # root. Pre-existing root-owned trees are migrated by opennvr-core's
+    # entrypoint chown at its next start.
+    user: "1000:1000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mediamtx-certs-init:
+        condition: service_completed_successfully
+    ports:
+      # Host-loopback only (host-side debugging). See V-015.
+      # RTSPS stays published by default: it is user-facing (VLC / ffmpeg
+      # from the host, and MEDIAMTX_EXTERNAL_RTSPS_URL below points at it).
+      - "127.0.0.1:8322:8322" # RTSPS (for VLC / ffmpeg from the host)
+      # HLS (8888), WHEP signalling (8889), playback (9996) and the admin
+      # API (9997) are NOT published by default. Browsers reach the first
+      # three through nginx (/hls/, /webrtc/, /playback/) and the container
+      # healthcheck talks to 9997 from inside, so nothing needs them on the
+      # host. Every extra publication is another chance for one unbindable
+      # port to abort ALL of this service's publications (see #298), so they
+      # are opt-in: set OPENNVR_DEBUG_PORTS=1 in .env, which makes the
+      # launcher add docker-compose.debug-ports.yml.
+      # WebRTC ICE media (DTLS-SRTP over UDP, browser ↔ mediamtx direct, not via
+      # nginx). Bound to NGINX_BIND_HOST so it stays on the operator NIC, off
+      # the camera LAN. See V-015.
+      - "${NGINX_BIND_HOST:-0.0.0.0}:${WEBRTC_ICE_PORT:-8189}:${WEBRTC_ICE_PORT:-8189}/udp"
+      # TCP fallback for WebRTC ICE when UDP is blocked.
+      - "${NGINX_BIND_HOST:-0.0.0.0}:${WEBRTC_ICE_PORT:-8189}:${WEBRTC_ICE_PORT:-8189}/tcp"
+    volumes:
+      - ./mediamtx.docker.yml:/mediamtx.yml:ro
+      - ./mediamtx-certs:/etc/mediamtx-certs:ro
+      - ${RECORDINGS_PATH:-./recordings}:/app/recordings
+    environment:
+      # Local timezone: MediaMTX expands recordPath timestamps in process-
+      # local time, so segment directories are named in this TZ. MUST match
+      # opennvr_core's TZ (both read the same ${TZ}) — the backend parses the
+      # names with the same zone. E.g. TZ=Asia/Kolkata. Default UTC.
+      - TZ=${TZ:-UTC}
+      - MEDIAMTX_SECRET=${MEDIAMTX_SECRET}
+      - BACKEND_HOST=${BACKEND_HOST:-opennvr_core}
+      - MTX_AUTHJWTJWKS=http://opennvr_core:8000/.well-known/jwks.json
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      # ICE candidate hosts advertised in the SDP answer (so the browser can
+      # reach UDP/8189). Set by start.sh from the detected topology; empty =
+      # mediamtx auto-detects (fine on single-NIC, breaks behind NAT/multi-NIC).
+      - MTX_WEBRTCADDITIONALHOSTS=${MEDIAMTX_WEBRTC_HOSTS:-}
+      # ICE media listen port. Overridable because some Windows hosts have
+      # 8189 inside a WinNAT/Hyper-V reserved range (netsh interface ipv4
+      # show excludedportrange protocol=tcp), where Docker cannot bind it —
+      # one failed binding aborts ALL of this service's port publications.
+      # Must match the published port above so the advertised ICE candidate
+      # port is correct.
+      - MTX_WEBRTCLOCALUDPADDRESS=:${WEBRTC_ICE_PORT:-8189}
+      - MTX_WEBRTCLOCALTCPADDRESS=:${WEBRTC_ICE_PORT:-8189}
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9997/v3/paths/list"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  # ──────────────────────────────────────────────────────────────
+  # NATS event bus — KAI-C publishes inference events here so
+  # downstream apps (alert relays, custom dashboards) can subscribe.
+  # ──────────────────────────────────────────────────────────────
+  nats:
+    image: nats:2-alpine
+    container_name: opennvr_nats
+    logging: *svc-logs
+    restart: unless-stopped
+    command:
+      - --name
+      - opennvr-nats
+      - --auth
+      - ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set in .env for the NATS event bus}
+      - --http_port
+      - "8222"
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # YOLOv8 weights init — copies the pre-baked ONNX weights into the volume the
+  # adapter reads (a thin copier, so first boot needs no apt/pip). Bring your own
+  # model via a custom weights image — see examples/yolov8-weights/README.md.
+  yolov8-weights-init:
+    # A ~20 MB image containing just /yolov8n.onnx (built by
+    # build-yolov8-weights.yml). Override YOLOV8_WEIGHTS_IMAGE in .env for a
+    # custom model.
+    image: ${YOLOV8_WEIGHTS_IMAGE:-ghcr.io/open-nvr/yolov8-weights:v8.3.0}
+    pull_policy: missing
+    container_name: opennvr_yolov8_weights_init
+    logging: *svc-logs
+    restart: "no"
+    # NOTE: entrypoint is list-form ["sh","-ec"] and command is a
+    # single-item LIST (the "- |" below), not a bare "command: |"
+    # string. Docker Compose word-splits a *string* command before
+    # exec, so "command: |\n set -e\n ..." reaches the container as
+    # `sh -c set -e WEIGHTS=... ...` — sh -c runs only the first token
+    # (`set`), dumps env, exits 0, and copies nothing → empty weights
+    # volume → adapter FileNotFoundError → every /infer returns 503.
+    # A list item is passed verbatim as one argument, so the whole
+    # script runs.
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        WEIGHTS=/weights/yolov8n.onnx
+        if [ -s "$$WEIGHTS" ]; then
+          echo "yolov8n.onnx already present at $$WEIGHTS (size: $$(wc -c < $$WEIGHTS) bytes); skipping."
+          exit 0
+        fi
+        echo "Copying pre-baked yolov8n.onnx into volume..."
+        cp /yolov8n.onnx "$$WEIGHTS"
+        echo "Wrote $$(wc -c < $$WEIGHTS) bytes to $$WEIGHTS."
+    volumes:
+      - opennvr_yolov8_weights:/weights
+
+  # ──────────────────────────────────────────────────────────────
+  # YOLOv8 adapter — object detection (boxes + class labels).
+  # The standard stack default. Comment out the entire block if you want
+  # a no-AI install (NVR + recording + viewing only).
+  # ──────────────────────────────────────────────────────────────
+  yolov8-adapter:
+    image: ghcr.io/open-nvr/yolov8-adapter:${ADAPTER_TAG:-latest}
+    container_name: opennvr_yolov8_adapter
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      yolov8-weights-init:
+        condition: service_completed_successfully
+    environment:
+      - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+      # The adapter code reads MODEL_WEIGHTS_DIR (app/config/config.py),
+      # NOT YOLOV8_WEIGHTS_DIR — and it defaults to /app/model_weights.
+      # So the weights volume MUST be mounted there, otherwise the model
+      # loads to FileNotFoundError and every /infer returns 503.
+      - MODEL_WEIGHTS_DIR=/app/model_weights
+    volumes:
+      - opennvr_yolov8_weights:/app/model_weights:ro
+    networks:
+      - opennvr_internal
+    # No port mapping — the adapter is internal-only, reached by
+    # KAI-C over the opennvr_internal network. Operators wanting
+    # to hit /infer directly from outside the compose can add a
+    # ``127.0.0.1:9002:9002`` port mapping.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9002/health', timeout=2).status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  # ──────────────────────────────────────────────────────────────
+  # Tier-0 detect-pipeline — always-on, per-camera motion→region→
+  # detect→track. Additive consumer: pulls the SAME MediaMTX tap the
+  # camera-agent uses (via opennvr-core's internal endpoint) and
+  # publishes detections to the existing opennvr.inference.* NATS
+  # subjects. Changes nothing about ingest, recording, or serving.
+  # On by default; set DETECT_PIPELINE_ENABLED=false to disable.
+  # ──────────────────────────────────────────────────────────────
+  detect-pipeline:
+    # Pulled from GHCR (built + published by publish-detect-pipeline.yml), like
+    # opennvr-core and yolov8-adapter — no local build. To run a locally built
+    # image (e.g. to test a change against a live stack), set
+    # DETECT_PIPELINE_IMAGE=opennvr/detect-pipeline:mytag — no compose edit and
+    # nothing to remember to undo. Otherwise build from source per
+    # detect-pipeline/README.md.
+    image: ${DETECT_PIPELINE_IMAGE:-ghcr.io/open-nvr/detect-pipeline:${CORE_TAG:-latest}}
+    container_name: opennvr_detect_pipeline
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      opennvr-core:
+        condition: service_healthy
+      mediamtx:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      # The default detector loads the same yolov8n.onnx the yolov8-adapter uses.
+      yolov8-weights-init:
+        condition: service_completed_successfully
+    environment:
+      - DETECT_PIPELINE_ENABLED=${DETECT_PIPELINE_ENABLED:-true}
+      - OPENNVR_INTERNAL_URL=http://opennvr-core:8000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - NATS_URL=nats://nats:4222
+      # Default detector: YOLOv8 ONNX via cv2.dnn (falls back to no-op if the
+      # model is missing — the container never crash-loops).
+      - DETECT_DETECTOR=${DETECT_DETECTOR:-onnx}
+      - DETECT_ONNX_MODEL=/app/model_weights/yolov8n.onnx
+      # Only tunable with a dynamic-axes export; the shipped model is fixed
+      # at 640 and the service adapts (with a warning) if this disagrees.
+      - DETECT_ONNX_INPUT=${DETECT_ONNX_INPUT:-640}
+      # Inference backend: cvdnn (zero-dep CPU, default) or ort (ONNX Runtime).
+      # For an accelerator, set backend=ort + providers (and install the matching
+      # onnxruntime wheel in a derived image) — see detect-pipeline/README.md.
+      - DETECT_ONNX_BACKEND=${DETECT_ONNX_BACKEND:-auto}
+      - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-}
+      - DETECT_HWACCEL=${DETECT_HWACCEL:-cpu}
+      # Decode-side frame skip (-skip_frame): nonref (default — provably
+      # lossless, drops only frames nothing references) | bidir | nokey
+      # (keyframes only: deepest CPU cut, granularity ≈ the GOP rate) | none.
+      - DETECT_DECODE_SKIP=${DETECT_DECODE_SKIP:-nonref}
+      # Decoder thread cap (lossless — output is identical at any thread
+      # count; ffmpeg's auto default spawns up to 16/camera) and the opt-in
+      # loop-filter skip (small extra CPU cut, tiny pixel drift; CPU decode only).
+      - DETECT_DECODE_THREADS=${DETECT_DECODE_THREADS:-2}
+      # Resident detector instances (blank = auto from CPU count). One per
+      # CAMERA made memory a function of the fleet rather than the hardware,
+      # which is the wall a large install hits first. 0 restores per-camera.
+      - DETECT_DETECTOR_POOL=${DETECT_DETECTOR_POOL:-}
+      # Spread a batch of worker starts so a cold start / fleet recovery does
+      # not hit MediaMTX with N simultaneous RTSP session setups.
+      - DETECT_START_SPREAD_S=${DETECT_START_SPREAD_S:-10}
+      # Fleet-wide cap on concurrent Tier-1 dispatches (per-camera share is
+      # half of it, so one busy camera cannot take every permit).
+      - DETECT_DISPATCH_MAX_INFLIGHT=${DETECT_DISPATCH_MAX_INFLIGHT:-4}
+      # 0 = per-camera quota is the only bound on the best-frame store.
+      - DETECT_BESTFRAME_MAX_ENTRIES=${DETECT_BESTFRAME_MAX_ENTRIES:-0}
+      # Best-frame crops retained per camera (see .env.example).
+      - DETECT_BESTFRAME_PER_CAMERA=${DETECT_BESTFRAME_PER_CAMERA:-16}
+      # RTSP socket-I/O timeout (seconds; 0 disables). Bounds a HALF-OPEN
+      # stream — a camera powered off mid-session, or a NAT/firewall dropping
+      # the flow — which otherwise blocks the decode forever with no restart.
+      - DETECT_RTSP_TIMEOUT_S=${DETECT_RTSP_TIMEOUT_S:-10}
+      - DETECT_DECODE_FAST=${DETECT_DECODE_FAST:-false}
+      # Adaptive decode (ON by default): keyframes-only while a camera is
+      # quiet, full decode from the first motion box until
+      # DETECT_DECODE_IDLE_AFTER quiet seconds. Recording is unaffected.
+      # Set DETECT_DECODE_IDLE=none for always-full decode (sub-second
+      # detector reaction at all times).
+      - DETECT_DECODE_IDLE=${DETECT_DECODE_IDLE:-nokey}
+      - DETECT_DECODE_IDLE_AFTER=${DETECT_DECODE_IDLE_AFTER:-60}
+      # Gate: shadow (default — measure only, no behavior change; the app's
+      # Compute-gated panel shows would-save numbers) | off | enforce (act;
+      # enable only after validating shadow data — see detect-pipeline/ENABLEMENT.md).
+      - DETECT_GATE_MODE=${DETECT_GATE_MODE:-shadow}
+      - DETECT_GATE_HEARTBEAT_S=${DETECT_GATE_HEARTBEAT_S:-0}
+      - DETECT_GATE_CRITICAL_CLASSES=${DETECT_GATE_CRITICAL_CLASSES:-}
+      - DETECT_METRICS_PORT=${DETECT_METRICS_PORT:-9109}
+      # Thread cap for the detector (cv2 intra-op + BLAS). Prevents Tier-0
+      # from starving CPU-bound co-tenants; raise it on big machines.
+      # Empty = sized to the fleet (cores / concurrent inferences).
+      - DETECT_CV_THREADS=${DETECT_CV_THREADS:-}
+      - DETECT_VISITS_ENABLED=${DETECT_VISITS_ENABLED:-}
+      - DETECT_GATE_COOLDOWN_S=${DETECT_GATE_COOLDOWN_S:-}
+      - DETECT_DISPATCH_TASK=${DETECT_DISPATCH_TASK:-}
+      - DETECT_HWACCEL_DEVICE=${DETECT_HWACCEL_DEVICE:-}
+      - DETECT_REFRESH_SECONDS=${DETECT_REFRESH_SECONDS:-}
+      # Per-camera analysis rate. Detection runs on every analyzed frame,
+      # so this is the pipeline's main CPU dial — see .env.example.
+      - DETECT_FPS=${DETECT_FPS:-2}
+      # Re-verify stationary tracks every Nth frame instead of every frame
+      # (staggered per track; motion near the object re-checks immediately).
+      # 0 = pre-gating behavior. See .env.example.
+      - DETECT_STATIONARY_INTERVAL=${DETECT_STATIONARY_INTERVAL:-10}
+      # Bounded-load guards — keep Tier-0's worst case flat no matter how
+      # cluttered the scene is (see .env.example for the full story):
+      #   DETECT_LABELS       classes worth tracking ("all" = every COCO class)
+      #   DETECT_CONF         detector confidence floor
+      #   DETECT_MAX_REGIONS  detector crops per frame, hard cap (0 = off)
+      #   DETECT_MAX_TRACKS   live tracks per camera, hard cap
+      #   DETECT_TRACK_TTL    seconds an unverified track may live (0 = off)
+      #   DETECT_MIN_SPAWN_SCORE  score needed to CREATE a track
+      - DETECT_LABELS=${DETECT_LABELS:-}
+      - DETECT_CONF=${DETECT_CONF:-}
+      - DETECT_MAX_REGIONS=${DETECT_MAX_REGIONS:-}
+      - DETECT_MAX_TRACKS=${DETECT_MAX_TRACKS:-}
+      - DETECT_TRACK_TTL=${DETECT_TRACK_TTL:-}
+      - DETECT_MIN_SPAWN_SCORE=${DETECT_MIN_SPAWN_SCORE:-}
+      # Motion-gate tunables (#373; see .env.example). The calibration
+      # deadline keeps a permanently-busy scene from wedging the gate
+      # shut — before it, a scene that never went quiet skipped EVERY
+      # frame as "calibrating" and detection silently never ran.
+      - DETECT_MOTION_ENABLED=${DETECT_MOTION_ENABLED:-}
+      - DETECT_MOTION_THRESHOLD=${DETECT_MOTION_THRESHOLD:-}
+      - DETECT_MOTION_CONTOUR_AREA=${DETECT_MOTION_CONTOUR_AREA:-}
+      - DETECT_MOTION_FRAME_ALPHA=${DETECT_MOTION_FRAME_ALPHA:-}
+      - DETECT_MOTION_LIGHTNING_THRESHOLD=${DETECT_MOTION_LIGHTNING_THRESHOLD:-}
+      - DETECT_MOTION_CALIBRATION_MAX_FRAMES=${DETECT_MOTION_CALIBRATION_MAX_FRAMES:-}
+      - DETECT_MOTION_MAX_FORCED_EXITS=${DETECT_MOTION_MAX_FORCED_EXITS:-}
+      # Multi-frame plate OCR (LPR cameras only; see .env.example):
+      # several diverse OCR attempts per vehicle instead of one, with
+      # the first fired while the car is still in frame.
+      - DETECT_PLATE_CANDIDATES=${DETECT_PLATE_CANDIDATES:-}
+      - DETECT_PLATE_EARLY_ATTEMPTS=${DETECT_PLATE_EARLY_ATTEMPTS:-}
+      - DETECT_PLATE_CANDIDATE_GAP_S=${DETECT_PLATE_CANDIDATE_GAP_S:-}
+      # Scene evidence: a SECOND JPEG per visit — the whole frame the
+      # best crop was taken from, so the evidence dialog can show the
+      # car in its lane instead of a crop of the car.
+      - DETECT_SCENE_EVIDENCE=${DETECT_SCENE_EVIDENCE:-}
+      - DETECT_SCENE_MAX_PX=${DETECT_SCENE_MAX_PX:-}
+      - DETECT_SCENE_JPEG_QUALITY=${DETECT_SCENE_JPEG_QUALITY:-}
+      # Opt-in CPU saving (docs/CAMERA_ASSIGNMENTS.md): skip analysis on
+      # cameras whose assignments are all detection-free. Empty = off.
+      - DETECT_SKIP_UNASSIGNED=${DETECT_SKIP_UNASSIGNED:-}
+      - OMP_NUM_THREADS=${DETECT_CV_THREADS:-2}
+      # #10 Tier-1 dispatch: empty = off. Set to the KAI-C URL (e.g. http://kai-c:8100)
+      # to run the gated model on enforce escalations, governed + audited by KAI-C.
+      - DETECT_DISPATCH_KAIC_URL=${DETECT_DISPATCH_KAIC_URL:-}
+    volumes:
+      # Read-only mount of the shared yolov8 weights volume (built by
+      # yolov8-weights-init) — same model as the yolov8-adapter.
+      - opennvr_yolov8_weights:/app/model_weights:ro
+    # Function-based health: /health is 503 when the service is a zombie —
+    # model degraded to stub, bus unauthenticated, or no frames flowing —
+    # not merely when the process is dead. See detect_pipeline/health.py.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:9109/health', timeout=3); sys.exit(0 if r.status==200 else 1)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    # For VAAPI/QSV hardware decode, pass the render node through and set
+    # DETECT_HWACCEL=vaapi in .env (uncomment):
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # Setting DETECT_HWACCEL without this mapping is the expensive mistake:
+    # core reads the same setting as "this box has a GPU" and switches these
+    # cameras to the full-resolution MAIN stream, while the pipeline — unable
+    # to see the render node — falls back to software decode. It warns per
+    # camera rather than failing, but that combination costs several times
+    # what plain cpu decode on the substream does.
+    networks:
+      - opennvr_internal
+
+  # ──────────────────────────────────────────────────────────────
+  # OpenNVR core — backend + frontend + KAI-C.
+  # ──────────────────────────────────────────────────────────────
+  opennvr-core:
+    image: ghcr.io/open-nvr/core:${CORE_TAG:-latest}
+    container_name: opennvr_core
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mediamtx:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      yolov8-adapter:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - shared_frames:/app/AI-adapters/AIAdapters/frames
+      - ${RECORDINGS_PATH:-./recordings}:/app/recordings
+      # MediaMTX JWT signing keypair — persisted so the kid survives
+      # container recreates; otherwise MediaMTX keeps serving its cached
+      # JWKS and rejects every stream token until it is restarted.
+      - opennvr_jwt_keys:/app/keys
+      # KAI-C adapter-registration receipts (#371) — runtime-registered
+      # adapters (e.g. fast_plate_ocr from the LPR app overlay) are
+      # re-registered from this file on boot, so restarting/recreating
+      # this container no longer silently kills plate recognition.
+      - opennvr_kai_c_state:/app/kai-c-state
+      # Host LAN IP hints, rewritten by the launchers on every run so ONVIF
+      # discovery keeps seeing the host's *current* networks even when the
+      # OPENNVR_HOST_IP/OPENNVR_LAN_IPS env vars (frozen at container
+      # creation) go stale after a subnet change.
+      - ./data/net-hints:/app/net-hints:ro
+    environment:
+      # Must match the mediamtx service's TZ — recording directories are
+      # named in local time and parsed with the same zone.
+      - TZ=${TZ:-UTC}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - MEDIAMTX_BASE_URL=http://mediamtx:8889
+      - MEDIAMTX_ADMIN_API=http://mediamtx:9997/v3
+      - MEDIAMTX_HLS_URL=http://mediamtx:8888
+      - MEDIAMTX_RTSP_URL=rtsp://mediamtx:8554
+      - MEDIAMTX_RTSPS_URL=rtsps://mediamtx:8322
+      # Where the app's "Compute-gated inference" panel reads the Tier-0
+      # detect-pipeline's Prometheus /metrics. The server's config default
+      # is localhost:9109, which is correct only when server and pipeline
+      # share a host — inside this container it is the CORE's own loopback,
+      # so without this line the panel says "not reachable" on every
+      # compose install regardless of the pipeline's actual health.
+      # Follows DETECT_METRICS_PORT (0 disables exposition on the pipeline;
+      # the server treats a :0 URL as "disabled", not "unreachable").
+      - DETECT_PIPELINE_METRICS_URL=http://detect-pipeline:${DETECT_METRICS_PORT:-9109}
+      # Tier-0 tap selection (auto | sub | main) + the hardware-decode
+      # signal 'auto' keys off — same DETECT_HWACCEL the detect-pipeline
+      # container gets, so both sides agree on what the hardware can do.
+      - INFERENCE_TAP_STREAM=${INFERENCE_TAP_STREAM:-auto}
+      - DETECT_HWACCEL=${DETECT_HWACCEL:-cpu}
+      - MEDIAMTX_EXTERNAL_RTSPS_URL=rtsps://localhost:8322
+      - MEDIAMTX_PLAYBACK_URL=http://mediamtx:9996
+      # Browser-facing URLs go through nginx (TLS, any LAN device).
+      # MEDIAMTX_PUBLIC_URL is set by start.sh from the detected topology and
+      # falls back to https://localhost. Same-origin with the UI (no mixed content).
+      - MEDIAMTX_EXTERNAL_BASE_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/webrtc
+      - MEDIAMTX_EXTERNAL_HLS_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/hls
+      - MEDIAMTX_EXTERNAL_PLAYBACK_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/playback
+      # Seed for the ICE hosts MediaMTX advertises. The backend owns the
+      # authoritative list (DB-backed, learned from the address browsers
+      # actually reach) and re-pushes it on every MediaMTX start, so this is
+      # only a first-boot hint — unlike MTX_WEBRTCADDITIONALHOSTS on the
+      # mediamtx service, losing it no longer breaks live WebRTC.
+      - MEDIAMTX_WEBRTC_HOSTS=${MEDIAMTX_WEBRTC_HOSTS:-}
+      - KAI_C_URL=http://127.0.0.1:8100
+      # Duplicate-sighting dedup for plate reads: a fragmented track
+      # (moving camera, occlusion) re-reads the car just read; the same
+      # (camera, plate) within this rolling window is folded into one
+      # sighting and costs at most ONE extra OCR call. 0 disables.
+      - OPENNVR_PLATE_DEDUP_WINDOW_S=${OPENNVR_PLATE_DEDUP_WINDOW_S:-}
+      # Reject FALSE plate localisations (#386): a manufacturer badge
+      # reads as plausible characters mid-crop, so neither read
+      # confidence nor the partial-read geometry catches it — only the
+      # localiser's own score does (genuine plates 0.85+, the reported
+      # badge 0.38). 0 disables.
+      - OPENNVR_PLATE_MIN_DETECTION_CONFIDENCE=${OPENNVR_PLATE_MIN_DETECTION_CONFIDENCE:-}
+      # Where KAI-C persists runtime adapter registrations (#371) —
+      # points at the opennvr_kai_c_state volume mounted above.
+      - KAI_C_STATE_DIR=/app/kai-c-state
+      # ONVIF discovery auto-detection: inside this bridge container the only
+      # visible network is the compose bridge, so the launchers export the
+      # host's LAN IPs as the real subnet hints — OPENNVR_HOST_IP (default
+      # route) plus OPENNVR_LAN_IPS (every LAN-facing NIC on a multi-NIC
+      # host) — and OPENNVR_DOCKER_SUBNET tells detection which range to ignore.
+      - OPENNVR_HOST_IP=${OPENNVR_HOST_IP:-}
+      - OPENNVR_LAN_IPS=${OPENNVR_LAN_IPS:-}
+      - OPENNVR_DOCKER_SUBNET=${OPENNVR_DOCKER_SUBNET:-172.28.0.0/16}
+      - RECORDINGS_HOST_BASE=${RECORDINGS_PATH:-./recordings}
+      - RECORDINGS_CONTAINER_BASE=/app/recordings
+      - RECORDINGS_BASE_PATH=/app/recordings
+      - SECRET_KEY=${SECRET_KEY}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - MEDIAMTX_SECRET=${MEDIAMTX_SECRET}
+      # Server inference path through KAI-C: governed (default, audited
+      # /api/v1/infer + NATS fan-out) | v1 | legacy — see .env.example.
+      - OPENNVR_ADAPTER_CONTRACT=${OPENNVR_ADAPTER_CONTRACT:-governed}
+      # KAI-C points at the yolov8 adapter as "default" — the
+      # camera-agent overlay extends this with explicit per-model
+      # routes (whisper, piper, ollama). Operators enabling more
+      # adapters can extend ADAPTER_URL similarly OR set up a
+      # multi-URL ADAPTER_REGISTRY override in a follow-up release.
+      - ADAPTER_URL=http://yolov8-adapter:9002
+      # KAI-C sovereignty mode. Default local_only refuses any adapter that
+      # DECLARES external network egress. All bundled adapters — yolov8,
+      # whisper, piper, the ollama wrapper, BLIP, and Moondream — ship their
+      # weights baked into their images (issue #79) and declare no egress, so they
+      # all register cleanly under the secure local_only default. Only set
+      # federated/cloud_allowed for genuinely off-box or vendor-managed
+      # inference. See kai-c/sovereignty.py.
+      - AI_SOVEREIGNTY=${AI_SOVEREIGNTY:-local_only}
+      # Inference frame-capture reads from MediaMTX's plaintext
+      # loopback path (rtsp://mediamtx:8554/cam-N) rather than
+      # opening a second RTSP session directly to the camera. This
+      # eliminates the double-pull most consumer cameras can't
+      # tolerate and saves the per-frame TLS overhead on a hop that
+      # never leaves the host's kernel. Flip to "false" only if
+      # you're running MediaMTX and KAI-C on different hosts; see
+      # docs/SECURITY_ARCHITECTURE.md §"RTSP encryption posture".
+      - INFERENCE_USE_MEDIAMTX_TAP=${INFERENCE_USE_MEDIAMTX_TAP:-true}
+      - MEDIAMTX_STREAM_PREFIX=${MEDIAMTX_STREAM_PREFIX:-cam-}
+      # XFF/internal trust zone = loopback + the compose network pinned below
+      # (follows an OPENNVR_DOCKER_SUBNET override automatically). Kept narrow
+      # on purpose: a broad range (e.g. 172.16.0.0/12) would let any LAN client
+      # inside it spoof X-Forwarded-For and bypass the device firewall.
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,${OPENNVR_DOCKER_SUBNET:-172.28.0.0/16}}
+      - INTERNAL_SERVICE_CIDRS=${INTERNAL_SERVICE_CIDRS:-127.0.0.1/32,::1/128,${OPENNVR_DOCKER_SUBNET:-172.28.0.0/16}}
+      - NATS_URL=nats://nats:4222
+      - FRAMES_DIR=/app/AI-adapters/AIAdapters/frames
+      - HOST=${HOST:-0.0.0.0}
+      # Avoid inheriting a generic host DEBUG value (some shells/tools set
+      # DEBUG=release), because the backend expects this setting to be boolean.
+      - DEBUG=${OPENNVR_DEBUG:-False}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
+  # nginx — the LAN-facing TLS edge. opennvr-core binds only to
+  # 127.0.0.1:8000, so nginx terminates TLS (self-signed) and proxies to it
+  # over the Docker bridge (inside the trust zone). See V-015. Operators with
+  # their own TLS terminator can drop this service and bind core to 0.0.0.0.
+  nginx-certs-init:
+    # Same pre-baked openssl approach as mediamtx-certs-init above. See its
+    # comment block for the dl-cdn.alpinelinux.org filter rationale.
+    image: alpine/openssl:3.3.2
+    entrypoint: []
+    container_name: opennvr_nginx_certs_init
+    logging: *svc-logs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -f /certs/server.crt ] && [ -f /certs/server.key ]; then
+          echo "nginx certs already present; skipping."
+          exit 0
+        fi
+        umask 077
+        # SAN list covers common LAN access patterns. OPENNVR_HOST_IP
+        # (optional) lets the operator add the server's actual LAN IP
+        # so browsers don't even warn about CN mismatch — they still
+        # warn about the self-signed CA, but that's a one-click
+        # "accept the risk" rather than a hard block.
+        SAN="DNS:opennvr,DNS:opennvr.local,DNS:localhost,IP:127.0.0.1,IP:::1"
+        if [ -n "$${OPENNVR_HOST_IP}" ]; then
+          SAN="$${SAN},IP:$${OPENNVR_HOST_IP}"
+        fi
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+          -keyout /certs/server.key -out /certs/server.crt \
+          -subj "/CN=opennvr-ui" \
+          -addext "subjectAltName=$${SAN}" \
+          -addext "basicConstraints=critical,CA:FALSE" \
+          -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+          -addext "extendedKeyUsage=serverAuth"
+        chmod 0644 /certs/server.crt
+        echo "Wrote /certs/server.{crt,key} with SAN=$${SAN}"
+    environment:
+      - OPENNVR_HOST_IP=${OPENNVR_HOST_IP:-}
+    volumes:
+      - ./nginx-certs:/certs
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: opennvr_nginx
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      nginx-certs-init:
+        condition: service_completed_successfully
+      opennvr-core:
+        condition: service_healthy
+      # nginx resolves its proxy_pass upstreams at config-load time, so it must
+      # start after mediamtx or it crash-loops on "host not found in upstream".
+      mediamtx:
+        condition: service_healthy
+    ports:
+      # NGINX_BIND_HOST restricts the public edge to a specific interface
+      # (e.g. a management VLAN). Default 0.0.0.0 for LAN reachability.
+      - "${NGINX_BIND_HOST:-0.0.0.0}:443:443"
+      - "${NGINX_BIND_HOST:-0.0.0.0}:80:80"
+    volumes:
+      - ./nginx-certs:/etc/nginx/certs:ro
+      - ./nginx/opennvr.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - opennvr_internal
+    healthcheck:
+      # `wget -q -O - https://localhost/health` would also work but
+      # requires curl in the alpine image; using nginx's own ability
+      # to serve a 200 on /healthz (we add it in the config) keeps
+      # the image lean.
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "-", "https://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+# ==========================================
+# Networks
+# ==========================================
+  # ──────────────────────────────────────────────────────────────
+  # Central log viewer — OPT-IN (COMPOSE_PROFILES=logs). Dozzle streams every
+  # container's stdout in one localhost-only web UI (http://127.0.0.1:9999),
+  # filtered to this project's containers. SECURITY: it mounts the Docker
+  # socket read-only, which is still host-level visibility — that is exactly
+  # why this ships OFF by default, binds to loopback only, and belongs on a
+  # dev/operator box, never an exposed host. For always-on bounded history
+  # without any extra container, every service already keeps ~30MB of
+  # rotated logs: `docker logs --since 1h <container>`.
+  # ──────────────────────────────────────────────────────────────
+  log-viewer:
+    profiles: [logs]
+    image: amir20/dozzle:v8.9.1
+    container_name: opennvr_log_viewer
+    logging: *svc-logs
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9999:8080"
+    environment:
+      - DOZZLE_FILTER=name=opennvr
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+networks:
+  opennvr_internal:
+    driver: bridge
+    # Pinned so the trust zone is deterministic and doesn't collide with the
+    # operator's LAN. Override via OPENNVR_DOCKER_SUBNET (stay inside RFC1918).
+    # See V-015.
+    ipam:
+      driver: default
+      config:
+        - subnet: ${OPENNVR_DOCKER_SUBNET:-172.28.0.0/16}
+
+# ==========================================
+# Volumes
+# ==========================================
+
+volumes:
+  opennvr_db_data:
+  shared_frames:
+  # yolov8 model weights — persistent so the init container only
+  # runs once. Wipe with ``docker volume rm openvr_opennvr_yolov8_weights``
+  # to force a re-download (e.g., after the weights URL changes).
+  opennvr_yolov8_weights:
+  # MediaMTX JWT RSA keypair (private key never leaves opennvr-core).
+  # Rotate by removing the volume with core stopped, then restart
+  # mediamtx so it refetches the JWKS.
+  opennvr_jwt_keys:
+  # KAI-C runtime adapter registrations + grants (#371). Removing this
+  # volume forgets app-registered adapters — re-run the app overlay's
+  # registrar (or re-register on the AI Models page) to restore them.
+  opennvr_kai_c_state:

@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    container_name: swagger-ui
+    ports:
+      - 10082:8080
+    volumes:
+      - ./src/specs/v1.yml:/usr/share/nginx/html/v1.yml
+    environment:
+      API_URL: v1.yml
+
+  swagger-api:
+    image: stoplight/prism:3
+    container_name: swagger-api
+    ports:
+      - 4010:4010
+    command: mock -h 0.0.0.0 /v1.yml
+    volumes:
+      - ./src/specs/v1.yml:/v1.yml
+
+  cli:
+    container_name: cli
+    build:
+      context: .
+      dockerfile: ./.docker/cli/Dockerfile
+    volumes:
+      - ./:/openapi
+      - ./node_modules:/openapi/node_modules
+      - ./package.json:/openapi/package.json
+    working_dir: /openapi

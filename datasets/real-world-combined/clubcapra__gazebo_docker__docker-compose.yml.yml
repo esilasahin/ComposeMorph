@@ -1,0 +1,15 @@
+version: '3'
+services:
+  gazebo:
+    image: ghcr.io/clubcapra/gazebo:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /tmp/.Xauthority:/tmp/.Xauthority:rw
+    command: ros2 launch ros_gz_sim gz_sim.launch.py
+    network_mode: "host"
+    privileged: true

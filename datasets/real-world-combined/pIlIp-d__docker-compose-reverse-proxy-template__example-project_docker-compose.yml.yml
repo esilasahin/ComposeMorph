@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  webserver:
+    image: nginx:latest
+    volumes:
+      - ./src/:/usr/share/nginx/html/
+    networks:
+      - reverseproxy_default
+    environment:
+      - VIRTUAL_HOST=yourdomain.com
+      - LETSENCRYPT_HOST=yourdomain.com
+    expose:
+      - 80
+
+networks:
+  reverseproxy_default:
+    external: true

@@ -1,0 +1,746 @@
+name: gaia-dev
+
+services:
+  # FastAPI Application — profile-gated so `mise dev` runs the API natively on
+  # the host (hot reload, fast iteration on macOS). Opt into the dockered API
+  # with `docker compose --profile backend up -d` when you need the juicefs CLI
+  # + /mnt/jfs FUSE mount that a native `nx dev api` on macOS cannot provide.
+  gaia-backend:
+    container_name: gaia-backend
+    profiles: ["backend", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: gaia
+    working_dir: /app/apps/api
+    # Packages are already installed system-wide by the Dockerfile via
+    # `uv sync --frozen` against UV_PROJECT_ENVIRONMENT=/usr/local. Call python
+    # directly so we don't trigger uv's runtime sync (which would try to mutate
+    # root-owned files in /usr/local/lib as appuser).
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "80",
+        "--reload",
+        "--no-access-log",
+      ]
+    environment:
+      DEBUG: 1
+      PYTHONUNBUFFERED: 1
+      WATCHFILES_FORCE_POLLING: 1
+      # PYTHONPROFILEIMPORTTIME: 1
+      FORCE_COLOR: 0
+      WORKER_TYPE: main_app
+      PYTHONPATH: /app/apps/api
+      # Dev auth bypass: off unless the caller exports it (e.g. `mise dev:vm --agent`
+      # / `--sim`, which derive it from DEV_USER). Overrides the commented-out value
+      # in apps/api/.env; empty means real WorkOS login. Development compose only.
+      DEV_AUTH_BYPASS_EMAIL: ${DEV_AUTH_BYPASS_EMAIL:-}
+      # Post-login / OAuth redirects and notification links resolve from this.
+      # Declared here (not left to the env_file) so a worktree's .env.worktree
+      # value wins over the fixed :3000 in apps/api/.env.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      # Share one copy of the embedding/reranker weights via the sidecar.
+      MEMORY_EMBEDDING_SIDECAR_URL: http://embedding-sidecar:8200
+      # Self-hosted SearXNG — the unlimited last-resort search fallback.
+      SEARXNG_BASE_URL: http://searxng:8080
+      # Persistent workspace storage (JuiceFS on Cloudflare R2). Sidecar mount
+      # at /mnt/jfs is created on the host (or as a tmpfs in dev when R2 is
+      # unset — the storage helper short-circuits gracefully in that case).
+      JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
+      # Skip uv's env sync at runtime; the Dockerfile already installed every
+      # package system-wide via `uv sync --frozen` at build time. Without this,
+      # `uv run` tries to mutate root-owned files in /usr/local/lib as appuser.
+      UV_NO_SYNC: "1"
+      # Override Infisical's localhost URLs with the docker-compose service
+      # hostnames. Infisical respects pre-set env vars, so these take precedence.
+      # (The "localhost" URLs in Infisical are for `nx dev api` where Python
+      # runs on the host and connects to dockered infra at host-mapped ports.)
+      # libpq form (not postgresql+asyncpg://): the langgraph checkpointer
+      # feeds POSTGRES_URL straight to psycopg, and db/postgresql.py adapts
+      # this same URL for the asyncpg SQLAlchemy engine. The +asyncpg dialect
+      # form makes psycopg fail with: missing "=" after "postgresql+asyncpg://".
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/langgraph
+      REDIS_URL: redis://redis:6379/0
+      MONGO_DB: mongodb://mongo:27017/
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: "8000"
+      # E2B's watch_dir (inotify) cannot watch the FUSE-mounted JuiceFS
+      # ("cannot watch path on network filesystem"). Use the JuiceFS-native
+      # .accesslog tail instead — the Phase 0 verdict for this stack.
+      ARTIFACT_DETECTION_MODE: accesslog
+      # Dev overrides the Infisical/cloud JUICEFS_META_URL_TEMPLATE (redis DB
+      # numbers, {shard} = the DB index) with the local jfs-meta-redis service.
+      # Prod keeps the cloud meta so the API host and the E2B sandboxes share
+      # one namespace — a local meta is a separate namespace over the same R2
+      # volume, so juicefs refuses to double-format it. That constraint is
+      # acceptable in dev (no sandbox mounts against the dev API); if you hit
+      # "Storage ... is not empty", point the sandbox and API at the same meta
+      # URL or format against a fresh bucket. The cache/queue redis below is
+      # NOT a valid meta store — its eviction policy can corrupt the FS.
+      JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
+    env_file:
+      - ../../apps/api/.env
+    volumes:
+      - ../../apps/api/app:/app/apps/api/app
+      # Live-mount scripts so mount_juicefs.sh edits (shipped into the sandbox at
+      # runtime by _run_mount_script) apply on the next acquire with no rebuild.
+      - ../../apps/api/scripts:/app/apps/api/scripts
+      - juicefs_cache:/var/cache/juicefs
+    # Harden the resolver: Docker's embedded DNS (127.0.0.11) intermittently
+    # drops rapid back-to-back external lookups, so juicefs sees a spurious
+    # "no such host" for the managed-Postgres meta. Retry/extend timeouts
+    # WITHOUT overriding `dns:` (that would break compose service discovery
+    # for postgres/redis/etc.). Single-request avoids the parallel A/AAAA
+    # race that surfaced "network is unreachable" on IPv6-less networks.
+    dns_opt:
+      - attempts:5
+      - timeout:3
+      - single-request
+    # FUSE mount inside container requires SYS_ADMIN + /dev/fuse + an
+    # unconfined apparmor profile on Ubuntu/Debian hosts. Without these,
+    # `juicefs mount` fails with "fusermount3: cannot open /dev/fuse".
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    ports:
+      - "${API_HOST_PORT:-8000}:80"
+    restart: on-failure
+    tty: true
+    stdin_open: true
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      jfs-meta-redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    networks:
+      - gaia_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ChromaDB Service
+  chromadb:
+    image: chromadb/chroma:1.5.1
+    container_name: chromadb
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_PORT=8000
+    ports:
+      - "${CHROMADB_HOST_PORT:-8080}:8000"
+    restart: on-failure
+    healthcheck:
+      test:
+        ["CMD", "/bin/bash", "-c", "cat < /dev/null > /dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # Postgres Service
+  postgres:
+    image: postgres:18-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres # pragma: allowlist secret
+      POSTGRES_DB: langgraph
+    volumes:
+      - pgdata:/var/lib/postgresql
+      # postgres-init/*.sql runs once on first init (test DB for the real-infra
+      # suite). JuiceFS metadata now lives in jfs-meta-redis, not Postgres.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # Redis Service (app cache/queue — SSE channels, rate limits, ARQ). NOT a
+  # JuiceFS metadata store: default Redis eviction can silently corrupt the
+  # filesystem. Metadata lives in jfs-meta-redis below.
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # JuiceFS metadata Redis. Mirrors prod (docker-compose.prod.yml) minus TLS
+  # and auth — the dev API mounts over the compose network, never the public
+  # internet. Holds the whole directory tree + inode→chunk mapping; R2 stores
+  # only anonymous blocks, so losing this loses the filesystem. Hence
+  # noeviction (a cache miss is a bad read; an evicted metadata key is
+  # corruption) and appendfsync always. Every dev client uses its own DB
+  # number: redis://jfs-meta-redis:6379/{shard}.
+  jfs-meta-redis:
+    image: redis:8-alpine
+    container_name: jfs-meta-redis
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "always",
+        "--maxmemory-policy",
+        "noeviction",
+        "--stop-writes-on-bgsave-error",
+        "yes",
+        "--save",
+        "900 1",
+        "--save",
+        "300 10",
+        "--save",
+        "60 10000",
+      ]
+    ports:
+      - "${JFS_META_REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - jfs_meta_data:/data
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # MongoDB Service
+  mongo:
+    image: mongo:8
+    container_name: mongo
+    volumes:
+      - mongo_data:/data/db
+    restart: on-failure
+    environment:
+      # Required for Linux kernel 7.x (6.19+): disables glibc rseq registration
+      # so TCMalloc's per-CPU caches don't conflict with the kernel's rseq ABI.
+      GLIBC_TUNABLES: glibc.pthread.rseq=0
+    security_opt:
+      # Required for Linux kernel 7.x: block rseq (ENOSYS) so TCMalloc falls
+      # back from per-CPU caches to a safe path. Using rseq on kernel 7.x causes
+      # a SIGSEGV in mongo:8's TCMalloc ~30s after startup (SERVER-121912).
+      - seccomp:seccomp-mongo.json
+    ports:
+      - "${MONGO_HOST_PORT:-27017}:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # RabbitMQ Service
+  rabbitmq:
+    image: rabbitmq:4.1.8-management
+    container_name: rabbitmq
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672" # AMQP protocol
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "${RABBITMQ_PROM_PORT:-15692}:15692" # Prometheus metrics
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./observability/rabbitmq-enabled-plugins:/etc/rabbitmq/enabled_plugins:ro
+    restart: always
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
+  # Arq Worker (use profile to run in docker, otherwise run locally with mise)
+  arq_worker:
+    container_name: arq_worker
+    image: gaia
+    profiles: ["worker", "all"]
+    working_dir: /app/apps/api
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      - WORKER_TYPE=arq_worker
+      # Wide-event identity — must equal the Promtail label (see prod compose).
+      - GAIA_SERVICE_NAME=arq_worker
+      - PYTHONPATH=/app/apps/api
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - MEMORY_EMBEDDING_SIDECAR_URL=http://embedding-sidecar:8200
+      - SEARXNG_BASE_URL=http://searxng:8080
+      - ARQ_METRICS_PORT=9100
+      - JUICEFS_HOST_MOUNT_PATH=/mnt/jfs
+      - UV_NO_SYNC=1
+      # Same Infisical-overrides as gaia-backend (container hostnames)
+      - POSTGRES_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/langgraph
+      - REDIS_URL=redis://redis:6379/0
+      - MONGO_DB=mongodb://mongo:27017/
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - JUICEFS_META_URL_TEMPLATE=redis://jfs-meta-redis:6379/{shard}
+    expose:
+      - "9100"
+    command: ["python", "-m", "arq", "app.worker.WorkerSettings", "--custom-log-dict", "app.workers.config.log_config.ARQ_LOG_CONFIG"]
+    restart: always
+    volumes:
+      - ../../apps/api/app:/app/apps/api/app
+      # Live-mount scripts so mount_juicefs.sh edits (shipped into the sandbox at
+      # runtime by _run_mount_script) apply on the next acquire with no rebuild.
+      - ../../apps/api/scripts:/app/apps/api/scripts
+      - juicefs_cache:/var/cache/juicefs
+    # JuiceFS mount needs FUSE; same caps/devices as gaia-backend
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    depends_on:
+      redis:
+        condition: service_healthy
+      jfs-meta-redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # Embedding + reranking sidecar. Loads the fastembed models ONCE so the
+  # backend and worker share a single ~1.8GB copy instead of each loading their
+  # own. Reuses the gaia image; the app processes reach it via
+  # MEMORY_EMBEDDING_SIDECAR_URL=http://embedding-sidecar:8200.
+  embedding-sidecar:
+    container_name: embedding-sidecar
+    image: gaia
+    profiles: ["backend", "worker", "all"]
+    working_dir: /app/apps/api
+    environment:
+      # Wide-event identity — must equal the Promtail label (see prod compose).
+      - GAIA_SERVICE_NAME=embedding-sidecar
+      - PYTHONPATH=/app/apps/api
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - UV_NO_SYNC=1
+      # Persist the ~1.85GB model weights so repeated `compose up` runs don't
+      # re-download them (the prod sidecar does the same with a named volume).
+      - MEMORY_MODEL_CACHE_DIR=/models
+      # Measured (scripts/sidecar_benchmark/): 2 ORT threads per inference
+      # matches 4-thread throughput at high concurrency while using less peak
+      # RSS. Concurrency stays adaptive (cores / threads).
+      - MEMORY_ONNX_THREADS=2
+      # MUST be unset here so the sidecar itself uses the local models.
+    volumes:
+      - embedding_models:/models
+    expose:
+      - "8200"
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.services.embedding_sidecar.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8200",
+      ]
+    restart: always
+    # Measured envelope (#918 fix): model floor ~1.9-2.1GB, peak under mixed
+    # load ~2.4GB (bounded batches keep activations flat regardless of request
+    # size). 2560m is a runaway ceiling with headroom; capping below ~2G would
+    # OOM-kill it (the model can't load in less). In prod swarm this is
+    # deploy.resources.limits instead.
+    mem_limit: 2560m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8200/health'); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - gaia_network
+
+  # Mongo Express Service
+  mongo_express:
+    image: mongo-express:latest
+    container_name: mongo_express
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: password # pragma: allowlist secret
+    ports:
+      - "${MONGO_EXPRESS_HOST_PORT:-8083}:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # Discord Bot
+  discord-bot:
+    container_name: discord-bot
+    profiles: ["bots", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/bots/Dockerfile
+      args:
+        BOT_NAME: discord
+    env_file:
+      - ../../apps/bots/.env
+    environment:
+      - BOT_SERVER_PORT=3200
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      # In-container the broker is reached via its network alias, overriding
+      # any host-oriented RABBITMQ_URL from apps/bots/.env.
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "${DISCORD_BOT_PORT:-3200}:3200"
+    restart: on-failure
+    depends_on:
+      gaia-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # Slack Bot
+  slack-bot:
+    container_name: slack-bot
+    profiles: ["bots", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/bots/Dockerfile
+      args:
+        BOT_NAME: slack
+    env_file:
+      - ../../apps/bots/.env
+    environment:
+      - BOT_SERVER_PORT=3201
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "${SLACK_BOT_PORT:-3201}:3201"
+    restart: on-failure
+    depends_on:
+      gaia-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # Telegram Bot
+  telegram-bot:
+    container_name: telegram-bot
+    profiles: ["bots", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/bots/Dockerfile
+      args:
+        BOT_NAME: telegram
+    # Generate ../../apps/bots/.env from apps/bots/.env.example before enabling bots.
+    env_file:
+      - ../../apps/bots/.env
+    environment:
+      - BOT_SERVER_PORT=3202
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "${TELEGRAM_BOT_PORT:-3202}:3202"
+    restart: on-failure
+    depends_on:
+      gaia-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # WhatsApp Bot — serves both /health and /webhook on the same port
+  whatsapp-bot:
+    container_name: whatsapp-bot
+    profiles: ["bots", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/bots/Dockerfile
+      args:
+        BOT_NAME: whatsapp
+    env_file:
+      - ../../apps/bots/.env
+    environment:
+      - BOT_SERVER_PORT=3203
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "${WHATSAPP_BOT_PORT:-3203}:3203"
+    restart: on-failure
+    depends_on:
+      gaia-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # iMessage Bot — serves both /health and /webhook on the same port
+  imessage-bot:
+    container_name: imessage-bot
+    profiles: ["bots", "all"]
+    build:
+      context: ../..
+      dockerfile: apps/bots/Dockerfile
+      args:
+        BOT_NAME: imessage
+    env_file:
+      - ../../apps/bots/.env
+    environment:
+      - BOT_SERVER_PORT=3204
+      - LOG_FORMAT=json
+      - LOG_COLORIZE=false
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "${IMESSAGE_BOT_PORT:-3204}:3204"
+    restart: on-failure
+    depends_on:
+      gaia-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gaia_network
+
+  # Voice Agent Worker
+  voice-agent-worker:
+    container_name: voice-agent-worker
+    profiles: ["backend", "voice"]
+    build:
+      context: ../..
+      dockerfile: apps/voice-agent/Dockerfile
+    image: gaia-voice-agent
+    working_dir: /app/apps/voice-agent
+    environment:
+      PYTHONUNBUFFERED: 1
+      FORCE_COLOR: 0
+      WORKER_TYPE: voice_agent_worker
+      DEBUG: 1
+      WATCHFILES_FORCE_POLLING: 1
+      HF_HUB_OFFLINE: "0"
+      LOCAL_FILES_ONLY: "0"
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      GAIA_BACKEND_URL: http://localhost:${API_HOST_PORT:-8000}
+    env_file:
+      - ../../apps/api/.env
+    volumes:
+      - voice_agent_models:/home/appuser/.cache/huggingface
+    restart: on-failure
+    network_mode: host
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    profiles: ["observability", "all"]
+    ports:
+      - "${LOKI_HOST_PORT:-3100}:3100"
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - gaia_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: "0.5"
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    profiles: ["observability", "all"]
+    user: root
+    # The config expands ${LOKI_PUSH_URL:-...} — promtail only expands env vars
+    # when told to, and the image default doesn't. Without this flag promtail
+    # dies at startup parsing the unexpanded URL.
+    command:
+      - -config.file=/etc/promtail/config.yaml
+      - -config.expand-env=true
+    # Prevent log feedback loop — Promtail's own stdout must not be captured by
+    # Docker, or JSON parse errors spiral into tens of GB of disk usage.
+    logging:
+      driver: "none"
+    volumes:
+      - ./observability/promtail-config.yaml:/etc/promtail/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist read positions across container recreations — without this,
+      # promtail re-ingests every retained structured-*.json from byte 0.
+      - promtail_positions:/var/lib/promtail
+      # Mount local log files so promtail can ship them even when services
+      # run outside Docker (nx dev api, nx worker api, nx dev voice-agent,
+      # nx dev bot-<platform>). These back the file jobs in
+      # observability/promtail-config.yaml — a __path__ whose directory is not
+      # mounted here reads nothing, forever, silently.
+      #
+      # The bots need this for the SAME reason the Python services do, and only
+      # for the same case: a bot started with `nx dev bot-<platform>` runs on
+      # the host with cwd apps/bots/<platform> and writes
+      # logs/structured-<date>.json (libs/shared/ts/src/bots/utils/log-file-sink.ts).
+      # A *dockered* bot writes no such file — the image's WORKDIR is /app so
+      # the sink never resolves a directory — and is scraped from container
+      # stdout by the `docker` job below instead, which explicitly keeps
+      # discord-bot|slack-bot|telegram-bot|whatsapp-bot|imessage-bot.
+      - ../../apps/api/logs:/var/log/gaia-api:ro
+      - ../../apps/api/logs/worker:/var/log/gaia-worker:ro
+      - ../../apps/voice-agent/logs:/var/log/gaia-voice-agent:ro
+      - ../../apps/bots/discord/logs:/var/log/gaia-discord-bot:ro
+      - ../../apps/bots/slack/logs:/var/log/gaia-slack-bot:ro
+      - ../../apps/bots/telegram/logs:/var/log/gaia-telegram-bot:ro
+      - ../../apps/bots/whatsapp/logs:/var/log/gaia-whatsapp-bot:ro
+      - ../../apps/bots/imessage/logs:/var/log/gaia-imessage-bot:ro
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - gaia_network
+    mem_limit: 128m
+    cpus: "0.25"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    profiles: ["observability", "all"]
+    ports:
+      - "${GRAFANA_HOST_PORT:-4000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      # IMPORTANT: Set GRAFANA_ADMIN_PASSWORD in your .env file before deploying.
+      # The default "changeme" is intentionally obvious — change it for production.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:4000}
+      # Use the provisioned GAIA Overview dashboard as the home page
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/overview.json
+      # Slack webhook consumed by contact-points.yaml. Empty = no alerts; Grafana
+      # 11 still validates provisioning cleanly with an empty webhook (verified).
+      # A real webhook enables alert delivery when set. No placeholder is used —
+      # a fake hooks.slack.com URL trips GitHub push protection's secret scanner.
+      SLACK_ALERT_WEBHOOK_URL: ${SLACK_ALERT_WEBHOOK_URL:-}
+      SLACK_ALERT_CHANNEL: ${SLACK_ALERT_CHANNEL:-#alerts}
+      # Destination for the email contact point ($__env{GRAFANA_ALERT_EMAIL} in
+      # contact-points.yaml). SMTP is disabled in dev, so email won't actually
+      # send — this default just keeps the contact point's address non-empty so
+      # alerting provisioning loads cleanly.
+      GRAFANA_ALERT_EMAIL: ${GRAFANA_ALERT_EMAIL:-alerts@example.com}
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - gaia_network
+    mem_limit: 256m
+    cpus: "0.5"
+
+  # ---------------------------------------------------------------------------
+  # SearXNG — self-hosted metasearch (search fallback; mirrors prod)
+  # ---------------------------------------------------------------------------
+  searxng:
+    # Pinned by digest for reproducible deploys (tag 2026.6.23); bump deliberately.
+    image: searxng/searxng@sha256:f66b296a6fdfe3f656a19e98ac999a9acffa780773e39b3cbbdf673e9c474deb
+    container_name: searxng
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng-template/settings.yml:ro
+    environment:
+      # Dev-only placeholder secret; prod uses a Swarm secret.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-dev-insecure-searxng-secret-change-me}
+    # Copy the read-only template to a writable path before the image entrypoint
+    # (which injects $SEARXNG_SECRET) runs.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /etc/searxng
+        cp /etc/searxng-template/settings.yml /etc/searxng/settings.yml
+        exec /usr/local/searxng/entrypoint.sh
+    ports:
+      - "${SEARXNG_HOST_PORT:-8888}:8080"
+    networks:
+      - gaia_network
+    restart: unless-stopped
+    mem_limit: 600m
+    cpus: "1.0"
+
+volumes:
+  chroma_data:
+  pgdata:
+  redis_data:
+  jfs_meta_data:
+  mongo_data:
+  rabbitmq_data:
+  voice_agent_models:
+  embedding_models:
+  loki_data:
+  grafana_data:
+  prometheus_data:
+  promtail_positions:
+  juicefs_cache:
+
+networks:
+  gaia_network:
+    driver: bridge

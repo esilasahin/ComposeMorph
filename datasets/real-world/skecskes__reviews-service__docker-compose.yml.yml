@@ -1,0 +1,47 @@
+services:
+  db:
+    container_name: tp-pg
+    image: 'postgres:17'
+    ports:
+      - "5432:5432"
+    expose:
+      - 5432
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reviews
+    volumes:
+      - /home/stefan/Projects/DockerVolumes:/var/lib/postgresql/data/
+    networks:
+      - tp-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    container_name: tp-api
+    build:
+      context: .
+      args:
+        - --progress=plain
+    environment:
+      - HTTP_SERVER_PORT=8000
+      - PGHOST=db
+      - PGUSER=postgres
+      - PGPASSWORD=postgres
+      - PGPORT=5432
+      - PGDATABASE=reviews
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    expose:
+      - 8000
+    networks:
+      - tp-network
+networks:
+  tp-network:
+    driver: bridge
+    name: tp-network

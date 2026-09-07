@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+
+version: '3'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./utils/wait-for-it/wait-for-it.sh", "api:3005", "-t", "8", "--", "/peridot-jobrunner-testing/peridot-jobrunner-testing"]
+    depends_on:
+      - sut
+      - db
+
+  sut:
+    build:
+      context: ../peridot-jobrunner
+      dockerfile: Dockerfile
+    command: ["./utils/wait-for-it/wait-for-it.sh", "db:5432", "-t", "5", "--", "/go/bin/peridot-jobrunner"]
+    volumes:
+      - ../peridot-jobrunner:/peridot-jobrunner
+    depends_on:
+      - db
+
+  agent-nop:
+    build:
+      context: ../peridot-agents
+      dockerfile: pkg/nop/Dockerfile
+    command: ["./utils/wait-for-it/wait-for-it.sh", "db:5432", "-t", "3", "--", "/go/bin/peridot-agent-nop"]
+    volumes:
+      - ../peridot-agents:/peridot-agents
+      - code:/code
+      - spdx:/spdx
+    depends_on:
+      - db
+    environment:
+      - GRPCPORT=3010
+
+  api:
+    build:
+      context: ../peridot-api
+      dockerfile: Dockerfile
+    command: ["./utils/wait-for-it/wait-for-it.sh", "db:5432", "-t", "3", "--", "/go/bin/peridot-api"]
+    volumes:
+      - ../peridot-api:/peridot-api
+    depends_on:
+      - db
+    environment:
+      - WEBPORT=3005
+      - INITIALADMINGITHUB=admin
+      - JWTSECRETKEY=keyForTesting
+      - GITHUBCLIENTID=abcdef0123abcdef4567
+      - GITHUBCLIENTSECRET=abcdef0123abcdef4567abcdef8901abcdef2345
+      - OAUTHSTATE=stateForTesting
+
+  db:
+    image: postgres
+    environment:
+      POSTGRES_DB: dev
+      POSTGRES_USER: postgres-dev
+
+volumes:
+  code: {}
+  spdx: {}

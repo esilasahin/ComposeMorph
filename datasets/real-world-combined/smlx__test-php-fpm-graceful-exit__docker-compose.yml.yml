@@ -1,0 +1,13 @@
+services:
+  good:
+    build: ./good-php-fpm
+    ports:
+    - ":9000"
+  bad:
+    build: ./bad-php-fpm
+    ports:
+    - ":9000"
+  nginx:
+    build: ./nginx
+    ports:
+    - "8080:8080"

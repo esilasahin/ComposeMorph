@@ -1,0 +1,60 @@
+# ============================================================
+# Hotel Brain - Docker Compose
+# รันระบบทั้งหมดด้วย Docker
+# ============================================================
+
+services:
+  # ฐานข้อมูล MariaDB
+  db:
+    image: mariadb:11
+    container_name: hotel-brain-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:-000000}
+      MARIADB_DATABASE: hotel_brain
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./backend/setup.sql:/docker-entrypoint-initdb.d/setup.sql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: hotel-brain-api
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-000000}
+      DB_NAME: hotel_brain
+      DB_PORT: 3306
+      PORT: 3001
+    ports:
+      - "${API_PORT:-3001}:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Production Build)
+  frontend:
+    build: ./frontend
+    container_name: hotel-brain-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:

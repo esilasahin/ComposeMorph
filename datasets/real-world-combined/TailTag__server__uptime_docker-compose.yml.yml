@@ -1,0 +1,23 @@
+services:
+  uptime-kuma:
+    container_name: uptime
+    restart: unless-stopped
+    env_file:
+      - .env
+    image: louislam/uptime-kuma:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma.rule=Host(`status.${DOMAIN}`)"
+      - "traefik.http.routers.uptime-kuma.tls=true"
+      - "traefik.http.routers.uptime-kuma.entrypoints=https"
+    networks:
+      - traefik
+
+networks:
+  traefik:
+    driver: bridge
+    external: true
+    name: traefik

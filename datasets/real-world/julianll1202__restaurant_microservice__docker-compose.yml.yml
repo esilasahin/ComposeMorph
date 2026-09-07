@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  mysqldb:
+    container_name: mysqldatabase
+    image: mysql
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=tec20490712
+      - MYSQL_DATABASE=restaurant
+    ports:
+      - 3307:3306
+    networks:
+      - restaurant-network
+    volumes:
+      - db:/var/lib/firstdb
+
+  smalldb:
+    container_name: smalldb
+    image: mysql
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=tec20490712
+      - MYSQL_DATABASE=recibosdb
+    ports:
+      - 3308:3306
+    networks:
+      - restaurant-network
+    volumes:
+      - db2:/var/lib/secondb
+  rest_backend:
+    container_name: rest_backend
+    restart: unless-stopped
+    image: rest-backend:1.0
+    build:
+      context: backendRest
+      target: proyecto
+      dockerfile: Dockerfile
+    ports:
+      - 4000:4000
+    networks:
+      - restaurant-network
+    depends_on:
+      - mysqldb
+    links:
+     - mysqldb
+
+  soap_backend:
+      container_name: soap_backend
+      restart: unless-stopped
+      image: soap-backend:1.0
+      build:
+        context: backendSoap
+        target: proyecto
+        dockerfile: Dockerfile
+      ports:
+        - 3000:3000
+      networks:
+        - restaurant-network
+      depends_on:
+        - mysqldb
+      links:
+      - mysqldb
+  app_client:
+    container_name: app_client
+    restart: unless-stopped
+    image: app_client:1.0
+    build:
+      context: appClient
+      target: proyecto
+      dockerfile: Dockerfile
+    ports:
+      - 3001:3001
+    networks:
+      - restaurant-network
+    depends_on:
+      - rest_backend
+      - soap_backend
+      - smalldb
+
+networks:
+  restaurant-network:
+
+volumes:
+  db:
+  db2:

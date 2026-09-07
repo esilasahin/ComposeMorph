@@ -1,0 +1,636 @@
+services:
+  drydock:
+    image: drydock:dev
+    container_name: drydock-playwright-qa
+    user: root
+    ports:
+      - "${DD_PLAYWRIGHT_PORT:-3333}:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./qa-action-demo-compose.yml:/drydock/qa-action-demo-compose.yml
+    # Optional gitignored credentials file (Docker Hub / GHCR tokens). See
+    # test/.env.qa-creds.example. Compose silently no-ops when the file is
+    # absent so CI / fresh checkouts still work without it.
+    env_file:
+      - path: .env.qa-creds
+        required: false
+    environment:
+      - DD_RUN_AS_ROOT=true
+      - DD_ALLOW_INSECURE_ROOT=true
+      - DD_LOG_FORMAT=text
+      - DD_WATCHER_LOCAL_WATCHBYDEFAULT=false
+      # Browser QA waits for the built-in startup scan after /health. Keep later
+      # scheduled scans out of the short-lived suite so they cannot race fixture
+      # assertions or targeted refreshes. February 29 is accepted by the watcher
+      # and parks the next scheduled scan well outside the normal QA window.
+      - DD_WATCHER_LOCAL_CRON=0 0 29 2 *
+      - DD_WATCHER_LOCAL_JITTER=0
+      # Event-driven refreshes are production behavior, but the browser suite
+      # needs a frozen fixture snapshot after the startup scan completes.
+      - DD_WATCHER_LOCAL_WATCHEVENTS=false
+      # Docker action (manual only — auto=false prevents auto-updating test containers)
+      - DD_ACTION_DOCKER_LOCAL_AUTO=false
+      - DD_ACTION_DOCKER_LOCAL_PRUNE=true
+      - DD_NOTIFICATION_HTTP_MYWEBHOOK_URL=http://httpbin.org/post
+      - DD_NOTIFICATION_HTTP_MYWEBHOOK_METHOD=POST
+      - DD_AUTH_BASIC_ADMIN_USER=admin
+      - "DD_AUTH_BASIC_ADMIN_HASH=argon2id$$65536$$3$$4$$zUAK9+ktVWNHyQdv3SaOSgMv3T02F1Zj8D+t1un7D98=$$KEmn6d94w03YxIlw7U7l/ikD9lW+H3IC1N7xbAhOB9yKofA3HoxUBmuvBawvShhv337zDv4+g9hobNWeQEWwkQ=="
+      - DD_SERVER_WEBHOOK_ENABLED=true
+      - DD_SERVER_WEBHOOK_TOKEN=test-token-12345
+      # The complete Playwright release gate intentionally exercises dozens
+      # of authenticated flows and icon loads against one short-lived QA process.
+      # Give that synthetic suite its own budgets without changing production defaults.
+      - DD_SERVER_RATELIMIT_MAX=10000
+      - DD_ICON_PROXY_RATE_LIMIT_MAX=1000
+      - DD_SESSION_SECRET=qa-test-session-secret
+      - DD_PUBLIC_URL=http://localhost:${DD_PLAYWRIGHT_PORT:-3333}
+      # --- OIDC (Dex) ---
+      - DD_AUTH_OIDC_DEX_DISCOVERY=http://dex:5556/dex/.well-known/openid-configuration
+      - DD_AUTH_OIDC_DEX_CLIENTID=drydock
+      - DD_AUTH_OIDC_DEX_CLIENTSECRET=drydock-qa-secret
+      # --- Slack notification ---
+      - DD_NOTIFICATION_SLACK_MYSLACK_TOKEN=xoxb-fake-slack-token-for-testing
+      - DD_NOTIFICATION_SLACK_MYSLACK_CHANNEL=C01FAKECHANNEL
+      # --- SMTP notification ---
+      - DD_NOTIFICATION_SMTP_MYEMAIL_HOST=smtp.example.com
+      - DD_NOTIFICATION_SMTP_MYEMAIL_PORT=587
+      - DD_NOTIFICATION_SMTP_MYEMAIL_USER=alerts@example.com
+      - DD_NOTIFICATION_SMTP_MYEMAIL_PASS=fakesmtppassword
+      - DD_NOTIFICATION_SMTP_MYEMAIL_FROM=alerts@example.com
+      - DD_NOTIFICATION_SMTP_MYEMAIL_TO=admin@example.com
+      # --- MQTT notification (Home Assistant mode with filtering) ---
+      - DD_NOTIFICATION_MQTT_QA_URL=mqtt://mosquitto:1883
+      - DD_NOTIFICATION_MQTT_QA_HASS_ENABLED=true
+      - DD_NOTIFICATION_MQTT_QA_HASS_PREFIX=homeassistant
+      - DD_NOTIFICATION_MQTT_QA_HASS_DISCOVERY=true
+      - DD_NOTIFICATION_MQTT_QA_HASS_ATTRIBUTES=short
+      - DD_NOTIFICATION_MQTT_QA_HASS_FILTER_INCLUDE=name,image_name,result_tag,update_kind_kind
+      # --- Docker Compose action (manual only) ---
+      # Must NOT point at qa-compose.yml: the specificity walk matches
+      # compose triggers by file basename, so the fleet's own compose file
+      # would make this trigger the winner for every fixture container and
+      # dashboard updates would EROFS-fail instead of using the docker
+      # trigger. See qa-action-demo-compose.yml.
+      - DD_ACTION_DOCKERCOMPOSE_QA_FILE=/drydock/qa-action-demo-compose.yml
+      - DD_ACTION_DOCKERCOMPOSE_QA_AUTO=false
+      # Docker Hub + GHCR creds come from test/.env.qa-creds (gitignored,
+      # optional). When that file is absent: Hub pulls hit the anonymous IP
+      # rate limit, GHCR private uses no creds. See test/.env.qa-creds.example
+      # for the variable list. Compose `environment:` always overrides
+      # `env_file`, so don't add DD_REGISTRY_HUB_* / DD_REGISTRY_GHCR_PRIVATE_*
+      # entries here — let env_file win.
+      # --- Gitea registry (self-hosted with custom CA) ---
+      - DD_REGISTRY_GITEA_PRIVATE_URL=https://gitea.internal.example
+      - DD_REGISTRY_GITEA_PRIVATE_LOGIN=gitea-bot
+      - DD_REGISTRY_GITEA_PRIVATE_PASSWORD=replace-me
+      - DD_REGISTRY_GITEA_PRIVATE_CAFILE=/certs/internal-ca.pem
+      # --- Update Bouncer (security scanning) ---
+      # Disabled by default for QA: trivy scans pull candidate images from
+      # Docker Hub anonymously, which the rate limiter routinely throttles
+      # (TOOMANYREQUESTS). When that happens the scan errors with
+      # security-scan-failed and the update lifecycle correctly fails the
+      # operation — but it blocks the update path we want to QA.
+      # Uncomment the trivy block below to exercise the security gate.
+      - DD_SECURITY_SCANNER=
+      # - DD_SECURITY_SCANNER=trivy
+      # - DD_SECURITY_TRIVY_SERVER=http://trivy-server:4954
+      # - DD_SECURITY_BLOCK_SEVERITY=CRITICAL
+      # - DD_SECURITY_SBOM_ENABLED=true
+      # - DD_SECURITY_SBOM_FORMATS=spdx-json,cyclonedx-json
+      # - DD_SECURITY_VERIFY_SIGNATURES=false
+      # --- Maintenance window (QA) ---
+      # To test: also set DD_WATCHER_LOCAL_CRON above to a runnable schedule
+      # (it's parked at `0 0 29 2 *` and WATCHEVENTS=false, so nothing
+      # reevaluates the window otherwise), then pick a UTC window that
+      # matches/misses the current time.
+      # Matched per minute, so keep `*` in the minute field for a real window.
+      # - DD_WATCHER_LOCAL_MAINTENANCE_WINDOW=* 2-6 * * *
+      # - DD_WATCHER_LOCAL_MAINTENANCE_WINDOW_TZ=UTC
+      # --- Remote Docker watcher (DinD) ---
+      - DD_WATCHER_REMOTE_HOST=docker-remote
+      - DD_WATCHER_REMOTE_PORT=2375
+      - DD_WATCHER_REMOTE_WATCHBYDEFAULT=true
+      - DD_WATCHER_REMOTE_CRON=0 0 29 2 *
+      - DD_WATCHER_REMOTE_JITTER=0
+      - DD_WATCHER_REMOTE_WATCHEVENTS=false
+    depends_on:
+      docker-remote:
+        condition: service_healthy
+      remote-bootstrap:
+        condition: service_completed_successfully
+      health-transition:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+
+  # Deterministic health-only transition fixture for Discussion #198 browser UAT.
+  # The CGI endpoints toggle only the healthcheck marker; the container process,
+  # identity, labels, and image stay unchanged so the observed event is health-only.
+  health-transition:
+    image: mirror.gcr.io/library/busybox:1.36
+    pull_policy: missing
+    container_name: drydock-playwright-health-transition
+    ports:
+      - "127.0.0.1:${DD_PLAYWRIGHT_HEALTH_FIXTURE_PORT:-3334}:8080"
+    labels:
+      - dd.watch=true
+      - dd.display.name=Health Transition Fixture
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /state /www/cgi-bin
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'rm -f /state/unhealthy /state/observed-unhealthy' \
+          'printf "Content-Type: text/plain\r\n\r\nhealthy\n"' \
+          > /www/cgi-bin/healthy
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'touch /state/unhealthy' \
+          'attempt=0' \
+          'while [ ! -f /state/observed-unhealthy ]; do' \
+          '  attempt=$$((attempt + 1))' \
+          '  if [ "$$attempt" -ge 10 ]; then' \
+          '    printf "Status: 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nhealthcheck did not observe unhealthy state\n"' \
+          '    exit 0' \
+          '  fi' \
+          '  sleep 1' \
+          'done' \
+          'sleep 1' \
+          'printf "Content-Type: text/plain\r\n\r\nunhealthy\n"' \
+          > /www/cgi-bin/unhealthy
+        chmod +x /www/cgi-bin/healthy /www/cgi-bin/unhealthy
+        exec httpd -f -p 8080 -h /www
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -f /state/unhealthy ]; then touch /state/observed-unhealthy; exit 1; fi; rm -f /state/observed-unhealthy; exit 0",
+        ]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 1s
+
+  # ── OIDC Identity Provider (Dex) ─────────────────────
+  dex:
+    image: dexidp/dex:latest
+    container_name: drydock-playwright-dex
+    expose:
+      - "5556"
+    volumes:
+      - ./dex-config.yaml:/etc/dex/config.yaml:ro
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+
+  # ── MQTT broker (Mosquitto) ──────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: drydock-playwright-mosquitto
+    expose:
+      - "1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -W 3 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Portainer (container management UI) ─────────────
+  # Used for QA testing issue #156: recreating containers via Portainer
+  # triggers Docker's transient <hex12>_<name> alias race condition.
+  # Access at http://localhost:9443 (HTTPS) or http://localhost:9000
+  portainer:
+    image: portainer/portainer-ce:2.27.5
+    container_name: drydock-playwright-portainer
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+    labels:
+      - dd.watch=false
+
+  # ── Trivy vulnerability scanner (client-server mode) ──
+  trivy-server:
+    image: aquasec/trivy:0.69.3
+    container_name: drydock-playwright-trivy-server
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    expose:
+      - "4954"
+
+  # ── Remote Docker host (DinD) ────────────────────────
+  docker-remote:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      - DOCKER_TLS_CERTDIR=
+    expose:
+      - "2375"
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Test containers running on the remote Docker host
+  remote-bootstrap:
+    image: docker:27
+    depends_on:
+      docker-remote:
+        condition: service_healthy
+    environment:
+      - DOCKER_HOST=tcp://docker-remote:2375
+    volumes:
+      - /var/run/docker.sock:/var/run/docker-host.sock
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+
+        host_docker=unix:///var/run/docker-host.sock
+
+        pull_with_retry() {
+          image="$1"
+          attempt=1
+          until docker --host "$$host_docker" pull "$$image"; do
+            if [ "$$attempt" -ge 3 ]; then
+              echo "Failed to pull $$image after $$attempt attempts" >&2
+              return 1
+            fi
+            echo "Retrying pull for $$image after attempt $$attempt" >&2
+            sleep $$((attempt * 5))
+            attempt=$$((attempt + 1))
+          done
+        }
+
+        seed_image() {
+          image="$1"
+          pull_with_retry "$$image"
+          archive=$$(mktemp)
+          docker --host "$$host_docker" save --output "$$archive" "$$image"
+          docker load --input "$$archive"
+          rm -f "$$archive"
+        }
+
+        nginx_image=mirror.gcr.io/library/nginx:1.24.0
+        seed_image "$$nginx_image"
+        docker run -d --name remote-nginx --label dd.watch=true --label "dd.display.name=Remote Nginx" --label dd.group=remote "$$nginx_image"
+
+        redis_image=mirror.gcr.io/library/redis:7.0.0
+        seed_image "$$redis_image"
+        docker run -d --name remote-redis --label dd.watch=true --label "dd.display.name=Remote Redis" --label dd.group=remote "$$redis_image"
+
+  # ── Containers with updates available ──────────────────
+
+  # Nginx with lifecycle hooks (tests hooks UI + group view)
+  # Icon uses colon separator with nested prefix (tests Fix 03 + Fix 06)
+  nginx-hooked:
+    image: mirror.gcr.io/library/nginx:1.25.5-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-nginx-hooked
+    labels:
+      - dd.watch=true
+      - dd.display.name=Nginx (Hooked)
+      - dd.display.icon=si:si:nginx
+      - dd.group=web-stack
+      # Opt into climbing within the 1.x.x-alpine family. Required since the #321
+      # fix gates bare specific (3-segment) tags to digest-only by default; without
+      # this include the hooks demo would never have an update to run hooks against.
+      - dd.tag.include=^1\.\d+\.\d+-alpine$$
+      - dd.hook.pre=echo "pre-update check"
+      - dd.hook.post=echo "post-update cleanup"
+      - dd.hook.timeout=30000
+
+  # Redis in same group (tests group view)
+  # Icon uses colon separator (tests Fix 06)
+  redis-cache:
+    image: mirror.gcr.io/library/redis:7.2.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-redis-cache
+    labels:
+      - dd.watch=true
+      - dd.display.name=Redis Cache
+      - dd.display.icon=si:redis
+      - dd.group=web-stack
+      # Opt into 7.x.x-alpine family climbing. This is the container the Playwright
+      # 'actions tab' test actually opens (openAnyContainerDetail skips Nginx (Hooked)
+      # because its \b…\) regex can't match a name ending in a paren), so it must have
+      # an available update post-#321 gate or the Update Now control never renders.
+      - dd.tag.include=^7\.\d+\.\d+-alpine$$
+
+  # Traefik with auto-rollback (tests rollback UI)
+  # Icon uses dash separator (standard format — baseline comparison)
+  traefik-proxy:
+    image: mirror.gcr.io/library/traefik:v3.0.0
+    pull_policy: missing
+    container_name: drydock-playwright-traefik-proxy
+    labels:
+      - dd.watch=true
+      - dd.display.name=Traefik Proxy
+      - dd.display.icon=si-traefikproxy
+      - dd.group=infra
+      - dd.rollback.auto=true
+      - dd.rollback.window=120000
+      - dd.rollback.interval=5000
+
+  # LSCR/GHCR public image (tests anonymous token exchange)
+  lscr-nginx:
+    image: ghcr.io/linuxserver/nginx:1.26.2
+    pull_policy: missing
+    container_name: drydock-playwright-lscr-nginx
+    labels:
+      - dd.watch=true
+      - dd.display.name=LSCR Nginx (GHCR)
+      - dd.tag.include=^\d+\.\d+\.\d+$$
+
+  # PostgreSQL ungrouped (tests ungrouped container)
+  postgres-db:
+    image: mirror.gcr.io/library/postgres:16.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-postgres-db
+    environment:
+      - POSTGRES_PASSWORD=testpass
+    labels:
+      - dd.watch=true
+      - dd.display.name=PostgreSQL
+
+  # ── Security scan test containers ──────────────────────
+
+  # Node 16 Alpine — EOL, newer versions have known CRITICAL CVEs
+  # After watcher finds update, trigger scan to get "blocked" bouncer status
+  node-vulnerable:
+    image: mirror.gcr.io/library/node:16.0.0-alpine
+    container_name: drydock-playwright-node-vulnerable
+    command: ["node", "-e", "setInterval(() => {}, 60000)"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Node (Vulnerable)
+      - dd.group=security-test
+      - dd.tag.include=^16\.\d+\.\d+-alpine$$
+
+  # Python 3.9 slim — older version with known HIGH vulns (not CRITICAL)
+  # Should show "unsafe" bouncer after scan (not blocked since only CRITICALs block)
+  python-unsafe:
+    image: mirror.gcr.io/library/python:3.9.0-slim
+    container_name: drydock-playwright-python-unsafe
+    command: ["python", "-c", "import time; time.sleep(999999)"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Python (Unsafe)
+      - dd.group=security-test
+      - dd.tag.include=^3\.9\.\d+-slim$$
+
+  # ── Container at latest (no update available) ─────────
+
+  # Alpine at latest — shows "up to date" state
+  alpine-latest:
+    image: mirror.gcr.io/library/alpine:latest
+    pull_policy: always
+    container_name: drydock-playwright-alpine-latest
+    command: ["sleep", "infinity"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Alpine (Latest)
+      - dd.tag.include=^latest$$
+
+  # ── Container pinned at current version (skip update) ──
+  # Redis 7.4 has an update available but the bootstrap script
+  # calls the skip-update API so it shows the "pinned" badge.
+  redis-pinned:
+    image: mirror.gcr.io/library/redis:7.4.0
+    pull_policy: missing
+    container_name: drydock-playwright-redis-pinned
+    command: ["redis-server", "--save", ""]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Redis (Pinned)
+      - dd.group=test
+
+  # ── Log spammer (generates container log activity) ─────
+
+  # Busybox printing a line every 5s — populates dashboard container log
+  log-spammer:
+    image: mirror.gcr.io/library/busybox:1.36
+    pull_policy: missing
+    container_name: drydock-playwright-log-spammer
+    command: ["sh", "-c", "i=0; while true; do i=$((i+1)); echo \"[$$i] drydock-playwright-qa heartbeat $(date -u +%H:%M:%S)\"; sleep 5; done"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Log Spammer
+      - dd.group=infra
+
+  # ── Slow-shutdown container (tests #156 recreate alias filtering) ───
+  # Traps SIGTERM and delays 15s before exiting, simulating large apps
+  # like Termix/Jellyfin that take time to shut down. Use with:
+  #   docker compose -f test/qa-compose.yml up -d --force-recreate slow-shutdown
+  # to reproduce the Docker transient alias race condition.
+  slow-shutdown:
+    image: mirror.gcr.io/library/busybox:1.36
+    pull_policy: missing
+    container_name: drydock-playwright-slow-shutdown
+    command: ["sh", "-c", "trap 'echo SIGTERM received; sleep 15; exit 0' TERM; echo 'slow-shutdown running'; while true; do sleep 1; done"]
+    stop_grace_period: 30s
+    labels:
+      - dd.watch=true
+      - dd.display.name=Slow Shutdown
+      - dd.group=infra
+
+  # ── Stopped container (tests stopped status badge) ─────
+
+  # Memcached — starts then exits (shows "stopped" in container list)
+  memcached-stopped:
+    image: mirror.gcr.io/library/memcached:1.6.0
+    pull_policy: missing
+    container_name: drydock-playwright-memcached-stopped
+    command: ["sh", "-c", "exit 0"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Memcached (Stopped)
+
+  # ── Edge stack (multi-container batch QA) ──────────────
+  edge-caddy:
+    image: mirror.gcr.io/library/caddy:2.6.4-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-edge-caddy
+    command: ["caddy", "respond", "--listen", ":80", "QA"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Caddy (Edge)
+      - dd.group=edge
+      - dd.tag.include=^2\.\d+\.\d+-alpine$$
+
+  edge-nginx:
+    image: mirror.gcr.io/library/nginx:1.21.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-edge-nginx
+    labels:
+      - dd.watch=true
+      - dd.display.name=Nginx (Edge)
+      - dd.group=edge
+      - dd.tag.include=^1\.\d+\.\d+-alpine$$
+
+  edge-httpd:
+    image: mirror.gcr.io/library/httpd:2.4.50-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-edge-httpd
+    labels:
+      - dd.watch=true
+      - dd.display.name=Apache (Edge)
+      - dd.group=edge
+      - dd.tag.include=^2\.4\.\d+-alpine$$
+
+  # ── Messaging stack (multi-container batch QA) ─────────
+  msg-nats:
+    image: mirror.gcr.io/library/nats:2.9.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-msg-nats
+    command: ["-js"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=NATS (Messaging)
+      - dd.group=messaging
+      - dd.tag.include=^2\.\d+\.\d+-alpine$$
+
+  msg-redis:
+    image: mirror.gcr.io/library/redis:6.0.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-msg-redis
+    labels:
+      - dd.watch=true
+      - dd.display.name=Redis (Messaging)
+      - dd.group=messaging
+      - dd.tag.include=^6\.\d+\.\d+-alpine$$
+
+  # ── Runtime stack (multi-container batch QA) ───────────
+  runtime-node:
+    image: mirror.gcr.io/library/node:18.0.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-runtime-node
+    command: ["node", "-e", "setInterval(() => {}, 60000)"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Node 18 (Runtime)
+      - dd.group=runtime
+      - dd.tag.include=^18\.\d+\.\d+-alpine$$
+
+  runtime-python:
+    image: mirror.gcr.io/library/python:3.10.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-runtime-python
+    command: ["python", "-c", "import time; time.sleep(999999)"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Python 3.10 (Runtime)
+      - dd.group=runtime
+      - dd.tag.include=^3\.10\.\d+-alpine$$
+
+  # ── Standalone updateable containers ───────────────────
+  busybox-old:
+    image: mirror.gcr.io/library/busybox:1.34.0
+    pull_policy: missing
+    container_name: drydock-playwright-busybox-old
+    command: ["sh", "-c", "while true; do sleep 60; done"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=BusyBox (Old)
+      - dd.tag.include=^1\.\d+\.\d+$$
+
+  alpine-old:
+    image: mirror.gcr.io/library/alpine:3.14.0
+    pull_policy: missing
+    container_name: drydock-playwright-alpine-old
+    command: ["sh", "-c", "while true; do sleep 60; done"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Alpine (Old)
+      - dd.tag.include=^3\.\d+\.\d+$$
+
+  # ── Observability stack (Quay.io — separate registry from Docker Hub) ──
+  obs-node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.5.0
+    pull_policy: missing
+    container_name: drydock-playwright-obs-node-exporter
+    command: ["--web.listen-address=:9100"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Node Exporter
+      - dd.group=observability
+      - dd.tag.include=^v1\.\d+\.\d+$$
+
+  obs-blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:v0.20.0
+    pull_policy: missing
+    container_name: drydock-playwright-obs-blackbox-exporter
+    command: ["--web.listen-address=:9115"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Blackbox Exporter
+      - dd.group=observability
+      - dd.tag.include=^v0\.\d+\.\d+$$
+
+  obs-alertmanager:
+    image: quay.io/prometheus/alertmanager:v0.24.0
+    pull_policy: missing
+    container_name: drydock-playwright-obs-alertmanager
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/tmp"]
+    labels:
+      - dd.watch=true
+      - dd.display.name=Alertmanager
+      - dd.group=observability
+      - dd.tag.include=^v0\.\d+\.\d+$$
+
+  # ── App servers (mixed registries, varied update sizes) ──
+  app-vaultwarden:
+    image: mirror.gcr.io/vaultwarden/server:1.27.0
+    pull_policy: missing
+    container_name: drydock-playwright-app-vaultwarden
+    environment:
+      - DISABLE_ICON_DOWNLOAD=true
+      - I_REALLY_WANT_VOLATILE_STORAGE=true
+    labels:
+      - dd.watch=true
+      - dd.display.name=Vaultwarden
+      - dd.group=apps
+      - dd.tag.include=^1\.\d+\.\d+$$
+
+  app-gitea:
+    image: mirror.gcr.io/gitea/gitea:1.16.0
+    pull_policy: missing
+    container_name: drydock-playwright-app-gitea
+    environment:
+      - INSTALL_LOCK=true
+      - SECRET_KEY=qa-only-not-secret
+    labels:
+      - dd.watch=true
+      - dd.display.name=Gitea
+      - dd.group=apps
+      - dd.tag.include=^1\.\d+\.\d+$$
+
+  # ── Cache stack (small, fast pulls, mixed tag families) ──
+  cache-memcached:
+    image: mirror.gcr.io/library/memcached:1.6.10-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-cache-memcached
+    labels:
+      - dd.watch=true
+      - dd.display.name=Memcached (Cache)
+      - dd.group=cache
+      - dd.tag.include=^1\.6\.\d+-alpine$$
+
+  cache-rabbitmq:
+    image: mirror.gcr.io/library/rabbitmq:3.10.0-alpine
+    pull_policy: missing
+    container_name: drydock-playwright-cache-rabbitmq
+    labels:
+      - dd.watch=true
+      - dd.display.name=RabbitMQ
+      - dd.group=cache
+      - dd.tag.include=^3\.\d+\.\d+-alpine$$
+
+volumes:
+  portainer_data:

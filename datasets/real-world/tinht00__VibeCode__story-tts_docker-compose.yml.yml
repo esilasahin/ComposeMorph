@@ -1,0 +1,62 @@
+services:
+  tts_service:
+    build:
+      context: .
+      dockerfile: tts_service/Dockerfile
+    container_name: story-tts-tts
+    ports:
+      - "8010:8010"
+    environment:
+      STORY_TTS_REALTIME_HOST: 0.0.0.0
+      STORY_TTS_REALTIME_PORT: 8010
+      STORY_TTS_REALTIME_TTS_VOICE: vi-VN-NamMinhNeural
+      STORY_TTS_REALTIME_TTS_SPEED: 0
+      STORY_TTS_REALTIME_TTS_PITCH: 0
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: story-tts-backend
+    depends_on:
+      - tts_service
+    ports:
+      - "18080:18080"
+    environment:
+      STORY_TTS_LISTEN_ADDR: ":18080"
+      STORY_TTS_DATA_DIR: /app/data
+      STORY_TTS_LIBRARY_DIR: /app/library
+      STORY_TTS_DB_PATH: /app/data/story_tts.sqlite
+      STORY_TTS_FFMPEG_PATH: ffmpeg
+      STORY_TTS_EDGE_BINARY: edge-tts
+      STORY_TTS_EDGE_VOICE: vi-VN-NamMinhNeural
+      STORY_TTS_EDGE_OUTPUT_FORMAT: audio-24khz-48kbitrate-mono-mp3
+      # NOTE: realtimeTTSBaseURL phải là localhost:8010 để frontend (chạy trên browser của host)
+      # có thể kết nối tới TTS service đã được expose qua Docker port mapping.
+      # KHÔNG đổi thành tts_service:8010 vì browser không thể resolve Docker service names.
+      STORY_TTS_REALTIME_TTS_BASE_URL: http://localhost:8010
+      STORY_TTS_REALTIME_TTS_VOICE: vi-VN-NamMinhNeural
+      STORY_TTS_REALTIME_TTS_SPEED: 0
+      STORY_TTS_REALTIME_TTS_PITCH: 0
+      STORY_TTS_TELEGRAM_SESSION: /app/data/telegram/session.json
+      STORY_TTS_TELEGRAM_DEVICE_MODEL: story-tts
+      STORY_TTS_TELEGRAM_SYSTEM_VERSION: Linux
+      STORY_TTS_TELEGRAM_APP_VERSION: 0.1.0
+      STORY_TTS_TELEGRAM_LANG_CODE: vi
+    volumes:
+      - ./data:/app/data
+      - ./library:/app/library
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: story-tts-frontend
+    depends_on:
+      - backend
+    ports:
+      # Giữ 5174 cho Vite dev server để source local không bị Docker frontend đè lên.
+      - "4173:80"
+    restart: unless-stopped

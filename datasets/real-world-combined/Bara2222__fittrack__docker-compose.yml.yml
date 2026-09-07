@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: fittrack_backend
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_DEBUG=False
+      - PORT=5000
+      - DATABASE_URL=sqlite:////app/instance/db.sqlite3
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - SECRET_KEY=${SECRET_KEY:-development-secret-key}
+      - PYTHONPATH=/app
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8501}
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:5000}
+    volumes:
+      - ./instance:/app/instance
+    secrets:
+      - google_client_secret
+    networks:
+      - fittrack_network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: fittrack_frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - API_BASE=http://backend:5000/api
+      - API_BASE_EXTERNAL=http://localhost:5000/api
+      - PYTHONPATH=/app
+    depends_on:
+      - backend
+    networks:
+      - fittrack_network
+    restart: unless-stopped
+
+networks:
+  fittrack_network:
+    driver: bridge
+
+secrets:
+  google_client_secret:
+    file: .secrets/google_client_secret

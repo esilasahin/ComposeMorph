@@ -1,0 +1,11 @@
+services:
+  nodejs:
+    image: node:lts
+    container_name: nodejs-typescript
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ".:/home/node/app"
+    working_dir: "/home/node/app"
+    command: "npm start"

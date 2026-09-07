@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+    frontend:
+      environment:
+        - PORT=8080
+        - HOST=0.0.0.0
+        - VUE_APP_API_URL=${API_URL}
+      volumes:
+        - ./frontend:/var/www
+      ports:
+        - "8080:8080"
+      networks:
+        - default
+    api:
+      volumes:
+        - ./api:/var/www
+    dynamodb:
+      image: amazon/dynamodb-local
+networks:
+  default:
+    driver: bridge

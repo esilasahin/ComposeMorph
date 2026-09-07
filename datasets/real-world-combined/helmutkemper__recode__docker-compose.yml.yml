@@ -1,0 +1,31 @@
+services:
+  node-red:
+    container_name: recode-node-red
+    build:
+      context: ./node-red
+      dockerfile: Dockerfile
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - FLOWS=${NODE_RED_FLOWS:-flows.json}
+    ports:
+      - "${NODE_RED_PORT:-1880}:1880"
+    volumes:
+      - ./node-red/data:/data
+      - ./node-red/nodes:/data/nodes
+      - ./node-red/core-disabled:/data/core-disabled
+      - ./node-red/shared-common:/data/node_modules/@recode/common
+      - ./node-red/frontend:/data/frontend
+    restart: unless-stopped
+
+  server:
+    container_name: recode-server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - PORT=8080
+      - NODE_RED_URL=http://node-red:1880
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

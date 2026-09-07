@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: portfolio_db
+    environment:
+      POSTGRES_DB: ashish_portfolio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - portfolio_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build: .
+    container_name: portfolio_backend
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=1234
+      - DB_NAME=ashish_portfolio
+      - JWT_SECRET=QwErTyUiOp1234567890!@
+      - ADMIN_LOGIN_USERNAME=ashishjaiswal0701@gmail.com
+      - ADMIN_LOGIN_PASSWORD=@fusu649Ib
+      - EMAIL_HOST=smtp.gmail.com
+      - EMAIL_PORT=587
+      - COMPANY_EMAIL=angelshipmanagement1@gmail.com
+      - COMPANY_EMAIL_PASSWORD=mmfw agit vwzl dimf
+      - FRONTEND_URL=http://localhost:8084
+      - CORS_ORIGIN=http://localhost:8084
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - portfolio_network
+    command: npm run dev
+    restart: unless-stopped
+
+  # Redis (for caching and rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: portfolio_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - portfolio_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  portfolio_network:
+    driver: bridge 

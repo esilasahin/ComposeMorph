@@ -1,0 +1,43 @@
+version: '3'
+services:
+  ecr-postgresql:
+    build:
+      context: ./ecr_postgresql
+    restart: always
+    ports:
+      - "5435:5432"
+    environment:
+      ECR_USER_PASSWORD: "i3lworks"
+    volumes:
+      - smartVol:/var/lib/postgresql/data
+
+  elr-receiver:
+    build:
+     context: ./elr_receiver
+    ports:
+      - "8087:8888"
+    environment:
+      ECR_URL: "http://ecr-manager:8080/ecr-manager/ECR"
+      PARSER_MODE: "ECR"
+      TRANSPORT_MODE: "MLLP"
+      HTTP_AUTH_USER: "user"
+      HTTP_AUTH_PASSWORD: "password"
+
+  ecr-manager:
+    depends_on:
+      - ecr-postgresql
+    build:
+      context: ./ecr_manager
+    ports:
+      - "8085:8080"
+    environment:
+      JDBC_URL: "jdbc:postgresql://ecr-postgresql:5435/ecr"
+      JDBC_USERNAME: "ecr_user"
+      JDBC_PASSWORD: "i3lworks"
+      PACER_INDEX_SERVICE: "https://gt-apps.hdap.gatech.edu/pacer-index-api/1.0.0/search"
+      LOCAL_BULKDATA_PATH: "/temp"
+      LOCAL_PACER_SECURITY: "Basic username:password"
+      LOCAL_PACER_URL: ""
+
+volumes:
+  smartVol:

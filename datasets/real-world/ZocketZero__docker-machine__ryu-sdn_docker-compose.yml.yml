@@ -1,0 +1,7 @@
+services:
+  ryu:
+    container_name: ryu
+    build: .
+    tty: true
+    privileged: true
+    network_mode: "host"

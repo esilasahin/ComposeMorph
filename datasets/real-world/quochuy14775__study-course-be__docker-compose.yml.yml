@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: studyCourse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123"
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=studyCourse;Username=postgres;Password=123"
+      Jwt__Key: "MyLocalSecretKeyForTestingOnly1234567890!"
+      Groq__ApiKey: "${GROQ_API_KEY}"
+      AllowedOrigins: "http://localhost:3000"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

@@ -1,0 +1,18 @@
+# File: docker-compose.yml (unchanged - already optimal)
+services:
+  openfoam:
+    build: .
+    container_name: lecds-openfoam-parallel
+    restart: unless-stopped
+    cpus: "4.0"
+    mem_limit: 2g
+    volumes:
+      - ./backend/openfoamRun:/runCase
+    healthcheck:
+      test: ["CMD", "foamList"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    environment:
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1

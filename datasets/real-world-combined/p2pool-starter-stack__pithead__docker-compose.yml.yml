@@ -1,0 +1,990 @@
+# Pin the Compose project name so the stack is always "pithead" — its images, network and
+# volumes are prefixed `pithead*` regardless of the checkout directory's name. Without this,
+# Compose derives the project from the directory, which left older checkouts named after the
+# repo's previous name. `pithead up`/`apply`/`upgrade` migrate an old-named stack automatically.
+name: pithead
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # --- Tor Anonymity Service ---
+  tor:
+    # A source checkout builds the 5 first-party images locally from build/; a release install pulls
+    # these published images instead. pithead chooses build-vs-pull via its `--pull` policy and sets
+    # PITHEAD_REGISTRY / STACK_VERSION (export_build_provenance, #44); the defaults below keep a bare
+    # `docker compose` working (tag `:dev`).
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-tor:${STACK_VERSION:-dev}
+    build: ./build/tor
+    container_name: tor
+    # Memory ceiling (#132 — see monerod). Generous so an OOM-restart, which would blip every onion
+    # service, stays very unlikely (~0.07 GiB observed).
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # Subnet prefix (#180): the entrypoint envsubst's it into the rendered torrc's bridge IPs.
+      - NETWORK_PREFIX=${NETWORK_PREFIX:-172.28.0}
+      # Node onions (#103): the entrypoint publishes the monerod / Tari inbound hidden services only
+      # when their profile is active, so a remote node leaves no onion pointing at nothing. Passing
+      # the profile list itself (rather than a parallel flag) keeps the gate and the containers that
+      # actually start reading from one value; a change here also recreates tor, which is required
+      # for the new torrc to take effect.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
+      # Dashboard onion (#343): opt-in, default off. When true the entrypoint appends a hidden
+      # service for the dashboard (fronting Caddy on the bridge gateway, never the LAN).
+      - DASHBOARD_ONION_ENABLED=${DASHBOARD_ONION_ENABLED:-false}
+      # Client-auth toggle (#343): the entrypoint doesn't read it, but listing it here means a change
+      # recreates tor so it re-reads authorized_clients/ (pithead writes/clears that before recreate).
+      - DASHBOARD_ONION_CLIENT_AUTH=${DASHBOARD_ONION_CLIENT_AUTH:-false}
+    # Immutable root filesystem (#377). The entrypoint renders torrc to /tmp (the unprivileged
+    # 'tor' user can't write /etc/tor); everything else Tor writes — onion keys, the control auth
+    # cookie, its state — lives in DataDirectory /var/lib/tor, the bind mount below. No PidFile,
+    # logs go to stdout.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ${TOR_DATA_DIR}:/var/lib/tor
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.25
+    # Healthy only once Tor has finished bootstrapping (circuits built), not merely
+    # when the SOCKS port is open — so tari/monerod don't start against a Tor that
+    # can't route yet. start_period covers a cold bootstrap without counting failures.
+    # 30s interval (#595): each probe opens a control connection; at 10s that was steady
+    # log spam + wasted cycles on the stack's busiest single-threaded service. Failure
+    # detection worst-case moves from ~50s to ~150s — dependents only gate on STARTUP order.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tor-healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # --- Monero Daemon (monerod) ---
+  # Only starts if "local_node" profile is active
+  monerod:
+    profiles: ["local_node"]
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-monero:${STACK_VERSION:-dev}
+    build: ./build/monero
+    container_name: monerod
+    # Memory CEILINGS (#132): cap each service so a leak/spike OOM-restarts the offender in its own
+    # cgroup instead of the kernel's host-wide OOM-killer picking a victim (e.g. monerod, the revenue
+    # service). These are ceilings, NOT reservations — steady-state is far lower (observed on a synced
+    # 32 GB host: monerod ~0.3 GiB RSS since its LMDB is reclaimable page cache; dashboard ~0.06;
+    # p2pool ~0.35). memswap_limit == mem_limit => zero swap => clean OOM-kill, no disk thrash (same as
+    # Tari). monerod's ceiling is generous + tunable via monero.mem_limit so heavy initial-sync
+    # verification never trips it — raise it if a low-RAM host OOMs monerod during IBD.
+    mem_limit: ${MONERO_MEM_LIMIT:-6g}
+    memswap_limit: ${MONERO_MEM_LIMIT:-6g}
+    restart: unless-stopped
+    stop_grace_period: 1m
+    logging: *default-logging
+    environment:
+      - MONERO_NODE_USERNAME=${MONERO_NODE_USERNAME}
+      - MONERO_NODE_PASSWORD=${MONERO_NODE_PASSWORD}
+      - MONERO_ONION_ADDRESS=${MONERO_ONION_ADDRESS}
+      - MONERO_PRUNE=${MONERO_PRUNE}
+      # Optional clearnet initial sync (#183): default off. When true the entrypoint strips the Tor
+      # P2P proxy from the rendered config so IBD runs over clearnet (tx broadcast stays on Tor).
+      - MONERO_CLEARNET_SYNC=${MONERO_CLEARNET_SYNC:-false}
+      - MONERO_PREP_THREADS=${MONERO_PREP_THREADS}
+      # Outbound peer target (#595): ~1 Tor circuit per peer; the steady-state Tor-CPU lever.
+      - MONERO_OUT_PEERS=${MONERO_OUT_PEERS:-48}
+      # Subnet prefix (#180): the entrypoint envsubst's it into the Tor SOCKS IP in bitmonero.conf.
+      - NETWORK_PREFIX=${NETWORK_PREFIX:-172.28.0}
+    # Immutable root filesystem (#377). The entrypoint renders bitmonero.conf INTO the bind-mounted
+    # data dir (/home/ubuntu/.bitmonero/bitmonero.conf), and monerod keeps everything — chain DB,
+    # logs, p2pstate — under that same data-dir mount, so /tmp scratch is the only tmpfs needed.
+    # /dev/hugepages is a bind mount, unaffected by the read-only rootfs.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ${MONERO_DATA_DIR}:/home/ubuntu/.bitmonero
+      - /dev/hugepages:/dev/hugepages
+      - ./build/monero/bitmonero.conf.template:/home/ubuntu/bitmonero.conf.template:ro
+      # Read-only view of the shared clearnet-state dir (#234): the entrypoint reads the
+      # dashboard-written "sync complete" marker to decide clearnet-vs-Tor at startup.
+      - ${CLEARNET_STATE_DIR:-./data/clearnet-state}:/clearnet-state:ro
+    ports:
+      # Default 127.0.0.1 = host-local only (no LAN exposure); p2pool reaches monerod over
+      # the internal Docker network regardless. Set monero.rpc_lan_access:true in config.json
+      # to publish on the LAN (0.0.0.0) for wallets on other machines.
+      - "${MONERO_RPC_BIND:-127.0.0.1}:18081:18081"
+      # ZMQ block-notification feed (#760): loopback by default; set monero.zmq_lan_access:true to
+      # publish on the LAN — with rpc_lan_access, the serving side of monero.mode:remote (a remote
+      # p2pool needs both RPC and ZMQ). No auth on ZMQ pub: trusted LAN only.
+      - "${MONERO_ZMQ_BIND:-127.0.0.1}:18083:18083"
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.26
+    depends_on:
+      tor:
+        condition: service_healthy
+        # A tor restart/recreate kills every SOCKS connection, and monerod keeps its dead peer
+        # sockets: bench-observed at 0 in / 0 out peers for ~6h with the healthcheck passing
+        # throughout (#972). restart: true makes every compose operation that restarts or
+        # recreates tor (up/apply/upgrade recreation, './pithead restart tor') restart monerod
+        # right after tor is healthy again, so it re-dials through the fresh Tor (recovers in
+        # about a minute). Needs compose >= 2.17. The dashboard's tor auto-heal (#424) bypasses
+        # compose, so tor_heal.py couples the same restart itself.
+        restart: true
+    healthcheck:
+      # The RPC username/password are read from the container's env inside the script, NOT
+      # interpolated into the test command — so they no longer leak via `docker inspect` (#90).
+      test: ["CMD", "/usr/local/bin/monerod-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # --- Payout-confirmation wallet (monero-wallet-rpc, view-only) ---
+  # Only starts if the "payout_confirm" profile is active — pithead adds it to COMPOSE_PROFILES
+  # only when monero.view_key is set AND the node is local (#381). A view key can SCAN but never
+  # spend; it reveals all incoming amounts/timing, so it is handled like a secret (never logged).
+  wallet-rpc:
+    profiles: ["payout_confirm"]
+    # Reuse the monero image (monerod + monero-wallet-rpc ship in the same verified tarball) with a
+    # distinct entrypoint — no new image, no new pin.
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-monero:${STACK_VERSION:-dev}
+    build: ./build/monero
+    container_name: wallet-rpc
+    # Memory ceiling (#132 — see monerod). Steady-state a view-only scanner is light (~0.1 GiB), but
+    # the one-time genesis scan (the payout_scan_height: auto default — full payout history) peaks
+    # well above 0.5 GiB and OOM-loops under a 512m cap. 2 GiB gives that scan headroom; it's a
+    # ceiling not a reservation, so idle use stays low. memswap == mem => zero swap, clean OOM-kill.
+    mem_limit: 2g
+    memswap_limit: 2g
+    restart: unless-stopped
+    logging: *default-logging
+    # Distinct entrypoint on the shared image: creates the view-only wallet from keys on first run,
+    # then serves monero-wallet-rpc against the local monerod. The view key reaches it via env + a
+    # tmpfs file, NEVER the command line (#90).
+    entrypoint: ["/usr/local/bin/wallet-entrypoint.sh"]
+    # Run non-root (#255) — same uid the wallets named volume inherits from the image.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#377). The wallet DB lives in the wallets named volume; the
+    # entrypoint writes the create-from-keys JSON to /tmp (tmpfs). Nothing else is written.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,uid=1000,gid=1000
+    volumes:
+      - wallet_data:/home/ubuntu/wallets
+    environment:
+      # monerod RPC creds (daemon-login) + endpoint — the local node the wallet scans against.
+      - MONERO_NODE_USERNAME=${MONERO_NODE_USERNAME}
+      - MONERO_NODE_PASSWORD=${MONERO_NODE_PASSWORD}
+      - MONERO_NODE_HOST=${NETWORK_PREFIX:-172.28.0}.26
+      - MONERO_RPC_PORT=18081
+      # This wallet-rpc's OWN login (dashboard→wallet-rpc), auto-generated by pithead.
+      - WALLET_RPC_USERNAME=${WALLET_RPC_USERNAME:-wallet}
+      - WALLET_RPC_PASSWORD=${WALLET_RPC_PASSWORD}
+      # View-only wallet material (#381). The view key is a SECRET (reveals incoming amounts/timing);
+      # it is written to a tmpfs file by the entrypoint and never appears on the command line.
+      - MONERO_WALLET_ADDRESS=${MONERO_WALLET_ADDRESS}
+      - MONERO_VIEW_KEY=${MONERO_VIEW_KEY}
+      - PAYOUT_SCAN_HEIGHT=${PAYOUT_SCAN_HEIGHT:-auto}
+    ports:
+      # Loopback-only publish (mirror monerod, line 108): the host-networked dashboard reaches it at
+      # 127.0.0.1:18082; no LAN exposure. rpc-login guards the bridge IP for mining-net peers.
+      - "127.0.0.1:18082:18082"
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.30
+    depends_on:
+      monerod:
+        condition: service_healthy
+    healthcheck:
+      # RPC creds are read from env inside the script, not interpolated here, so they don't leak via
+      # `docker inspect` (#90). The long start_period tolerates the first-run blockchain scan.
+      test: ["CMD", "/usr/local/bin/wallet-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # --- Tari Base Node ---
+  # Only starts if "local_tari" profile is active (#103, mirrors monerod's "local_node" above).
+  tari:
+    profiles: ["local_tari"]
+    # Pinned by digest (#135) so the v5.3.1-mainnet tag can't be silently re-pointed.
+    image: quay.io/tarilabs/minotari_node:v5.3.1-mainnet@sha256:824fd6ec21d618805317d7eede374d6782906eeae17d2fc8aaad4df6205f94e0
+    container_name: tari
+    # Run non-root (#255). Pulled image (not our Dockerfile), so set the uid via compose to match the
+    # uid pithead chowns ${TARI_DATA_DIR} to. The wrapper entrypoint reads the canonical config
+    # read-only and writes its runtime copy to /tmp, so only the data dir needs to be owned by 1000.
+    user: "1000:1000"
+    restart: unless-stopped
+    stop_grace_period: 1m
+    logging: *default-logging
+    # Tari's memory grows unbounded over time (#55, first reported in #14); left uncapped it can
+    # pressure or OOM the whole host on small (e.g. 16 GB) machines. Cap it as a SAFETY CEILING so a
+    # runaway OOM-restarts cleanly instead of dragging the stack down — monerod/p2pool keep mining
+    # throughout. These are the legacy keys on purpose: deploy.resources has no swap field, and
+    # memswap_limit equal to mem_limit means zero swap => clean OOM-kill, no disk thrash. (Capping
+    # swap needs swapaccount=1 on older cgroup-v1 hosts; cgroup-v2 honors it by default.) pithead
+    # sets TARI_MEM_LIMIT from tari.mem_limit — "auto" gives Tari most of RAM after subtracting the
+    # ~6 GB RandomX HugePages reservation and a reserve for the rest of the stack. The :-7680m
+    # fallback only applies to a stale .env that predates this and hasn't been re-rendered (=> a safe
+    # value for a 16 GB host with HugePages on, until the next `pithead apply`).
+    mem_limit: ${TARI_MEM_LIMIT:-7680m}
+    memswap_limit: ${TARI_MEM_LIMIT:-7680m}
+    # Tari needs NO clearnet DNS: dns_seeds = [] (config.toml), onion peer_seeds resolve via Tor, and
+    # the Tor SOCKS is reached by IP (this container already overrode Docker's 127.0.0.11, so nothing
+    # here depends on service discovery). The one OS-resolver lookup left is the Tari Pulse service's
+    # checkpoints.tari.com TXT (~every 120 s) — an ADVISORY deep-reorg check, no in-binary off-switch,
+    # that TOLERATES a DNS failure (returns "passed", verified in tari_pulse_service/mod.rs). Point the
+    # resolver at a dead local address so that lookup fails WITHOUT a packet leaving the host — zero
+    # clearnet DNS, no functional impact (#162; #160 decision-4). Trade-off: lose the Pulse deep-reorg
+    # advisory, the same class as monerod's disable-dns-checkpoints (#161).
+    dns:
+      - 127.0.0.1
+    environment:
+      - WAIT_FOR_TOR=1
+      # Optional clearnet initial sync (#183/#234): the wrapper entrypoint reads this flag and the
+      # shared marker to decide clearnet-vs-Tor per start. Surfaced here so a flag change recreates
+      # tari (a bind-mount content change alone won't trigger a recreate).
+      - TARI_CLEARNET_SYNC=${TARI_CLEARNET_SYNC:-false}
+    # Immutable root filesystem (#377). The wrapper entrypoint copies the canonical config to
+    # /tmp/tari-runtime-config.toml; the upstream start_tari_app.sh (verified in the pinned image:
+    # APP_NAME=node → TARI_BASE=/var/tari/node, it only mkdir+cd there) then runs minotari_node with
+    # --base-path /var/tari/node — the data bind mount, which holds the DB, logs and peer DB.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ${TARI_DATA_DIR}:/var/tari/node
+      - ./build/tari:/var/tari/config
+      # Read-only view of the shared clearnet-state dir (#234): the wrapper entrypoint reads the
+      # dashboard-written "sync complete" marker to decide clearnet-vs-Tor at startup.
+      - ${CLEARNET_STATE_DIR:-./data/clearnet-state}:/clearnet-state:ro
+    # Pithead wrapper (#183/#234): renders the runtime config (clearnet-vs-Tor, marker-gated) from
+    # pithead's canonical Tor config, then chains to the upstream start_tari_app.sh unchanged.
+    entrypoint:
+      - /var/tari/config/entrypoint.sh
+    command:
+      - --disable-splash-screen
+      - --non-interactive
+    ports:
+      # Tari base-node gRPC for other machines (#760): loopback by default (host tools only; the
+      # same trust boundary as the console-wallet's loopback gRPC publish). Set
+      # tari.grpc_lan_access:true in config.json to publish on the LAN (0.0.0.0) — the serving
+      # side of tari.mode:remote (#103). Plaintext, unauthenticated: trusted LAN only (#754).
+      - "${TARI_GRPC_BIND:-127.0.0.1}:18142:18142"
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.27
+    depends_on:
+      tor:
+        condition: service_healthy
+    healthcheck:
+      # Liveness only — deliberately NOT a sync/gRPC check: that would block p2pool from ever
+      # starting while Tari is down or still syncing, breaking "Tari is optional" (#35/#51). The
+      # '[m]' bracket stops grep matching its own argv — the old `grep minotari_node` matched
+      # itself, so the check reported "healthy" even when the daemon had died.
+      test: ["CMD-SHELL", "ps | grep '[m]inotari_node' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s   # survive the post-OOM DB integrity check without flapping unhealthy
+
+  # --- Tari payout-confirmation wallet (minotari_console_wallet, view-only) ---
+  # Only starts if the "tari_payout_confirm" profile is active — pithead adds it to COMPOSE_PROFILES
+  # only when tari.view_key is set AND the Tari node is local (#462). A view-only Tari wallet (private
+  # view key + public spend key) can SCAN but never spend; it reveals all incoming amounts/timing, so
+  # its secrets are handled like passwords: delivered via a tmpfs `secrets:` mount, never `environment:`.
+  tari-wallet:
+    profiles: ["tari_payout_confirm"]
+    # Pinned by digest (#135), same registry/tag as the Tari node so the version-match holds.
+    image: quay.io/tarilabs/minotari_console_wallet:v5.3.1-mainnet@sha256:31b3cd7b2b390da33c279fd1a5cd457eb254aeea17a5a230ff4c7bfea79a47eb
+    container_name: tari-wallet
+    # Run non-root (#255). Pulled image, so set uid via compose to match the uid the wallet named
+    # volume is created under; the wrapper only writes the base-path (the volume) and /tmp.
+    user: "1000:1000"
+    # A view-only scanner is light; a tight cap OOM-restarts it on a regression without touching the
+    # revenue services (#132, see the Tari node / wallet-rpc).
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    logging: *default-logging
+    # Wrapper entrypoint (mounted from the build dir, since this is a pulled image — same pattern as
+    # the Tari node): reads the three secrets from the tmpfs `secrets:` mount and exports them into
+    # the wallet child only, NEVER the command line or the container's declared env (#462).
+    entrypoint: ["/wallet-config/entrypoint.sh"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#377). The wallet DB lives in the named volume; the wrapper writes
+    # only /tmp (tmpfs). Nothing else is written.
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777,uid=1000,gid=1000
+    volumes:
+      - tari_wallet_data:/home/ubuntu/wallet
+      - ./build/tari-wallet:/wallet-config:ro
+    environment:
+      # NON-SECRET config only — the three MINOTARI_WALLET_* secrets are delivered via `secrets:`
+      # below, NOT here (an `environment:` value shows in `docker inspect`, the acceptance criterion).
+      # Tari base-node gRPC endpoint (#103): pithead renders TARI_GRPC_ADDRESS for both local (the
+      # bundled node's fixed bridge IP) and remote (a third-party/fleet-shared node's host:port);
+      # the fallback here is the stock local default for a bare `docker compose up` bypassing
+      # pithead. Harmless either way — this service never runs in remote mode (the gate above).
+      - TARI_BASE_NODE_GRPC_ADDRESS=${TARI_GRPC_ADDRESS:-172.28.0.27:18142}
+      - TARI_WALLET_BIRTHDAY=${TARI_WALLET_BIRTHDAY:-auto}
+      - TARI_WALLET_GRPC_BIND=/ip4/0.0.0.0/tcp/18143
+      - WALLET_DIR=/home/ubuntu/wallet
+    secrets:
+      # Docker mounts this on a tmpfs at /run/secrets/tari_wallet_secret, owner-readable only; the
+      # wrapper sources it. The secret VALUES never appear in `docker inspect` (only the mount name).
+      - tari_wallet_secret
+    ports:
+      # Loopback-only host publish (mirror wallet-rpc): the host-networked dashboard reaches the
+      # wallet gRPC at 127.0.0.1:18143; no LAN exposure. Unlike monero-wallet-rpc, the minotari
+      # console-wallet gRPC has no built-in login — so the access controls are this loopback-only
+      # publish plus the mining_net-internal bridge (the same trust boundary as the unauthenticated
+      # Tari node gRPC at .27:18142, the operator's own containers).
+      - "127.0.0.1:18143:18143"
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.31
+    depends_on:
+      tari:
+        condition: service_healthy
+    healthcheck:
+      # Process-liveness (like the Tari node) rather than a gRPC probe: the wallet's own gRPC is a
+      # long stream, and a liveness ps is enough to catch a crashed daemon. '[m]' stops grep matching
+      # its own argv. The long start_period tolerates the first-run blockchain scan. The pattern is
+      # capped at 15 chars — procps' ps truncates the CMD column there, so the full binary name
+      # 'minotari_console_wallet' can never match (#777).
+      test: ["CMD-SHELL", "ps | grep '[m]inotari_consol' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # --- P2Pool Node ---
+  p2pool:
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-p2pool:${STACK_VERSION:-dev}
+    build: ./build/p2pool
+    container_name: p2pool
+    # Memory ceiling (#132 — see monerod). RandomX HugePages are separate; this caps p2pool's own
+    # heap (~0.35 GiB observed).
+    mem_limit: 1g
+    memswap_limit: 1g
+    restart: unless-stopped
+    logging: *default-logging
+    # Replaces 'privileged: true'. p2pool only needs to lock HugePages for the RandomX dataset
+    # (IPC_LOCK) and raise thread priority (SYS_NICE). NOTE (#255): the container now runs non-root,
+    # so these caps aren't in the process's effective set — but mlock is covered by the unlimited
+    # memlock ulimit below, and SYS_NICE is best-effort (p2pool warns and continues without it).
+    cap_add:
+      - IPC_LOCK
+      - SYS_NICE
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    # Immutable root filesystem (#377). p2pool writes its cache, p2pool.log and peer list to its
+    # cwd /home/ubuntu and the data-api to /stats — both bind mounts below. The entrypoint's socat
+    # bridges (#278) write nothing; /dev/hugepages is a bind mount, unaffected.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ${P2POOL_DATA_DIR}:/home/ubuntu
+      - ${P2POOL_DATA_DIR}/stats:/stats
+      - /dev/hugepages:/dev/hugepages
+    command:
+      - --host
+      - ${MONERO_NODE_HOST} # Dynamic Host
+      - --rpc-port
+      - "${MONERO_RPC_PORT}"
+      - --rpc-login
+      - "${MONERO_NODE_USERNAME}:${MONERO_NODE_PASSWORD}" # Only used if auth required
+      - --zmq-port
+      - "${MONERO_ZMQ_PORT}"
+      - --wallet
+      - ${MONERO_WALLET_ADDRESS}
+      - --merge-mine
+      # Tari base-node gRPC endpoint (#103): local or remote, driven by pithead's rendered
+      # TARI_GRPC_ADDRESS (the fallback is the stock local default, for a bare `docker compose up`).
+      - tari://${TARI_GRPC_ADDRESS:-172.28.0.27:18142}
+      - ${TARI_WALLET_ADDRESS}
+      - --onion-address
+      - ${P2POOL_ONION_ADDRESS}
+      - --local-api
+      - --stratum
+      - 0.0.0.0:3333
+      - --p2p
+      - 0.0.0.0:${P2POOL_PORT}
+      - --data-api
+      - /stats
+    # P2POOL_FLAGS (pool type + the #165 Tor SOCKS routing) is passed via the environment, not as a
+    # `- ${P2POOL_FLAGS}` command item: Compose passes such an item as a SINGLE argument (no
+    # word-splitting), which mangles a multi-flag value. The entrypoint word-splits this env var.
+    environment:
+      - P2POOL_FLAGS=${P2POOL_FLAGS:-}
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.28
+    # No depends_on: both monerod (local_node) and tari (local_tari, #103) are profile-gated and
+    # OFF in remote mode — a depends_on edge to a service that profiles have excluded fails
+    # `compose up` outright, not just at startup. p2pool retries its own RPC/gRPC dials, so it
+    # comes up fine without a startup-order guarantee against either node.
+    healthcheck:
+      # Liveness for the core revenue service (#90). Probe the stratum listener directly: a TCP
+      # connect to :3333 proves p2pool is up and accepting miners, which is the failure miners
+      # actually feel. /dev/tcp is a bash builtin (the image ships bash) so it needs no extra
+      # tooling. Surfaced in `pithead status` / the dashboard; it does NOT gate startup or
+      # auto-restart — xmrig-proxy still depends on p2pool only being *started*.
+      test: ["CMD", "/usr/local/bin/p2pool-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # --- XMRig Proxy ---
+  xmrig-proxy:
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-xmrig-proxy:${STACK_VERSION:-dev}
+    build: ./build/xmrig-proxy
+    container_name: xmrig-proxy
+    # Memory ceiling (#132 — see monerod). Tiny in practice (~2 MiB observed).
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    logging: *default-logging
+    # Defense-in-depth: this leaf service never needs extra privileges or Linux capabilities
+    # (it only listens on :3333/:3344 and forwards to p2pool). Drop them all (#90).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#377). Near-pure network proxy; the wrapper entrypoint writes
+    # nothing, but the cwd /home/ubuntu exists only in the image and xmrig-proxy may drop a
+    # config/log there (e.g. persisting an API-driven pool switch), so give it uid-1000 tmpfs
+    # scratch. Ephemeral by design — the config is re-rendered from the compose command every start.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /home/ubuntu:size=64m,uid=1000,gid=1000
+    volumes:
+      # Stratum TLS keypair (#261), read-only; the wrapper passes the cert flags only when
+      # PROXY_STRATUM_TLS=true, so an empty dir (TLS off) changes nothing.
+      - ${PROXY_TLS_DIR:-./data/proxy-tls}:/tls:ro
+    ports:
+      # The stratum endpoint your rigs connect to. Published on 0.0.0.0 (all interfaces) by
+      # default so LAN workers can reach it; set p2pool.stratum_bind in config.json to a specific
+      # address (e.g. your LAN IP, or 127.0.0.1 to disable LAN access) to narrow exposure on a
+      # public-IP host. The port itself is p2pool.stratum_port (#172, default 3333) — every rig
+      # must dial the same port (RigForge: pool.port). Either way, firewall it to your LAN — see
+      # docs/workers.md.
+      - "${STRATUM_BIND:-0.0.0.0}:${STRATUM_PORT:-3333}:${STRATUM_PORT:-3333}"
+    environment:
+      - PROXY_API_PORT=${PROXY_API_PORT}
+      - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN}
+      # Optional stratum-miner auth (#152). Passed as an env var — NOT a `- ${VAR:+--flag}` command
+      # item — because a compose command LIST can't drop an empty element: when the password is unset
+      # that item renders a stray '' positional arg (xmrig-proxy warns `unsupported non-option
+      # argument ''`). The wrapper entrypoint appends the flag only when this is non-empty.
+      - PROXY_STRATUM_PASSWORD=${PROXY_STRATUM_PASSWORD:-}
+      # Stratum-over-TLS (#261): when true the wrapper appends the cert flags and xmrig-proxy
+      # autodetects TLS vs cleartext per-connection on the same stratum port.
+      - PROXY_STRATUM_TLS=${PROXY_STRATUM_TLS:-false}
+    command:
+      - -o
+      - ${P2POOL_URL}
+      - -u
+      - ${MONERO_WALLET_ADDRESS}
+      - -b
+      # Bind matches the published container port (p2pool.stratum_port, #172). The UPSTREAM leg
+      # (-o ${P2POOL_URL}) is p2pool's container-internal stratum and stays fixed at :3333.
+      - 0.0.0.0:${STRATUM_PORT:-3333}
+      - -m
+      - simple
+      - --coin
+      - monero
+      - --verbose
+      - --http-host
+      - 0.0.0.0
+      - --http-port
+      - "${PROXY_API_PORT:?PROXY_API_PORT is empty; run 'pithead apply' (#153)}"
+      # Fail closed (#153): this control API is writable (--http-no-restricted, required for XvB
+      # pool-switching) and reachable on the mining_net bridge + the host, so it must NEVER run
+      # unauthenticated. ':?' makes the stack REFUSE TO START — instead of exposing an open API —
+      # if a hand-edited or pre-token stale .env left PROXY_AUTH_TOKEN empty (note 'pithead up'
+      # does not re-render .env, only setup/apply do). pithead auto-generates the token on apply.
+      - --http-access-token
+      - "${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN is empty; refusing to start an unauthenticated xmrig-proxy control API. Run 'pithead apply' to generate one (#153)}"
+      - --http-no-restricted
+      # Optional miner authentication on the stratum port (#152) is applied by the wrapper entrypoint
+      # from $PROXY_STRATUM_PASSWORD (see the environment block above) — NOT as a command item here,
+      # because a compose command LIST can't omit an empty element. When the password is set,
+      # xmrig-proxy rejects rigs whose stratum 'pass' doesn't match, so only devices that know the
+      # secret can mine (this also shrinks the #122 SSRF surface). Cleartext over stratum — pair with a
+      # LAN-only stratum_bind / firewall; this is access control, not encryption.
+      # xmrig-proxy dev-fee donation level (#173). Rendered from proxy.donate_level; xmrig-proxy's
+      # own default is 0% (no fee), which we now pass EXPLICITLY so the effective level is visible
+      # and operator-controllable instead of an invisible compiled-in default. NOT the XvB donation.
+      - --donate-level=${PROXY_DONATE_LEVEL:-0}
+    networks:
+      mining_net:
+        ipv4_address: ${NETWORK_PREFIX:-172.28.0}.29
+    depends_on:
+      - p2pool
+    healthcheck:
+      # Control-API liveness (#904): a TCP connect to the HTTP API port, via a script that reads
+      # the port from env (#90 — nothing interpolated here). The API is the honest probe: a failed
+      # stratum bind kills the process outright (already visible as a restart), while the API can
+      # die quietly — and it is what the dashboard polls for worker stats. Surfaced in
+      # `pithead status` and the container-health alert (#337); gates nothing (no dependents).
+      test: ["CMD", "/usr/local/bin/xmrig-proxy-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- Monitoring Dashboard ---
+  dashboard:
+    image: ${PITHEAD_REGISTRY:-ghcr.io/p2pool-starter-stack}/pithead-dashboard:${STACK_VERSION:-dev}
+    build:
+      context: ./build/dashboard
+      # Stack version baked into the image so the dashboard header can show it (Issue #58).
+      # pithead exports these for the build (PITHEAD_VERSION from the top-level VERSION file;
+      # git branch/commit for dev builds — see export_build_provenance); empty defaults keep a
+      # bare `docker compose build` working (the badge then falls back to a generic dev indicator).
+      args:
+        PITHEAD_VERSION: ${PITHEAD_VERSION:-}
+        PITHEAD_GIT_COMMIT: ${PITHEAD_GIT_COMMIT:-}
+        PITHEAD_GIT_BRANCH: ${PITHEAD_GIT_BRANCH:-}
+        PITHEAD_RELEASE: ${PITHEAD_RELEASE:-}
+    container_name: dashboard
+    # Memory ceiling (#132 — see monerod). A small aiohttp + SQLite app (~0.06 GiB observed); a tight
+    # cap is pure upside — a memory regression OOM-restarts the dashboard, not the revenue services.
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    logging: *default-logging
+    # Host networking, kept deliberately (#91 P5, evaluated & closed): the dashboard reaches the
+    # local monerod RPC on 127.0.0.1:18081 (Issue #29) plus the host-published proxy/Tor-SOCKS
+    # endpoints, and Caddy proxies it on the host. Moving to the bridge would mean re-plumbing the
+    # monerod address, the dashboard's bind, Caddy's upstream and LAN-worker reachability for a
+    # marginal gain — net negative, so host networking stays. It binds only 127.0.0.1 (HOST_IP).
+    network_mode: "host"
+    # Now runs non-root (uid 1000, #255) and owns ${DASHBOARD_DATA_DIR}, so it no longer needs
+    # root's CAP_DAC_OVERRIDE to write its SQLite history — drop all capabilities like the other
+    # leaf services (#90). no-new-privileges stays as defense-in-depth.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#377). The dashboard writes its SQLite history to /data and the
+    # clearnet-sync markers to /clearnet-state — both bind mounts below; /app and the venv are only
+    # read/executed. /tmp covers Python's tempfile default and SQLite's temp-file fallback.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ${P2POOL_DATA_DIR}/stats:/app/stats:ro
+      - ${DASHBOARD_DATA_DIR}:/data
+      # Read-WRITE: the supervisor drops the per-chain "clearnet sync complete" marker here once a
+      # node finishes a clearnet initial sync, then restarts it onto Tor (#234). monerod/tari mount
+      # the same dir read-only. Holds only non-secret state markers.
+      - ${CLEARNET_STATE_DIR:-./data/clearnet-state}:/clearnet-state
+      # Control-channel spool (#33). requests/ is the container's ONLY writable leg — the dashboard
+      # drops typed JSON intents there; the host-side runner answers via the read-only results/ and
+      # audit/ mounts. staged/ is never mounted at all. This rw/ro split is the trust boundary: the
+      # container can only ask; it cannot forge a result, rewrite the audit log, or alter a staged
+      # intent between preview and commit.
+      - ${CONTROL_DIR:-./data/control}/requests:/control/requests
+      - ${CONTROL_DIR:-./data/control}/results:/control/results:ro
+      - ${CONTROL_DIR:-./data/control}/audit:/control/audit:ro
+      # Pre-masked config copy (#440), read-only: the host renders config.json with every set
+      # secret leaf replaced by a sentinel, and the Configuration view prefills from THIS file.
+      # The raw config.json is never mounted — a fully compromised container reads masked config,
+      # results, and the audit log, nothing else (see SECURITY.md).
+      - ${CONTROL_DIR:-./data/control}/masked:/control/masked:ro
+      # Caddy's JSON access log (#349), read-only: the dashboard tails it to show recent accesses
+      # and a failed-login count (a burst of 401s = rotate the password / onion). Caddy owns the
+      # write side and the rotation; every field read from here is treated as hostile input.
+      - ${CADDY_LOG_DIR:-./data/caddy-logs}:/access-log:ro
+      # config.reference.json (every key with its default), read-only, so the editor form covers the
+      # full schema even for keys the operator's sparse config.json omits (#33). No secrets.
+      - ./config.reference.json:/host-config/config.reference.json:ro
+      # config.core-keys.json (#502/#529), read-only: the SAME core-key shortlist file the wizard
+      # reads, so the Configuration view's pinned core section is never a second hand-maintained
+      # list. No secrets — it's a list of dotted key paths, not values.
+      - ./config.core-keys.json:/host-config/config.core-keys.json:ro
+    environment:
+      - HOST_IP=${HOST_IP:-127.0.0.1}
+      # Timezone for dashboard timestamps/charts. Set via `dashboard.timezone` in config.json
+      # (`auto` = the host's timezone, auto-detected); pithead renders it to DASHBOARD_TZ in
+      # .env. The Etc/UTC here is only a last-resort fallback if DASHBOARD_TZ is unset.
+      - TZ=${DASHBOARD_TZ:-Etc/UTC}
+      - MONERO_NODE_HOST=${MONERO_NODE_HOST:-172.28.0.26}
+      # monerod get_info RPC creds (Issue #29): the dashboard reads sync height/target over
+      # 127.0.0.1:18081 (reachable via network_mode: host) using digest auth, instead of
+      # scraping docker logs. Only used for a local node; harmless for remote-node setups.
+      - MONERO_NODE_USERNAME=${MONERO_NODE_USERNAME}
+      - MONERO_NODE_PASSWORD=${MONERO_NODE_PASSWORD}
+      # Whether the local node prunes — shown as Pruned/Full in the Monero panel (Issue #32).
+      - MONERO_PRUNE=${MONERO_PRUNE:-true}
+      # Clearnet initial sync (#183/#234): the supervisor watches these flags and, once a clearnet
+      # node is synced, drops a marker in /clearnet-state and restarts it back onto Tor.
+      - MONERO_CLEARNET_SYNC=${MONERO_CLEARNET_SYNC:-false}
+      - TARI_CLEARNET_SYNC=${TARI_CLEARNET_SYNC:-false}
+      - CLEARNET_STATE_DIR=/clearnet-state
+      # Egress-posture panel (#170): the #270 firewall state + p2pool's clearnet toggle, so the
+      # dashboard can show each component's real egress route rather than a guess.
+      - TOR_EGRESS_FIREWALL=${TOR_EGRESS_FIREWALL:-true}
+      # Tor guard self-heal (#424): opt-in; when true the dashboard probes Tor clearnet egress
+      # and restarts tor (via docker-control) if it's stuck on a failing guard. Default off.
+      - TOR_AUTO_HEAL=${TOR_AUTO_HEAL:-false}
+      - P2POOL_CLEARNET=${P2POOL_CLEARNET:-false}
+      - P2POOL_URL=${P2POOL_URL}
+      - MONERO_WALLET_ADDRESS=${MONERO_WALLET_ADDRESS}
+      # Payout confirmation (#381): poll the view-only wallet-rpc for confirmed incoming payouts.
+      # Enabled only when a view key is set on a local node (pithead renders true); off = the
+      # dashboard never polls and the wallet-rpc container isn't started. Creds authenticate the
+      # loopback-published wallet-rpc; the URL is the host-loopback publish (network_mode: host).
+      - PAYOUT_CONFIRM_ENABLED=${PAYOUT_CONFIRM_ENABLED:-false}
+      - MONERO_WALLET_RPC_URL=${MONERO_WALLET_RPC_URL:-http://127.0.0.1:18082/json_rpc}
+      - WALLET_RPC_USERNAME=${WALLET_RPC_USERNAME:-wallet}
+      - WALLET_RPC_PASSWORD=${WALLET_RPC_PASSWORD:-}
+      # Tari on-chain payout confirmation (#462): poll the view-only tari-wallet gRPC for confirmed
+      # incoming payouts. Enabled only when a tari view key is set on a local Tari node; off = the
+      # dashboard never polls and the tari-wallet container isn't started. The gRPC is unauthenticated
+      # (like the Tari base node); reached over the host-loopback publish (network_mode: host).
+      - TARI_PAYOUT_CONFIRM_ENABLED=${TARI_PAYOUT_CONFIRM_ENABLED:-false}
+      - TARI_WALLET_GRPC_ADDRESS=${TARI_WALLET_GRPC_ADDRESS:-127.0.0.1:18143}
+      - XVB_ENABLED=${XVB_ENABLED}
+      - XVB_POOL_URL=${XVB_POOL_URL}
+      - XVB_DONOR_ID=${XVB_DONOR_ID}
+      # Route XvB donation mining over Tor by default (#166); xvb.tor:false opts out.
+      - XVB_TOR_ENABLED=${XVB_TOR_ENABLED:-true}
+      - XVB_DONATION_LEVEL=${XVB_DONATION_LEVEL:-auto}
+      # Backup-stack warm-standby source (#249): the primary dashboard's read-only /api/xvb-standby
+      # URL. Blank (default) = off; only a failover pair's backup sets it.
+      - XVB_STANDBY_SOURCE=${XVB_STANDBY_SOURCE:-}
+      # XvB raffle auto-registration endpoint (#263). Defaults to the real endpoint (in the dashboard
+      # config) so registration just works. Override here to point at a different/test endpoint, or
+      # set a disable sentinel (off/none/false/disabled) to turn auto-registration off while keeping
+      # XvB on. The call carries the full wallet and is always Tor-routed like the stats fetch.
+      - XVB_SUBMIT_URL=${XVB_SUBMIT_URL:-}
+      - PROXY_HOST=${NETWORK_PREFIX:-172.28.0}.29
+      - PROXY_API_PORT=${PROXY_API_PORT}
+      - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN}
+      # How the dashboard reads each worker's own xmrig /1/summary (config.json: workers.*). One
+      # configured way, no auto-detection. Defaults = stock RigForge worker (open read-only API,
+      # no token, port 8080). api_auth: none (default) | name (Bearer=worker name) | token.
+      # Per-worker overrides (dashboard.workers[], #172) are NOT env — the dashboard reads them
+      # from the read-only /host-config/config.json mount above (they carry per-rig tokens).
+      - XMRIG_API_PORT=${XMRIG_API_PORT:-8080}
+      - XMRIG_API_AUTH=${XMRIG_API_AUTH:-none}
+      - XMRIG_API_TOKEN=${XMRIG_API_TOKEN}
+      # The operator-facing stratum port (#172), display-only here: the "point your rigs at
+      # host:PORT" hint and the egress topology label track the real published port.
+      - STRATUM_PORT=${STRATUM_PORT:-3333}
+      # Socket proxies are isolated on proxy_net and published only to the host loopback (#345), so
+      # the host-networked dashboard reaches them here — mining containers cannot.
+      - DOCKER_PROXY_URL=tcp://127.0.0.1:12375
+      - DOCKER_CONTROL_URL=tcp://127.0.0.1:12376
+      # Tari base-node gRPC endpoint (#103): local or remote, driven by pithead's rendered
+      # TARI_GRPC_ADDRESS (the fallback is the stock local default).
+      - TARI_GRPC_ADDRESS=${TARI_GRPC_ADDRESS:-172.28.0.27:18142}
+      # Local monerod bridge IP (local-vs-remote detection), the internal SSRF-guard CIDR, and the
+      # Tor SOCKS endpoint all track the configured subnet prefix (#180).
+      - LOCAL_MONERO_HOST=${NETWORK_PREFIX:-172.28.0}.26
+      - MINING_NET_CIDR=${NETWORK_SUBNET:-172.28.0.0/24}
+      - TOR_SOCKS_PROXY=socks5h://${NETWORK_PREFIX:-172.28.0}.25:9050
+      # Notify-only new-release check (#224, config.json: dashboard.check_for_updates). Default ON;
+      # the dashboard checks GitHub for a newer release and shows a link badge — routed over the same
+      # bridge Tor SOCKS as TOR_SOCKS_PROXY so it leaks neither the host IP nor a DNS lookup (safe to
+      # default on). Set dashboard.check_for_updates:false to opt out. See docs/privacy.md.
+      - DASHBOARD_CHECK_UPDATES=${DASHBOARD_CHECK_UPDATES:-true}
+      # Dashboard config editing (#33, config.json: dashboard.control.enabled). Default OFF.
+      # When off, the control routes are not registered at all (they 404); the spool mounts above
+      # are inert because no host-side runner is installed.
+      - DASHBOARD_CONTROL_ENABLED=${DASHBOARD_CONTROL_ENABLED:-false}
+      # monerod is required: a monerod outage always rejects workers (Issue #31) and the miner
+      # is always held until monerod syncs (Issue #35) — not configurable. Tari is optional:
+      # TARI_REQUIRED (default true) decides whether a Tari outage rejects workers, whether the
+      # miner waits for Tari's sync, and whether a Tari-only sync takes over the dashboard
+      # (Issue #51). Set dashboard.tari_required:false to make Tari non-blocking.
+      - TARI_REQUIRED=${TARI_REQUIRED:-true}
+      # Opt-in fail-closed miner hold on an unrecoverable dashboard health failure (#490,
+      # config.json: dashboard.fail_closed). Default OFF: these failures only alert, mining
+      # continues. ON reuses the #35 sync-gate hold (stop/start p2pool + xmrig-proxy) but only for
+      # a DB auto-heal rebuild that itself failed, or the dashboard container crash-looping —
+      # never a transient blip.
+      - DASHBOARD_FAIL_CLOSED=${DASHBOARD_FAIL_CLOSED:-false}
+      # Healthchecks.io dead-man's switch (#79). A ping URL is the on/off switch (blank = off);
+      # when set, the dashboard pings it each loop, so if the host dies the pings stop and
+      # Healthchecks.io alerts externally — the one failure mode an in-stack notifier can't
+      # report. The ping always rides the bridge Tor SOCKS (TOR_SOCKS_PROXY). See docs/monitoring.md.
+      - HEALTHCHECKS_PING_URL=${HEALTHCHECKS_PING_URL:-}
+      # --- Operator alerts: Telegram (Issues #121, #45) ---
+      # Notifications-only push alerter plus an optional on-demand command interface; both
+      # disabled by default. bot_token is a secret sourced from the owner-only .env and is never
+      # logged by the dashboard. On a Tor-only / no-clearnet host the Telegram API is unreachable
+      # and both sends and command polling fail silently. Per-event toggles default on; the
+      # command interface is opt-in via TELEGRAM_COMMANDS_ENABLED. See docs/telegram.md.
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_EVENT_NODE_DOWN=${TELEGRAM_EVENT_NODE_DOWN:-true}
+      - TELEGRAM_EVENT_NODE_RECOVERED=${TELEGRAM_EVENT_NODE_RECOVERED:-true}
+      - TELEGRAM_EVENT_WORKER_OFFLINE=${TELEGRAM_EVENT_WORKER_OFFLINE:-true}
+      - TELEGRAM_EVENT_WORKER_RECOVERED=${TELEGRAM_EVENT_WORKER_RECOVERED:-true}
+      - TELEGRAM_EVENT_WORKER_JOINED=${TELEGRAM_EVENT_WORKER_JOINED:-true}
+      - TELEGRAM_EVENT_WORKER_LEFT=${TELEGRAM_EVENT_WORKER_LEFT:-true}
+      - TELEGRAM_EVENT_SYNC_FINISHED=${TELEGRAM_EVENT_SYNC_FINISHED:-true}
+      - TELEGRAM_EVENT_DISK_SPACE=${TELEGRAM_EVENT_DISK_SPACE:-true}
+      - TELEGRAM_EVENT_DB_UNHEALTHY=${TELEGRAM_EVENT_DB_UNHEALTHY:-true}
+      - TELEGRAM_EVENT_DB_RESET=${TELEGRAM_EVENT_DB_RESET:-true}
+      - TELEGRAM_EVENT_XVB_NO_SHARE=${TELEGRAM_EVENT_XVB_NO_SHARE:-true}
+      - TELEGRAM_EVENT_CLEARNET_EXPOSED=${TELEGRAM_EVENT_CLEARNET_EXPOSED:-true}
+      - TELEGRAM_EVENT_XVB_REGISTRATION=${TELEGRAM_EVENT_XVB_REGISTRATION:-true}
+      - TELEGRAM_EVENT_NEW_RELEASE=${TELEGRAM_EVENT_NEW_RELEASE:-true}
+      - TELEGRAM_EVENT_STACK_ONLINE=${TELEGRAM_EVENT_STACK_ONLINE:-true}
+      - TELEGRAM_EVENT_DAILY_SUMMARY=${TELEGRAM_EVENT_DAILY_SUMMARY:-true}
+      - TELEGRAM_EVENT_HASHRATE_LOW=${TELEGRAM_EVENT_HASHRATE_LOW:-true}
+      - TELEGRAM_EVENT_HASHRATE_LOSS=${TELEGRAM_EVENT_HASHRATE_LOSS:-true}
+      - TELEGRAM_EVENT_HUGEPAGES=${TELEGRAM_EVENT_HUGEPAGES:-true}
+      - TELEGRAM_EVENT_LOW_RAM=${TELEGRAM_EVENT_LOW_RAM:-true}
+      - TELEGRAM_EVENT_WALLET_CHANGED=${TELEGRAM_EVENT_WALLET_CHANGED:-true}
+      - TELEGRAM_EVENT_HIGH_REJECT_RATE=${TELEGRAM_EVENT_HIGH_REJECT_RATE:-true}
+      - TELEGRAM_EVENT_BLOCK_FOUND=${TELEGRAM_EVENT_BLOCK_FOUND:-true}
+      - TELEGRAM_EVENT_PAYOUT_FOUND=${TELEGRAM_EVENT_PAYOUT_FOUND:-true}
+      # On-chain payout confirmation from the view-only wallet (#381), distinct from PAYOUT_FOUND
+      # (which is p2pool's block/share view). Fires once per confirmed incoming transfer.
+      - TELEGRAM_EVENT_PAYOUT_CONFIRMED=${TELEGRAM_EVENT_PAYOUT_CONFIRMED:-true}
+      - TELEGRAM_EVENT_CONTAINER_UNHEALTHY=${TELEGRAM_EVENT_CONTAINER_UNHEALTHY:-true}
+      # An XvB raffle round this wallet won, mirrored from XvB's public winners file. Fires once
+      # per genuinely new win (the raffle_wins table is idempotent on the round's block id).
+      - TELEGRAM_EVENT_RAFFLE_WIN=${TELEGRAM_EVENT_RAFFLE_WIN:-true}
+      - TELEGRAM_DAILY_SUMMARY_TIME=${TELEGRAM_DAILY_SUMMARY_TIME:-08:00}
+      # Hashrate-degradation detector (#99).
+      - HASHRATE_DROP_THRESHOLD_PCT=${HASHRATE_DROP_THRESHOLD_PCT:-50}
+      - HASHRATE_DROP_MINUTES=${HASHRATE_DROP_MINUTES:-10}
+      - TELEGRAM_COMMANDS_ENABLED=${TELEGRAM_COMMANDS_ENABLED:-false}
+      # Two-way control commands (#338): /restart, /apply through the #33 host-control spool. Off by
+      # default and gated to the allow-listed operator user ids below, each action confirmed in-chat
+      # with a deny-on-timeout window. Needs DASHBOARD_CONTROL_ENABLED (the spool + runner).
+      - TELEGRAM_CONTROL_ENABLED=${TELEGRAM_CONTROL_ENABLED:-false}
+      - TELEGRAM_CONTROL_ALLOWED_IDS=${TELEGRAM_CONTROL_ALLOWED_IDS:-}
+      - TELEGRAM_CONTROL_CONFIRM_S=${TELEGRAM_CONTROL_CONFIRM_S:-60}
+      # --- Operator alerts: webhook + ntfy sinks (#380) ---
+      # Push-only siblings of the Telegram alerter: every alert also POSTs as JSON to each
+      # webhook URL and as plain text to the ntfy topic URL. Off by default (no URLs). The
+      # URLs and the ntfy token are secrets sourced from the owner-only .env and never logged.
+      # NOTIFY_TOR keeps the POSTs on the bridge Tor SOCKS (default), so endpoints see a Tor
+      # exit, not the host IP; false is the LAN/self-hosted carve-out. See docs/telegram.md.
+      - NOTIFY_WEBHOOK_URLS=${NOTIFY_WEBHOOK_URLS:-}
+      - NTFY_URL=${NTFY_URL:-}
+      - NTFY_TOKEN=${NTFY_TOKEN:-}
+      - NOTIFY_TOR=${NOTIFY_TOR:-true}
+    healthcheck:
+      # HTTP liveness (#904): HEAD /api/state against the app's fixed loopback bind — a 200
+      # proves the server answers where Caddy proxies AND that state assembly works, the state a
+      # bare "Up" hid in the v1.8.1 incident (dashboard serving 502s behind an Up container,
+      # #622). start_period covers app start plus a SQLite auto-heal rebuild (#490) without
+      # counting failures, so a warmup blip never false-fails a one-click upgrade's status view.
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # --- Docker Socket Proxy (read-only) ---
+  # Read-only window onto the Docker API for the dashboard's container stats/logs.
+  # POST stays off, so this proxy can never write — container control goes through the
+  # separate, tightly-scoped docker-control proxy below.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: docker-proxy
+    # Memory ceiling (#132 — see monerod). A tiny socket proxy (~13 MiB observed).
+    mem_limit: 128m
+    memswap_limit: 128m
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#90): HAProxy reads its config and the (read-only) Docker socket
+    # and writes nothing persistent — only ephemeral scratch is needed.
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CONTAINERS=1
+      - LOGS=1
+    # Isolated from the mining bridge (#345): on its own `proxy_net`, reachable ONLY via a port
+    # published to the host loopback — the host-networked dashboard reaches it at 127.0.0.1:12375,
+    # but no mining container (monerod/tari/p2pool/xmrig-proxy) can. Inspect (`/containers/<id>/json`
+    # → Config.Env → secrets) is thus unreachable from a compromised mining container. The dashboard
+    # calls `GET /containers/<id>/logs` and, for the container-health alert (#337), inspect itself —
+    # so the shim contemplated in #345 would need a logs+inspect allowance, not logs-only.
+    ports:
+      - "127.0.0.1:12375:2375"
+    networks:
+      - proxy_net
+    healthcheck:
+      # End-to-end liveness (#904): GET /_ping THROUGH HAProxy to the Docker daemon, proving the
+      # proxy actually brokers the socket — not merely that a process exists. /_ping is in the
+      # image's default-allow set (PING=1), so the probe widens nothing; busybox wget ships in
+      # the alpine-based image.
+      test: ["CMD", "wget", "-q", "--spider", "-T", "5", "http://127.0.0.1:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- Docker Control Proxy (start/stop only) ---
+  # A second, minimal proxy used ONLY to stop/start p2pool + xmrig-proxy — node-down worker
+  # failover (Issue #31), holding the miner until the nodes finish syncing (Issue #35) — plus
+  # tor (#424) and monerod after a tor heal (#972).
+  # With POST=1 but every section (CONTAINERS, EXEC, IMAGES, …) left off, the v0.5.0 ruleset
+  # allows exactly `POST /containers/<id>/{start,stop}` and denies everything else
+  # (create/kill/exec/reads — and the pause/unpause routes v0.5.0 added, which sit behind their
+  # own ALLOW_PAUSE/ALLOW_UNPAUSE opt-ins, left off here). Kept separate from the read-only
+  # proxy above so opening POST here can't widen that proxy's container access.
+  docker-control:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: docker-control
+    # Memory ceiling (#132 — see monerod). A tiny socket proxy (~13 MiB observed).
+    mem_limit: 128m
+    memswap_limit: 128m
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Immutable root filesystem (#90): HAProxy reads its config and the (read-only) Docker socket
+    # and writes nothing persistent — only ephemeral scratch is needed.
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - POST=1
+      - ALLOW_START=1
+      - ALLOW_STOP=1
+    # Isolated from the mining bridge (#345): same posture as docker-proxy. The tecnativa ruleset
+    # can't scope start/stop to specific containers, so keeping this proxy off `mining_net` and only
+    # on the host loopback is what stops a compromised mining container from start/stopping the whole
+    # stack. The dashboard reaches it at 127.0.0.1:12376; it only ever names p2pool/xmrig-proxy —
+    # plus tor for the opt-in guard self-heal restart (#424), and monerod right after a successful
+    # tor heal (#972: a tor cycle strands monerod's peers, so the heal re-dials the local node too).
+    ports:
+      - "127.0.0.1:12376:2375"
+    networks:
+      - proxy_net
+    healthcheck:
+      # Same end-to-end /_ping probe as docker-proxy (#904): the PING=1 default allows it
+      # independently of the POST-only ruleset here, so the start/stop scope stays untouched.
+      test: ["CMD", "wget", "-q", "--spider", "-T", "5", "http://127.0.0.1:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- Caddy Reverse Proxy ---
+  # Bridges the local 127.0.0.1 application binding to the LAN
+  # Serves HTTPS or HTTP depending on configuration
+  caddy:
+    image: caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d
+    container_name: caddy
+    # Memory ceiling (#132 — see monerod). Reverse proxy + local TLS only (~13 MiB observed).
+    mem_limit: 128m
+    memswap_limit: 128m
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: "host"
+    # Drop all capabilities, then add back only NET_BIND_SERVICE — Caddy serves the dashboard on
+    # :80/:443 (privileged ports) and would otherwise fail to bind once ALL caps are dropped (#90).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    # Immutable root filesystem (#90). Persistent state (the internal CA + issued certs) lives in
+    # the caddy_data volume; the only other writes are Caddy's config autosave (/config) and temp
+    # scratch (/tmp), which are ephemeral tmpfs. Nothing else on the rootfs can be modified.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /config
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      # JSON access log (#349): Caddy rolls it natively (4 MiB × 3 files, see generate_caddyfile);
+      # the dashboard mounts the same dir read-only to show recent accesses and failed logins.
+      - ${CADDY_LOG_DIR:-./data/caddy-logs}:/var/log/caddy
+    healthcheck:
+      # Config-loaded liveness (#904): probe Caddy's admin API on its default localhost:2019 bind
+      # (the host loopback under network_mode: host; the generated Caddyfile never disables it).
+      # /config/ answers 200 only from a running Caddy with its config loaded — more than
+      # process-up, but deliberately not a vhost probe: the LAN vhost's scheme, port and auth all
+      # vary with config, and busybox wget can't speak the internal-CA TLS. wget ships in the
+      # alpine-based image (curl does not).
+      test: ["CMD", "wget", "-q", "--spider", "-T", "5", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+# --- Volumes ---
+volumes:
+  caddy_data:
+  # View-only payout wallet DB (#381). A named volume so it survives recreates; it inherits uid-1000
+  # ownership from the image's /home/ubuntu/wallets dir, so the non-root container can write it.
+  wallet_data:
+  # View-only Tari payout wallet DB (#462). Named volume, survives recreates; the wrapper mkdir's the
+  # base-path under uid 1000 (the container user) on first run.
+  tari_wallet_data:
+
+# --- Secrets ---
+# View-only Tari wallet material (#462). pithead renders these three values into an owner-only file
+# (data/tari-wallet-secret.env, gitignored like .env); Docker mounts it on a TMPFS at
+# /run/secrets/tari_wallet_secret, owner-readable only, for the tari-wallet service. Delivering the
+# view key this way (not via `environment:`) keeps it out of `docker inspect` — the acceptance
+# criterion that separates #462 from #381 (Tari has no JSON-import path to hide the key behind).
+secrets:
+  tari_wallet_secret:
+    file: ${TARI_WALLET_SECRET_FILE:-./data/tari-wallet-secret.env}
+
+# --- Network Configuration ---
+networks:
+  mining_net:
+    driver: bridge
+    name: mining_net
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-172.28.0.0/24}
+  # Socket-proxy isolation (#345): the two Docker-socket proxies live here, off the mining bridge, so
+  # no mining container can reach them. The dashboard (host networking) reaches them via their
+  # loopback-published ports, not this network. NOT `internal` — Docker doesn't set up port
+  # publishing on internal networks, and the loopback publish is how the dashboard reaches them. The
+  # proxies never dial out (pinned tecnativa image, cap_drop ALL, read-only rootfs), so proxy_net not
+  # being under the #270 egress firewall is not a leak surface. Docker auto-assigns the subnet.
+  proxy_net:
+    driver: bridge
+    name: proxy_net

@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: futures-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: futures
+      POSTGRES_PASSWORD: futures_password
+      POSTGRES_DB: futures_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U futures -d futures_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - futures-network
+
+  # Database Migrations (one-shot service)
+  migrations:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: futures-migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://futures:futures_password@postgres:5432/futures_db
+    command: ["npm", "run", "db:migrate"]
+    networks:
+      - futures-network
+
+  # Web Service (Express + Frontend + WebSocket)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: futures-web
+    restart: unless-stopped
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: postgres://futures:futures_password@postgres:5432/futures_db
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-secret-in-production}
+      SCHEDULER_ENABLED: "false"  # Disable scheduler in web service
+      TZ: America/New_York
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - futures-network
+
+  # Scheduler Service (Nightly calculations)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: futures-scheduler
+    restart: unless-stopped
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: 5001  # Different port to avoid conflicts
+      DATABASE_URL: postgres://futures:futures_password@postgres:5432/futures_db
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-secret-in-production}
+      SCHEDULER_ENABLED: "true"  # Enable scheduler in this service
+      TZ: America/New_York
+    networks:
+      - futures-network
+
+networks:
+  futures-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

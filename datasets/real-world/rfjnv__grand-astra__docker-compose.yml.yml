@@ -1,0 +1,48 @@
+# Grand Astra CRM — PostgreSQL + API + Web (production-like)
+# Запуск: docker compose up --build
+# Затем: docker compose exec api npx prisma migrate deploy && docker compose exec api npx prisma db seed
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: grandastra
+      POSTGRES_PASSWORD: grandastra
+      POSTGRES_DB: grandastra
+    ports:
+      - '5432:5432'
+    volumes:
+      - grandastra_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U grandastra -d grandastra']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://grandastra:grandastra@postgres:5432/grandastra
+      JWT_SECRET: ${JWT_SECRET:-change-me-use-long-secret-in-production}
+      PORT: 3000
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - '5173:80'
+    depends_on:
+      - api
+
+volumes:
+  grandastra_pg:

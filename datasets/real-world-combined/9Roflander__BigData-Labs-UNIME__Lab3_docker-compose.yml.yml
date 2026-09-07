@@ -1,0 +1,115 @@
+services:
+
+  # -------------------------------------------------------------------------
+  # Zookeeper
+  # -------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # -------------------------------------------------------------------------
+  # Kafka broker
+  # Advertised as kafka:9092 so all containers can reach it by service name.
+  # -------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics --bootstrap-server kafka:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # -------------------------------------------------------------------------
+  # One-shot: creates the topic and exits
+  # -------------------------------------------------------------------------
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["kafka-topics"]
+    command:
+      - "--bootstrap-server"
+      - "kafka:9092"
+      - "--create"
+      - "--if-not-exists"
+      - "--topic"
+      - "user-activity"
+      - "--partitions"
+      - "3"
+      - "--replication-factor"
+      - "1"
+
+  # -------------------------------------------------------------------------
+  # Burst producer — generates random events at full speed for 5 minutes
+  # -------------------------------------------------------------------------
+  producer:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./producer.py:/app/producer.py:ro
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - >-
+        pip install confluent-kafka==2.5.3 -q &&
+        python producer.py
+        --bootstrap-servers kafka:9092
+        --topic user-activity
+        --duration 300
+        --interval 0
+        --report-every 10
+
+  # -------------------------------------------------------------------------
+  # Spark Structured Streaming consumer with lag monitor
+  # Uses Spark 3.5 (bitnami image); connector package matches.
+  # maxOffsetsPerTrigger=5000 intentionally limits Spark throughput so lag
+  # builds up and becomes visible in the LAG-MONITOR output.
+  # -------------------------------------------------------------------------
+  spark-consumer:
+    image: apache/spark-py:latest
+    volumes:
+      - ./spark_consumer.py:/opt/spark/work-dir/spark_consumer.py:ro
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      SPARK_KAFKA_PACKAGE: "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0"
+      JAVA_TOOL_OPTIONS: "-Divy.home=/tmp/.ivy2"
+    command: >
+      /opt/spark/bin/spark-submit
+        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0
+        --conf spark.sql.shuffle.partitions=4
+        --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/.ivy2
+        /opt/spark/work-dir/spark_consumer.py
+          --bootstrap-servers kafka:9092
+          --topic user-activity
+          --starting-offsets earliest
+          --duration 360
+          --window "10 seconds"
+          --slide "10 seconds"
+          --watermark "30 seconds"
+
+

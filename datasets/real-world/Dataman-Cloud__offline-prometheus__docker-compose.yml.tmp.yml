@@ -1,0 +1,38 @@
+version: '2'
+services:
+  alertmanager:
+    image: offlineregistry.dataman-inc.com:5000/library/centos7-docker-alertmanager:v0.4.2.2016102502 
+    volumes:
+      - /data/alertmanager:/data/alertmanager
+      - ./config/alertmanager:/data/config
+    ports:
+      - 9093:9093   
+    command:
+      ["-storage.path=/data/alertmanager", "-config.file=/data/config/alertmanager.yml"]
+  prometheus:
+    image: offlineregistry.dataman-inc.com:5000/library/centos7-docker-prometheus:v1.1.2.2016091302
+    restart: always
+    volumes:
+      - /data/prometheus:/data/prometheus
+      - ./config/prometheus:/data/config
+    ports:
+      - 9090:9090
+    dns:
+      - --CONSUL_DNS_1--
+      - --CONSUL_DNS_2--
+      - --CONSUL_DNS_3--
+    dns_search: consul.service.consul
+    command:
+      ["-alertmanager.url=http://--ALERTMANAGER_IP--:9093","-storage.local.retention=48h", "-storage.local.path=/data/prometheus", "-config.file=/data/config/prometheus.yml"]
+    depends_on:
+      - alertmanager
+  grafana:
+    image: offlineregistry.dataman-inc.com:5000/library/centos7-docker-grafana:v3.1.1.2016091401
+    environment:
+      - PROMETHEUS_HOST=--PROMETHEUS_IP--
+      - PROMETHEUS_PORT=9090
+    restart: always
+    ports:
+      - 3000:3000
+    depends_on:
+      - prometheus

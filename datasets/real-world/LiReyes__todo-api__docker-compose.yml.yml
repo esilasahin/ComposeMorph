@@ -1,0 +1,37 @@
+services:
+  db:
+    container_name: db
+    image: mariadb:10.4.32
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: todo-db
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./db_data:/var/lib/mysql
+    restart: always
+
+#  laravel-app:
+#    container_name: laravel-app
+#    image: todo-api:machape
+#    depends_on:
+#      - db
+#    ports:
+#      - "80:80"
+#    restart: always
+#    #command: bash -c "sleep 10 && php artisan migrate:refresh --seed && apache2-foreground"
+#  
+#  vue-app:
+#    container_name: vue-app
+#    image: todo-app:machape
+#    depends_on:
+#      - laravel-app
+#    ports:
+#      - "5173:5173"
+#    restart: always
+#    command: bash -c "sleep 15 && npm run dev -- --host"
+
+
+volumes:
+  todo-vol:
+    external: false

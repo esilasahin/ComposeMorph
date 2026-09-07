@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: barbersoft-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: barbersoft
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - barbersoft-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d barbersoft"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: barbersoft-api
+    restart: on-failure
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://barbersoft-db:5432/barbersoft
+      DB_USER: postgres
+      DB_PASS: postgres
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      JWT_EXPIRATION: 86400000
+    ports:
+      - "8080:8080"
+    networks:
+      - barbersoft-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: barbersoft-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - barbersoft-net
+
+  customer:
+    build:
+      context: ./customer
+      dockerfile: Dockerfile
+    container_name: barbersoft-customer
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - barbersoft-net
+
+volumes:
+  postgres_data:
+
+networks:
+  barbersoft-net:
+    driver: bridge

@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: loan_system
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d loan_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://admin:password@postgres:5432/loan_system?schema=public
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-loan-system-secret-key-change-in-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: http://localhost:5173
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000/api
+      VITE_JWT_TOKEN: ${VITE_JWT_TOKEN:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb2FuLXN5c3RlbSIsInNlcnZpY2UiOiJsb2FuLXN5c3RlbSIsImlhdCI6MTc2MzgxNjg3OSwiZXhwIjoxNzY2NDA4ODc5fQ.bqsyImovtcZ1oaYyuDQFHerbYPkVKfaAsbf6ZbeRLNA}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./frontend/frontend/src:/usr/src/app/src
+      - ./frontend/frontend/public:/usr/src/app/public
+      - /usr/src/app/node_modules
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

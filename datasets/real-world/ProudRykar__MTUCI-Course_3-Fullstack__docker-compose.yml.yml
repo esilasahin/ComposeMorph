@@ -1,0 +1,140 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────
+#  Profiles:
+#    default / dev  → docker compose --profile dev up
+#    production     → docker compose --profile prod up
+#    только инфра   → docker compose up
+# ─────────────────────────────────────────────
+
+x-shared-env: &shared-env
+  DATABASE_USER: ${DATABASE_USER:-admin}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-secret_password}
+  DATABASE_HOST: mongo
+  DATABASE_PORT: 27017
+  DATABASE_NAME: ${DATABASE_NAME:-myapp_db}
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio_admin}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minio_secret_key}
+  MINIO_BUCKET: ${MINIO_BUCKET:-my-bucket}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+  REDIS_TOKENS_BLACKLIST_DB: 0
+  REDIS_RATE_LIMITING_DB: 1
+  TOKEN_SECRET_KEY: ${TOKEN_SECRET_KEY:-12345678901234567890123456789012}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-key}
+  DEBUG: ${DEBUG:-True}
+
+services:
+  # ── Backend ──────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chalkboard-app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *shared-env
+    depends_on:
+      mongo:
+        condition: service_started
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ── Database ─────────────────────────────────
+  mongo:
+    image: docker.io/library/mongo:7.0
+    container_name: chalkboard-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${DATABASE_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${DATABASE_PASSWORD:-secret_password}
+      MONGO_INITDB_DATABASE: ${DATABASE_NAME:-myapp_db}
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ── Cache ────────────────────────────────────
+  redis:
+    image: docker.io/library/redis:7
+    container_name: chalkboard-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ── Object Storage ───────────────────────────
+  minio:
+    image: docker.io/minio/minio:latest
+    container_name: chalkboard-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minio_secret_key}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ── Frontend (dev) ───────────────────────────
+  frontend-dev:
+    profile: ["dev"]
+    image: node:22-alpine
+    container_name: chalkboard-frontend-dev
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY: http://app:8000
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - app
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ── Nginx reverse-proxy (prod) ───────────────
+  nginx:
+    profile: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: chalkboard-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  minio-data:
+  redis-data:
+
+networks:
+  backend:
+    name: chalkboard-network

@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  api:
+    build: .
+    container_name: nest_api
+    ports:
+      - '3000:3000'
+    depends_on:
+      - db
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: adote_um_amigo
+    networks:
+      - nest_network
+
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: adote_um_amigo
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - nest_network
+
+volumes:
+  pgdata:
+
+networks:
+  nest_network:
+    driver: bridge

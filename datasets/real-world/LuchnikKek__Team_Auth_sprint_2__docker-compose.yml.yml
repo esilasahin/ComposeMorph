@@ -1,0 +1,171 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:1.19.2
+    container_name: nginx
+    volumes:
+      - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/confd:/etc/nginx/conf.d:ro
+      - static_volume:/data/static/:ro
+    depends_on:
+      - movies_admin
+      - movies_api
+      - auth_api
+    ports:
+      - "80:80"
+
+  movies_admin:
+    container_name: movies_admin
+    build: ./movies_admin
+    volumes:
+      - static_volume:/opt/movies_admin/static/
+      - media_volume:/opt/movies_admin/media
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    depends_on:
+      movies_postgres:
+        condition: service_healthy
+
+  movies_elasticsearch:
+    image: elasticsearch:8.6.2
+    container_name: movies_elasticsearch
+    environment:
+      ES_JAVA_OPTS: "-Xms1000m -Xmx1000m"
+      discovery.type: single-node
+      xpack.security.enabled: false
+      http.port: ${MOVIES_ES_PORT}
+    expose:
+      - ${MOVIES_ES_PORT}
+    volumes:
+      - movies_es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://${MOVIES_ES_HOST}:${MOVIES_ES_PORT}/_cluster/health?wait_for_status=yellow&timeout=5s" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  movies_postgres:
+    image: postgres:15
+    container_name: movies_postgres
+    environment:
+      POSTGRES_DB: ${MOVIES_PG_DATABASE}
+      POSTGRES_USER: ${MOVIES_PG_USER}
+      POSTGRES_PASSWORD: ${MOVIES_PG_PASSWORD}
+      PGPORT: ${MOVIES_PG_PORT}
+    expose:
+      - ${MOVIES_PG_PORT}
+    volumes:
+      - ./data/dump.sql:/docker-entrypoint-initdb.d/dump.sql
+      - movies_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${MOVIES_PG_USER} -d ${MOVIES_PG_DATABASE} -p ${MOVIES_PG_PORT}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: on-failure
+
+  create_es_indexes:
+    image: appropriate/curl
+    environment:
+      ES_HOST: ${MOVIES_ES_HOST}
+      ES_PORT: ${MOVIES_ES_PORT}
+    volumes:
+      - ./movies_etl/etl_libs/index_jsons_dir:/index_jsons_dir
+      - ./movies_etl/etl_libs/index_jsons_dir/create-indexes.sh:/entrypoint.sh
+    depends_on:
+      movies_elasticsearch:
+        condition: service_healthy
+
+  movies_etl:
+    build: ./movies_etl
+    container_name: movies_etl
+    env_file:
+      - .env
+    depends_on:
+      movies_postgres:
+        condition: service_healthy
+      movies_elasticsearch:
+        condition: service_healthy
+      create_es_indexes:
+        condition: service_completed_successfully
+
+  movies_redis:
+    image: redis:7.2.4
+    container_name: movies_redis
+    expose:
+      - ${MOVIES_REDIS_PORT}
+    volumes:
+      - movies_redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+    restart: on-failure
+
+  movies_api:
+    build:
+      context: ./movies_api
+      target: prod
+    container_name: movies_api
+    expose:
+      - ${MOVIES_API_PORT}
+    env_file:
+      - .env
+    depends_on:
+      movies_elasticsearch:
+        condition: service_healthy
+      movies_redis:
+        condition: service_healthy
+
+  auth_postgres:
+    image: postgres:15
+    container_name: auth_postgres
+    expose:
+      - ${AUTH_PG_PORT}
+    environment:
+      POSTGRES_DB: ${AUTH_PG_DATABASE}
+      POSTGRES_USER: ${AUTH_PG_USER}
+      POSTGRES_PASSWORD: ${AUTH_PG_PASSWORD}
+      PGPORT: ${AUTH_PG_PORT}
+    volumes:
+      - auth_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${AUTH_PG_USER} -d ${AUTH_PG_DATABASE} -p ${AUTH_PG_PORT}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: on-failure
+
+  auth_redis:
+    image: redis:7.2.4
+    container_name: auth_redis
+    expose:
+      - ${AUTH_REDIS_PORT}
+    volumes:
+      - auth_redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+    restart: on-failure
+
+  auth_api:
+    build: ./auth
+    container_name: auth_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      auth_redis:
+        condition: service_healthy
+      auth_postgres:
+        condition: service_healthy
+
+volumes:
+  static_volume:
+  media_volume:
+  movies_pg_data:
+  movies_es_data:
+  movies_redis_data:
+  auth_pg_data:
+  auth_redis_data:

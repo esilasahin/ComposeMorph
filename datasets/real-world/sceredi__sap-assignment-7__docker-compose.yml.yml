@@ -1,0 +1,278 @@
+services:
+
+  setup:
+    profiles:
+      - setup
+    build:
+      context: setup/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    init: true
+    volumes:
+      - ./setup/entrypoint.sh:/entrypoint.sh:ro,Z
+      - ./setup/lib.sh:/lib.sh:ro,Z
+      - ./setup/roles:/roles:ro,Z
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
+      LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
+      METRICBEAT_INTERNAL_PASSWORD: ${METRICBEAT_INTERNAL_PASSWORD:-}
+      FILEBEAT_INTERNAL_PASSWORD: ${FILEBEAT_INTERNAL_PASSWORD:-}
+      HEARTBEAT_INTERNAL_PASSWORD: ${HEARTBEAT_INTERNAL_PASSWORD:-}
+      MONITORING_INTERNAL_PASSWORD: ${MONITORING_INTERNAL_PASSWORD:-}
+      BEATS_SYSTEM_PASSWORD: ${BEATS_SYSTEM_PASSWORD:-}
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+
+  dashboard:
+    container_name: dashboard
+    extends:
+      file:  EScootersManagementSystemDashboard/docker-compose.dashboard.yml
+      service: dashboard-service
+    ports:
+      - "3000:3000"
+    networks:
+      - gateway-network
+    restart: always
+
+
+  api-gateway:
+    container_name: api-gateway
+    extends:
+      file: APIGateway/docker-compose.apigateway.yml
+      service: api-gateway
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      LOG_FILE: /app/logs/api-gateway_service.log
+    networks:
+      - gateway-network
+      - escooters-network
+      - users-network
+      - rides-network
+    restart: always
+
+
+  escooters-service:
+    container_name: escooters-service
+    extends:
+      file: EScootersService/docker-compose.escooters.yml
+      service: escooters-service
+    depends_on:
+      escooters-db:
+        condition: service_healthy
+    networks:
+      - escooters-network
+      - escooters-db-network
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      LOG_FILE: /app/logs/escooters_service.log
+    restart: always
+
+  escooters-db:
+    container_name: escooters-db
+    extends:
+      file: EScootersService/docker-compose.escooters.yml
+      service: escooters-db
+    networks:
+      - escooters-db-network
+    restart: always
+
+
+  users-service:
+    container_name: users-service
+    extends:
+      file: UsersService/docker-compose.users.yaml
+      service: users-service
+    depends_on:
+      users-db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      LOG_FILE: /app/logs/users_service.log
+    networks:
+      - users-network
+      - users-db-network
+    restart: always
+
+  users-db:
+    container_name: users-db
+    extends:
+      file: UsersService/docker-compose.users.yaml
+      service: users-db
+    restart: always
+    networks:
+      - users-db-network
+
+
+  rides-service:
+    container_name: rides-service
+    extends:
+      file: RidesService/docker-compose.rides.yml
+      service: rides-service
+    depends_on:
+      rides-db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      LOG_FILE: /app/logs/rides_service.log
+    networks:
+      - rides-db-network
+      - rides-network
+    restart: always
+
+  rides-db:
+    container_name: rides-db
+    extends:
+      file: RidesService/docker-compose.rides.yml
+      service: rides-db
+    restart: always
+    networks:
+      - rides-db-network
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - grafana-prom
+      - gateway-network
+      - escooters-network
+      - users-network
+      - rides-network
+
+  grafana:
+    image: grafana/grafana:10.4.4
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Set a password for the Grafana admin user
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+    networks:
+      - grafana-prom
+
+
+  elasticsearch:
+    build:
+      context: elasticsearch/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    volumes:
+      - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro,Z
+      - elasticsearch:/usr/share/elasticsearch/data:Z
+    ports:
+      - 9200:9200
+      - 9300:9300
+    environment:
+      node.name: elasticsearch
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      # Bootstrap password.
+      # Used to initialize the keystore during the initial startup of
+      # Elasticsearch. Ignored on subsequent runs.
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks.
+      # see: https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+      discovery.type: single-node
+    networks:
+      - elk
+    restart: unless-stopped
+
+
+  logstash:
+    build:
+      context: logstash/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro,Z
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro,Z
+    ports:
+      - 5044:5044
+      - 50000:50000/tcp
+      - 50000:50000/udp
+      - 9600:9600
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+
+  kibana:
+    build:
+      context: kibana/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    volumes:
+      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro,Z
+    ports:
+      - 5601:5601
+    environment:
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+
+  filebeat:
+    build:
+      context: extensions/filebeat/
+      args:
+        ELASTIC_VERSION: ${ELASTIC_VERSION}
+    # Run as 'root' instead of 'filebeat' (uid 1000) to allow reading
+    # 'docker.sock' and the host's filesystem. Not needed as not accessing
+    # 'docker.sock'
+    user: filebeat
+    command:
+      # Log to stderr.
+      - -e
+      # Disable config file permissions checks. Allows mounting
+      # 'config/filebeat.yml' even if it's not owned by root.
+      # see: https://www.elastic.co/guide/en/beats/libbeat/current/config-file-permissions.html
+      - --strict.perms=false
+    volumes:
+      - ./logs:/app/logs
+      - ./extensions/filebeat/config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro,Z
+    environment:
+      FILEBEAT_INTERNAL_PASSWORD: ${FILEBEAT_INTERNAL_PASSWORD:-}
+      BEATS_SYSTEM_PASSWORD: ${BEATS_SYSTEM_PASSWORD:-}
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+
+networks:
+  gateway-network:
+  escooters-network:
+  escooters-db-network:
+  users-network:
+  users-db-network:
+  rides-network: 
+  rides-db-network: 
+  grafana-prom:
+  elk:
+    driver: bridge
+
+
+volumes:
+  grafana-storage:
+  elasticsearch:
+  logs:

@@ -1,0 +1,42 @@
+version: '3.9'
+ 
+services:
+  # Mongodb service
+  mongo_db:
+    container_name: db_container
+    image: mongo:latest
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+ 
+  # Node api service
+  api:
+    build: "/deployments/PEOJECT2_NODE/update247"
+    ports:
+      # local->container
+      - 3000:3000
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo_db:27017
+      DB_NAME: BGDb
+      NAME: TrulyMittal
+      # secret_key: goodboy
+    depends_on:
+      - mongo_db
+
+  api2:
+    build: "/deployments/PROJECT2_NODE_USER/update247_user"
+    ports:
+      # local->container
+      - 3001:3001
+    environment:
+      PORT: 3001
+      MONGODB_URI: mongodb://mongo_db:27017
+      DB_NAME: BGDb
+      NAME: TrulyMittal
+      # secret_key: goodboy
+    depends_on:
+      - mongo_db
+ 
+volumes:
+  mongo_data: {}

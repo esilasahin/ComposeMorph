@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  account-service:
+    build: ./account-service
+    container_name: account-service
+    ports: ["8080:8080"]
+    networks: [eventsourcing-network]
+
+networks:
+  eventsourcing-network:
+    driver: bridge

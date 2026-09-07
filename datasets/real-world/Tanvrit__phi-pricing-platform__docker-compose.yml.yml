@@ -1,0 +1,33 @@
+# Local dev stack: MongoDB (single-node replica set — required for multi-document
+# transactions used by quote+idempotency atomicity).
+#
+# Local dev convention: run Mongo in docker + the server on the host:
+#   docker compose up -d mongo
+#   MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0' MONGO_DB=rate_calculator \
+#     OTP_TOKEN_SECRET=dev_only_secret JWT_SIGNING_SECRET=dev_only_jwt \
+#     CORS_ALLOWED_ORIGINS=http://localhost:9090,http://localhost:9092 ./gradlew :server:run
+#
+# Customer-facing gateways (KYC / payment / SMS) belong in a Phase-2 prod compose.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      # Host 27018 → container 27017. A native standalone mongod already owns the host's
+      # 127.0.0.1:27017; publishing on 27018 keeps this transactional replica set separate.
+      - "27018:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      # Initiate the single-node replica set on first boot, then report healthy.
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}).ok }"
+      interval: 10s
+      timeout: 10s
+      start_period: 40s
+      retries: 30
+
+volumes:
+  mongodata:

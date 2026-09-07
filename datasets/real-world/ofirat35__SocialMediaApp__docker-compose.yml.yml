@@ -1,0 +1,55 @@
+version: '3.4'
+
+services:
+  consul_socialmedia:
+    image: hashicorp/consul:latest
+
+  sqlserver_socialmedia:
+    image: mcr.microsoft.com/mssql/server
+   
+  redis_cache:
+    image: redis:7-alpine
+
+  gateway.api:
+    image: ${DOCKER_REGISTRY-}gatewayapi
+    build:
+      context: .
+      dockerfile: src/server/Gateway/Gateway.Api/Dockerfile
+
+  identityserver.api:
+    image: ${DOCKER_REGISTRY-}identityserverapi
+    build:
+      context: .
+      dockerfile: src/server/IdentityServer/IdentityServer.Api/Dockerfile
+
+  posts.api:
+    image: ${DOCKER_REGISTRY-}postsapi
+    build:
+      context: .
+      dockerfile: src/server/Posts/Posts.Api/Dockerfile
+
+  socialmediaapp.aggregator:
+    image: ${DOCKER_REGISTRY-}socialmediaappaggregator
+    build:
+      context: .
+      dockerfile: src/server/Gateway/SocialMediaApp.Aggregator/Dockerfile
+
+  chat.signalr:
+    image: ${DOCKER_REGISTRY-}chatsignalr
+    build:
+      context: .
+      dockerfile: src/server/Chat/Chat.SignalR/Dockerfile
+
+  stories.api:
+    image: ${DOCKER_REGISTRY-}storiesapi
+    build:
+      context: .
+      dockerfile: src/server/Stories/Stories.Api/Dockerfile
+
+
+  videocall.api:
+    image: ${DOCKER_REGISTRY-}videocallapi
+    build:
+      context: .
+      dockerfile: src/server/VideoCall/VideoCall.Api/Dockerfile
+

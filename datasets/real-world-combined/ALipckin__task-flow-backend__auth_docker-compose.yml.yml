@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  auth-db:
+    image: postgres:14
+    container_name: '${COMPOSE_PROJECT_NAME}-db'
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: auth_db
+    ports:
+      - "${DB_PORT}:5435"
+    command: ["postgres", "-c", "port=5435"]
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - task-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d auth_db -p 5435"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build: ./
+    container_name: '${COMPOSE_PROJECT_NAME}-app'
+    volumes:
+      - .:/usr/local/bin/
+    ports:
+      - "${APP_PORT}:8081"
+    networks:
+      - task-network
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    restart: unless-stopped
+    command: [ "CompileDaemon", "-command=go run main.go" ]
+volumes:
+  auth-db-data:
+
+networks:
+  task-network:
+    external: true

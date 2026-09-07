@@ -1,0 +1,270 @@
+version: '3.8'
+
+# ============================================================
+#  AgroFlex SOA — Docker Compose
+#  Uso:
+#    Levantar todo:  docker compose up -d
+#    Ver logs:       docker compose logs -f <servicio>
+#    Detener todo:   docker compose down
+#    Reiniciar BD:   docker compose down -v && docker compose up -d
+# ============================================================
+
+x-java-service: &java-defaults
+  restart: unless-stopped
+  networks:
+    - agroflex-net
+  env_file: .env       # JWT_SECRET, STRIPE_SECRET_KEY, MAIL_*, TWILIO_*, FIREBASE_*
+
+x-db-env: &db-env
+  DB_USER: root
+  DB_PASS: root
+  SPRING_DATASOURCE_USERNAME: root
+  SPRING_DATASOURCE_PASSWORD: root
+  EUREKA_URL: http://eureka:8761/eureka
+  CATALOG_SERVICE_URL: http://catalog:8082
+  PAYMENTS_SERVICE_URL: http://payments:8085
+  QR_SERVICE_URL: http://qr:8086
+  ORDERS_SERVICE_URL: http://orders:8084
+  NOTIFICATIONS_SERVICE_URL: http://notifications:8088
+
+services:
+
+  # ── Base de datos ────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: agroflex-mysql
+    restart: unless-stopped
+    networks:
+      - agroflex-net
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: agroflexsoa
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./SOAarquitecture/agroflexsoa.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Eureka (Service Discovery) ───────────────────────────────────────────────
+  eureka:
+    <<: *java-defaults
+    container_name: agroflex-eureka
+    build:
+      context: ./agroflex-backend/agroflex-eureka-server
+      dockerfile: Dockerfile
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Gateway ──────────────────────────────────────────────────────────────────
+  gateway:
+    <<: *java-defaults
+    container_name: agroflex-gateway
+    build:
+      context: ./agroflex-backend/agroflex-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_PROFILES_ACTIVE: prod
+
+  # ── Auth Service (8081) ──────────────────────────────────────────────────────
+  auth:
+    <<: *java-defaults
+    container_name: agroflex-auth
+    build:
+      context: ./agroflex-backend/agroflex-auth-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Catalog Service (8082) ───────────────────────────────────────────────────
+  catalog:
+    <<: *java-defaults
+    container_name: agroflex-catalog
+    build:
+      context: ./agroflex-backend/agroflex-catalog-service
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Users Service (8083) ─────────────────────────────────────────────────────
+  users:
+    <<: *java-defaults
+    container_name: agroflex-users
+    build:
+      context: ./agroflex-backend/agroflex-users-service
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Orders Service (8084) ────────────────────────────────────────────────────
+  orders:
+    <<: *java-defaults
+    container_name: agroflex-orders
+    build:
+      context: ./agroflex-backend/agroflex-orders-service
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Payments Service (8085) ──────────────────────────────────────────────────
+  payments:
+    <<: *java-defaults
+    container_name: agroflex-payments
+    build:
+      context: ./agroflex-backend/agroflex-payments-service
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── QR Service (8086) ────────────────────────────────────────────────────────
+  qr:
+    <<: *java-defaults
+    container_name: agroflex-qr
+    build:
+      context: ./agroflex-backend/agroflex-qr-service
+      dockerfile: Dockerfile
+    ports:
+      - "8086:8086"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Geolocation Service (8087) ───────────────────────────────────────────────
+  geolocation:
+    <<: *java-defaults
+    container_name: agroflex-geolocation
+    build:
+      context: ./agroflex-backend/agroflex-geolocation-service
+      dockerfile: Dockerfile
+    ports:
+      - "8087:8087"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Notifications Service (8088) ─────────────────────────────────────────────
+  notifications:
+    <<: *java-defaults
+    container_name: agroflex-notifications
+    build:
+      context: ./agroflex-backend/agroflex-notifications-service
+      dockerfile: Dockerfile
+    ports:
+      - "8088:8088"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Admin Service (8089) ─────────────────────────────────────────────────────
+  admin:
+    <<: *java-defaults
+    container_name: agroflex-admin
+    build:
+      context: ./agroflex-backend/agroflex-admin-service
+      dockerfile: Dockerfile
+    ports:
+      - "8089:8089"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agroflexsoa?useSSL=false&serverTimezone=America/Mexico_City&allowPublicKeyRetrieval=true
+
+  # ── Frontend (puerto 80) ─────────────────────────────────────────────────────
+  frontend:
+    container_name: agroflex-frontend
+    restart: unless-stopped
+    networks:
+      - agroflex-net
+    build:
+      context: ./agroflex-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_STRIPE_PK: ${VITE_STRIPE_PK:-}
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+
+# ── Volúmenes y redes ────────────────────────────────────────────────────────
+volumes:
+  mysql_data:
+
+networks:
+  agroflex-net:
+    driver: bridge

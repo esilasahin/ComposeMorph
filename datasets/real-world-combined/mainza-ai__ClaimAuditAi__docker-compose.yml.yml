@@ -1,0 +1,39 @@
+services:
+  iris:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claimaudit-iris
+    env_file: 
+      - .env
+    restart: always
+    environment:
+      - ISC_CPF_MERGE_FILE=/home/irisowner/dev/merge.cpf
+    ports:
+      - "52773:52773"
+      - "8080:8080"
+    volumes:
+      - ./:/home/irisowner/dev
+    healthcheck:
+      test: ["CMD", "iris", "session", "IRIS", "-U", "INTEROP", "write 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 2g
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.ui
+    container_name: claimaudit-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - iris
+    restart: always

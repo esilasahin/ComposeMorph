@@ -1,0 +1,9 @@
+services:
+  pottery-log:
+    image: ghcr.io/bjornkpu/pottery-log:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - SUPABASE_URL=https://your-project.supabase.co
+      - SUPABASE_ANON_KEY=your-anon-key-here
+    restart: unless-stopped

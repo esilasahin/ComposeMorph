@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  frontend:
+    build: ./frontend
+    image: custom-nginx-frontend
+    networks:
+      - webnet
+
+  backend:
+    build: ./backend
+    image: flask_backend
+    container_name: flask_app
+    restart: always
+    expose:
+      - "5000"
+    networks:
+      - webnet
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: nginx_gateway_ssl
+    container_name: nginx_reverse_proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - webnet
+
+networks:
+  webnet:

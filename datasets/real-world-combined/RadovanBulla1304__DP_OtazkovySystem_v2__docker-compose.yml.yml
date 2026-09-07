@@ -1,0 +1,48 @@
+services:
+  proxy:
+    restart: always
+    depends_on:
+      - frontend
+      - backend
+    build:
+      dockerfile: Dockerfile
+      context: ./apps/nginx
+    ports:
+      - "3000:80"
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    environment:
+      MONGO_DATABASE_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/otazkovySystem?authSource=admin
+      TOKEN_KEY: ${TOKEN_KEY}
+      SALT_KEY: ${SALT_KEY}
+      PORT: 5000
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      FRONTEND_URL: ${FRONTEND_URL}
+      NODE_ENV: production
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+  mongo:
+    image: "mongo"
+    command: mongod --auth --logpath /dev/null
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_DATABASE=otazkovySystem
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - ./volumes/backups:/backup:ro
+      - ./volumes/backend:/data/db
+      - ./apps/entry_point/api-mongo-init.js:/docker-entrypoint-initdb.d/api-mongo-init.js:ro

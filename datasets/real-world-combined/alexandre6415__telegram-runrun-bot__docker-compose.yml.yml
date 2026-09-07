@@ -1,0 +1,8 @@
+services:
+  telegram-runrun-bot:
+    build: .
+    image: telegram-runrun-bot
+    container_name: telegram-runrun-bot
+    env_file:
+      - .env
+    restart: unless-stopped

@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: fiport_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fiport_user
+      POSTGRES_PASSWORD: fiport_pass_2026
+      POSTGRES_DB: fiport_demo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fiport_user -d fiport_demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  backend:
+    build:
+      context: ./backend
+    container_name: fiport_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fiport_user:fiport_pass_2026@postgres:5432/fiport_demo
+      DATABASE_SSL: "false"
+      JWT_SECRET: demo-jwt-secret
+      SESSION_SECRET: demo-session-secret
+      FRONTEND_ORIGIN: http://localhost:8080
+      NODE_ENV: development
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend/my-react-app
+      args:
+        VITE_API_URL: /api
+        VITE_DOCS_URL: test
+        VITE_DOCS_TWO_URL: test
+        VITE_LOGIN_SIPKU_URL: test
+        VITE_UNGGAH_SIPKU_URL: test
+    container_name: fiport_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,24 @@
+version: "3"
+services:
+
+#  vcs:
+#    image: bdp-service-vcs
+#    build: ./src
+#    command: node ./dist
+#    ports:
+#      - "3001:3001"
+#    volumes:
+#      - "./src:/usr/src/app"
+#      - /usr/src/app/node_modules
+
+  mongo:
+    image: "mongo"
+    volumes:
+      - v:/docker/mongo/db:/data/db
+    ports:
+      - "27017:27017"
+
+  adminmongo:
+    image: "mrvautin/adminmongo"
+    ports:
+      - "1234:1234"

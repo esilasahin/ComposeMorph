@@ -1,0 +1,10 @@
+
+
+services: 
+  app:
+    image: tauhid476/cicd-pipeline-demo:latest
+    container_name: production-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    

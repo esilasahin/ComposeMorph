@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL 16 ───────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ceo_portal}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Host port publish is OPTIONAL — the api container reaches postgres over the
+    # internal Docker network (host "postgres":5432), so this is NOT required.
+    # Default host port = 5433 to avoid clashing with an existing postgres on the
+    # server's 5432. Set POSTGRES_HOST_PORT to change, or remove this block to not
+    # expose the DB to the host at all. The internal DATABASE_URL is unaffected.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-ceo_portal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── NestJS API ──────────────────────────────────────────────
+  api:
+    build:
+      context: ./app/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # In-container listen port. This is INTERNAL to the Docker network only:
+      # web-nginx proxies to "api:3000" and the healthcheck hits localhost:3000
+      # inside this container — it never touches the host, so it can NOT clash
+      # with other services on the VPS. Keep it 3000. To change the HOST-side
+      # published port (the part that can clash), set API_HOST_PORT in .env.
+      PORT: 3000
+      # Override DATABASE_URL to point at the compose postgres service
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ceo_portal}
+      NODE_ENV: production
+    ports:
+      # HOST:CONTAINER. Bound to loopback — host-nginx / deploy.sh reach it via
+      # 127.0.0.1. Change the host port via API_HOST_PORT to avoid clashing with
+      # another service on the VPS (default 3000). The container port stays 3000.
+      - "127.0.0.1:${API_HOST_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── React + Vite (nginx) ────────────────────────────────────
+  web:
+    build:
+      context: ./app/web
+      dockerfile: Dockerfile
+      args:
+        # Empty base → frontend uses relative "/api/..." paths (the code already
+        # includes the /api prefix). nginx proxies /api/* to the api service.
+        # Avoids the "/api/api/..." double-prefix bug.
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    ports:
+      # Bound to loopback — host-nginx (port 80/443) proxies to this. Change the
+      # host port via WEB_HOST_PORT to avoid clashing with other services.
+      # To expose the web container directly to the internet (no host-nginx),
+      # drop the "127.0.0.1:" prefix.
+      - "127.0.0.1:${WEB_HOST_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pgdata:
+    driver: local

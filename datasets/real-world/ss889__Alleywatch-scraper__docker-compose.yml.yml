@@ -1,0 +1,21 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alleywatch-scraper
+    environment:
+      SCRAPER_STRATEGY: ${SCRAPER_STRATEGY:-web}
+      SCRAPER_SEARCH_TERM: ${SCRAPER_SEARCH_TERM:-AI}
+      SCRAPER_LIMIT: ${SCRAPER_LIMIT:-0}
+      SCRAPER_MAX_PAGES: ${SCRAPER_MAX_PAGES:-3}
+      DB_PATH: ${DB_PATH:-/data/alleywatch_funding.db}
+      RETRY_ATTEMPTS: ${RETRY_ATTEMPTS:-3}
+      RETRY_BACKOFF_SECONDS: ${RETRY_BACKOFF_SECONDS:-5}
+      API_TOKEN: ${API_TOKEN:-}
+    volumes:
+      - alleywatch_data:/data
+
+volumes:
+  alleywatch_data:
+    name: alleywatch_data

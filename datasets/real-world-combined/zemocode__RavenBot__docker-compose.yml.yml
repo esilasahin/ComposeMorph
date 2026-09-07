@@ -1,0 +1,7 @@
+version: '2'
+services:
+  robot:
+    image: keyglitch/docker-discordpy-playlist
+    environment:
+      DISCORD_TOKEN: "REDACTED_FOR_PUBLIC_DATASET"
+      SKIP_VOTES_NEEDED: 3

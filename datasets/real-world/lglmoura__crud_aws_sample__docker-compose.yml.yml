@@ -1,0 +1,63 @@
+#version: '3.9'
+
+services:
+  
+  aws_psql:
+    image: postgres:alpine
+    ports:
+      - ${DB_PORT}:5432
+    container_name: ${DB_HOST}
+    restart: always
+    environment:
+          - POSTGRES_USER=${DB_USERNAME}
+          - POSTGRES_PASSWORD=${DB_PASSWORD}
+          - POSTGRES_DB=${DB_DATABASE}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - aws-network
+  
+  app:
+    
+    ports:
+      - ${APP_PORT}:3001
+    networks:
+      - aws-network
+    container_name: aws_app
+    environment:
+          - DB_USERNAME=${DB_USERNAME}
+          - DB_PASSWORD=${DB_PASSWORD}
+          - DB_DATABASE=${DB_DATABASE}
+          - DB_HOST=aws_psql
+    
+    links:   #Novo atributo incluso
+      - aws_psql
+    depends_on:
+      - aws_psql
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+     
+  pgadmin4:
+    image: dpage/pgadmin4
+    container_name: ${PGADMIN_CONT}
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_USER}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - '8080:80'
+
+    links:   #Novo atributo incluso
+      - aws_psql
+    depends_on:
+      - aws_psql
+
+    networks:
+      - aws-network
+  
+networks:
+  aws-network:
+    driver: bridge
+volumes:
+  pg-data: 

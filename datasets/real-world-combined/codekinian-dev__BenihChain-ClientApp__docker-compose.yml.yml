@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: seed-frontend
+    ports:
+      - "3002:80"    # Internal HTTP only, Nginx native akan proxy ke sini
+    restart: unless-stopped
+    networks:
+      - seed-network
+    environment:
+      - NODE_ENV=production
+    # Jika perlu connect ke backend, uncomment dan sesuaikan
+    # depends_on:
+    #   - backend
+
+networks:
+  seed-network:
+    driver: bridge

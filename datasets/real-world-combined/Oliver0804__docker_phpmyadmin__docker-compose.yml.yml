@@ -1,0 +1,28 @@
+version: '3.1'  # Docker Compose 文件版本
+
+# Docker Compose 配置文件
+# Olliver
+# 描述: 這個文件用於設置 MySQL 和 phpMyAdmin
+# $docker-compose up -d 背景執行
+# $docker-compose down 關閉
+services:
+  db:
+    image: mysql  # 使用官方 MySQL 鏡像
+    restart: always
+    environment:
+      MYSQL_DATABASE: ble_devices  # 設置數據庫名稱
+      MYSQL_USER: user01  # 設置數據庫用戶
+      MYSQL_PASSWORD: password  # 設置數據庫密碼
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3306:3306"  # 映射端口
+    volumes:
+      - /path/on/host:/var/lib/mysql  # 掛載數據卷
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin  # 使用 phpMyAdmin 鏡像
+    restart: always
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "8080:80"  # 映射端口

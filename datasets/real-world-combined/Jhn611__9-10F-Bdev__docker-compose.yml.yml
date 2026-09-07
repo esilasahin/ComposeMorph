@@ -1,0 +1,14 @@
+services: 
+# Бэкенд: сервер на Node.js 
+  backend: 
+    build: ./backend       # Путь к Dockerfile бэкенда 
+    ports: 
+      - "4000:3000"         # Проброс портов: хост 4000 → контейнер 3000 
+    restart: always         # Перезапуск при сбое или перезагрузке Docker 
+  # Фронтенд: React-приложение, собранное и отданное через Nginx 
+  frontend: 
+    build: ./frontend       # Путь к Dockerfile фронта 
+    ports: 
+      - "3000:80"           # Проброс портов: хост 3000 → контейнер 80 (Nginx) 
+    depends_on: 
+      - backend             # Ждём запуска backend перед запуском frontend

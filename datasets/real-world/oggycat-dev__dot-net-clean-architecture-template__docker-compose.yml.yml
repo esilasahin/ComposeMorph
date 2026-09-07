@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  api:
+    container_name: clean-architecture-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5001:80"
+      - "5002:443"
+    environment:
+      # Database Configuration
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=${POSTGRES_DB:-CleanArchitectureTemplateDb};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      
+      # Application Server Configuration
+      - ASPNETCORE_URLS=http://+:80
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
+      
+      # Application Configuration
+      - App__Environment=${App__Environment:-Development}
+      - App__Name=${App__Name:-Clean Architecture Template}
+      - App__Version=${App__Version:-1.0.0}
+      
+      # CORS Configuration
+      - Cors__AllowedOrigins__0=${Cors__AllowedOrigins__0:-http://localhost:3000}
+      - Cors__AllowedOrigins__1=${Cors__AllowedOrigins__1:-https://localhost:3000}
+      
+      # Logging Configuration
+      - Logging__LogLevel__Default=${Logging__LogLevel__Default:-Information}
+      - Logging__LogLevel__Microsoft=${Logging__LogLevel__Microsoft:-Warning}
+      - Logging__LogLevel__Microsoft_Hosting_Lifetime=${Logging__LogLevel__Microsoft_Hosting_Lifetime:-Information}
+      - Logging__LogLevel__Microsoft_EntityFrameworkCore=${Logging__LogLevel__Microsoft_EntityFrameworkCore:-Warning}
+      
+      # JWT Configuration
+      - JWT__SecretKey=${JWT__SecretKey:-your-super-secret-key-here-must-be-at-least-32-characters-long}
+      - JWT__Issuer=${JWT__Issuer:-CleanArchitectureTemplate}
+      - JWT__Audience=${JWT__Audience:-CleanArchitectureTemplate}
+      - JWT__ExpirationMinutes=${JWT__ExpirationMinutes:-60}
+      - JWT__RefreshTokenExpirationDays=${JWT__RefreshTokenExpirationDays:-7}
+      
+      # Admin Account Configuration
+      - Admin__Username=${Admin__Username:-admin}
+      - Admin__Password=${Admin__Password:-Admin@123456}
+      - Admin__Email=${Admin__Email:-admin@cleanarchitecture.com}
+      - Admin__FirstName=${Admin__FirstName:-System}
+      - Admin__LastName=${Admin__LastName:-Administrator}
+      
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - clean-architecture-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    container_name: clean-architecture-db
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-CleanArchitectureTemplateDb}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"  # Changed to 5433 to avoid conflict with local PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - clean-architecture-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-CleanArchitectureTemplateDb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  clean-architecture-network:
+    driver: bridge

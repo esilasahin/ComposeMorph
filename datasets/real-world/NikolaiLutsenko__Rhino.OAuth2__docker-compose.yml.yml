@@ -1,0 +1,31 @@
+version: '3.4'
+
+services:
+  rhino.moneykeeper:
+    image: ${DOCKER_REGISTRY-}rhinomoneykeeper
+    build:
+      context: .
+      dockerfile: Rhino.MoneyKeeper/Dockerfile
+    networks:
+      - my-network
+    
+
+  rhino.identity:
+    image: ${DOCKER_REGISTRY-}rhinoidentity
+    build:
+      context: .
+      dockerfile: Rhino.Identity/Dockerfile
+    depends_on: [ mssql ]
+    networks:
+      - my-network
+    
+
+  db:
+    image: mysql:8.0.19
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - my-network
+    
+networks:
+  my-network:
+    external: true

@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  # 1️⃣ MySQL
+  database:
+    image: mysql:8.4
+    container_name: mysql_db
+    env_file: .env
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 2️⃣ Django API
+  backend:
+    build: ./backend
+    container_name: django_api
+    env_file:
+      - .env           # DB creds
+      - ./backend/.env # backend extras
+    command: python manage.py runserver 0.0.0.0:${BACKEND_PORT}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
+    volumes:
+      - ./backend:/usr/src/app                       # live code
+      - /usr/local/lib/python3.12/site-packages      # anon volume caches deps
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # 3️⃣ Next.js UI
+  frontend:
+    build: ./frontend
+    container_name: next_ui
+    env_file:
+      - .env
+      - ./frontend/.env
+    ports:
+      - "${HOST_PORT_FRONTEND}:3000"
+    volumes:
+      - ./frontend:/usr/src/app                      # live code
+      - /usr/src/app/node_modules                    # anon volume caches deps
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  db_data: {}

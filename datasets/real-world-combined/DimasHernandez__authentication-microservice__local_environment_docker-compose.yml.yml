@@ -1,0 +1,144 @@
+services:
+  # ---- Authentication database
+  postgres17_auth_db:
+    image: postgres:17
+    container_name: postgres17_auth_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AUTH_MSVC_DB_DATABASE}
+      POSTGRES_USER: ${AUTH_MSVC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${AUTH_MSVC_DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./01_create_scheme_auth.sql:/docker-entrypoint-initdb.d/01_create_scheme_auth.sql
+      - postgres17_auth_db:/var/lib/postgresql/data
+    networks:
+      - crediya-network
+
+  # ---- Loan database
+  postgres17_loans_db:
+    image: postgres:17
+    container_name: postgres17_loans_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LOAN_MSVC_DB_DATABASE}
+      POSTGRES_USER: ${LOAN_MSVC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${LOAN_MSVC_DB_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./01_create_schema_loans.sql:/docker-entrypoint-initdb.d/01_create_schema_loans.sql
+      - postgrest17_loans_db_vol:/var/lib/postgresql/data
+    networks:
+      - crediya-network
+
+  # ---- pgAdmin to manage database
+  pgadmin4:
+    image: elestio/pgadmin:REL-9_6
+    container_name: pgadminREL_9_6_db
+    restart: unless-stopped
+    depends_on:
+      - postgres17_auth_db
+      - postgres17_loans_db
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_LISTEN_PORT: ${PGADMIN_LISTEN_PORT}
+    ports:
+      - "8088:8080"
+    networks:
+      - crediya-network
+
+  # ---- Microservice-Authentication
+  authentication-msvc:
+    build:
+      context: ./authentication-microservice
+      dockerfile: ../deploy/Dockerfile
+    image: authentication-msvc:latest
+    container_name: authentication-msvc
+    depends_on:
+      - postgres17_auth_db
+    ports:
+      - "8080:8080"
+    environment:
+      - ADAPTERS_R2DBC_HOST=${AUTH_MSVC_DB_HOST}
+      - ADAPTERS_R2DBC_PORT=${AUTH_MSVC_DB_PORT}
+      - ADAPTERS_R2DBC_DATABASE=${AUTH_MSVC_DB_DATABASE}
+      - ADAPTERS_R2DBC_SCHEMA=${AUTH_MSVC_DB_SCHEMA}
+      - ADAPTERS_R2DBC_USERNAME=${AUTH_MSVC_DB_USERNAME}
+      - ADAPTERS_R2DBC_PASSWORD=${AUTH_MSVC_DB_PASSWORD}
+      - ADAPTERS_R2DBC_SSL_MODE=${AUTH_MSVC_DB_SSLMODE}
+      - SECURITY_JWT_SECRET=${SUPER_SECRET_KEY}
+      - SECURITY_JWT_EXPIRATION=${JWT_EXPIRATION_TIME}
+
+    restart: always
+    networks:
+      - crediya-network
+
+  # ---- Microservice-Loan-Request
+  loan-request-msvc:
+    image: request-msvc:latest
+    container_name: loan-request-msvc
+    depends_on:
+      - postgres17_loans_db
+      - authentication-msvc
+    ports:
+      - "9000:9000"
+    environment:
+      - ADAPTERS_R2DBC_HOST=${LOAN_MSVC_DB_HOST}
+      - ADAPTERS_R2DBC_PORT=${LOAN_MSVC_DB_PORT}
+      - ADAPTERS_R2DBC_DATABASE=${LOAN_MSVC_DB_DATABASE}
+      - ADAPTERS_R2DBC_SCHEMA=${LOAN_MSVC_DB_SCHEMA}
+      - ADAPTERS_R2DBC_USERNAME=${LOAN_MSVC_DB_USERNAME}
+      - ADAPTERS_R2DBC_PASSWORD=${LOAN_MSVC_DB_PASSWORD}
+      - ADAPTERS_R2DBC_SSL_MODE=${AUTH_MSVC_DB_SSLMODE}
+      - SECURITY_JWT_SECRET=${SUPER_SECRET_KEY}
+      - ADAPTER_RESTCONSUMER_URL=${URL_AUTH_MSVC}
+      - ADAPTER_SQS_REGION=${AWS_REGION}
+      - ADAPTER_SQS_QUEUE_URL=${LOAN_QUEUE_STATUS_MANUAL_FLOW}
+      - ADAPTER_SQSDEBTCALCULATE_REGION=${AWS_REGION}
+      - ADAPTER_SQSDEBTCALCULATE_QUEUE_URL=${DEBT_CALCULATE_QUEUE_AUTOMATIC_FLOW_REQUEST}
+      - ADAPTER_SQSAPPROVEDLOANREPORTS_REGION=${AWS_REGION}
+      - ADAPTER_SQSAPPROVEDLOANREPORTS_QUEUE_URL=${LOAN_APPROVED_QUEUE_REPORTS}
+      - ENTRYPOINT_SQS_REGION=${AWS_REGION}
+      - ENTRYPOINT_SQS_QUEUE_URL=${DEBT_CALCULATE_QUEUE_AUTOMATIC_FLOW_RESULTS}
+      - AWS_USER=${USER_AWS}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+
+    restart: always
+    networks:
+      - crediya-network
+
+  # ---- Microservice-Reports
+  reports-msvc:
+    image: reports-msvc:latest
+    container_name: reports-msvc
+    depends_on:
+      - authentication-msvc
+      - loan-request-msvc
+    ports:
+      - "9001:9001"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_USER=${USER_AWS}
+      - ENTRYPOINT_SQS_REGION=${AWS_REGION}
+      - ENTRYPOINT_SQS_QUEUE_URL=${QUEUE_URL_APPROVED_LOAN_REPORTS}
+      - SECURITY_JWT_SECRET=${SUPER_SECRET_KEY}
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
+
+    restart: always
+    networks:
+      - crediya-network
+
+volumes:
+  postgres17_auth_db:
+  postgrest17_loans_db_vol:
+
+networks:
+  crediya-network:
+    driver: bridge

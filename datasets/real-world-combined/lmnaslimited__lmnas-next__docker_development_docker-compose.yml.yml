@@ -1,0 +1,27 @@
+version: '3'
+name: dev-lmnasux
+services:
+  frontend:
+    build:
+      context: ../../
+      dockerfile: docker/development/Dockerfile
+    image: dev-lmnasux
+    labels:
+      traefik.docker.network: traefik-public
+      traefik.enable: "true"
+      traefik.http.routers.dev-lmnasux-http.entrypoints: http
+      traefik.http.routers.dev-lmnasux-http.middlewares: https-redirect
+      traefik.http.routers.dev-lmnasux-http.rule: Host(`devlmnas.docker.localhost`)
+      traefik.http.routers.dev-lmnasux-http.service: frontend-dev-lmnasux
+      traefik.http.routers.dev-lmnasux-https.entrypoints: https
+      traefik.http.routers.dev-lmnasux-https.rule: Host(`devlmnas.docker.localhost`)
+      traefik.http.routers.dev-lmnasux-https.service: frontend-dev-lmnasux
+      traefik.http.routers.dev-lmnasux-https.tls: "true"
+      traefik.http.routers.dev-lmnasux-https.tls.certresolver: le
+      traefik.http.services.frontend-dev-lmnasux.loadbalancer.server.port: "3000"
+    networks:
+      traefik-public: null
+networks:
+  traefik-public:
+    name: traefik-public
+    external: true

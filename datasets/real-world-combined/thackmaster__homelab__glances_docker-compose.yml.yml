@@ -1,0 +1,17 @@
+services:
+  glances:
+    container_name: glances
+    hostname: glances
+    environment:
+      GLANCES_OPT: -w
+      WATCHTOWER_LABEL_TAKE_PRECEDENCE: true
+    image: nicolargo/glances:latest
+    pid: host
+    ports:
+      - 61208:61208
+      - 61209:61209
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      #- /mnt:/mnt
+    network_mode: bridge

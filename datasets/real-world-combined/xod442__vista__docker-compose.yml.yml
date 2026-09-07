@@ -1,0 +1,46 @@
+name: vista
+
+services:
+  vista:
+    build: .
+    image: vista
+    # Host networking so the app uses the host's DNS resolvers and routing —
+    # matches the sibling opal/opal-mist/holo/focus deployment, and lets VISTA
+    # reach HOLO/FOCUS at their host ports (e.g. localhost:9093/9094) without
+    # any container-to-container networking setup. In host mode "ports:" is
+    # ignored, so the app binds the host port directly.
+    network_mode: host
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${VISTA_PORT:-9097}"]
+    # Corporate DNS resolvers. In host networking the container still uses its
+    # OWN /etc/resolv.conf, which Docker otherwise fills with public DNS
+    # (8.8.8.8) that can't resolve internal names like an SMTP relay. Set
+    # VISTA_DNS1/VISTA_DNS2 in a (gitignored) .env on the prod host.
+    dns:
+      - ${VISTA_DNS1:-8.8.8.8}
+      - ${VISTA_DNS2:-8.8.4.4}
+    environment:
+      # Required — a fixed key so sessions survive restarts.
+      - VISTA_SECRET_KEY=${VISTA_SECRET_KEY:?set VISTA_SECRET_KEY in .env}
+      - VISTA_DB_PATH=/data/vista.db
+      # 1 = cookie only over HTTPS (correct behind an edge). Set 0 for plain-HTTP local.
+      - VISTA_COOKIE_SECURE=${VISTA_COOKIE_SECURE:-1}
+      - VISTA_COOKIE_NAME=${VISTA_COOKIE_NAME:-vista_session}
+      # Subpath when served behind the edge, e.g. /vista. Empty = root.
+      - VISTA_ROOT_PATH=${VISTA_ROOT_PATH:-}
+      - VISTA_INVITE_TTL_DAYS=${VISTA_INVITE_TTL_DAYS:-7}
+      - VISTA_ADMIN_USERNAME=${VISTA_ADMIN_USERNAME:-admin}
+      - VISTA_ADMIN_PASSWORD=${VISTA_ADMIN_PASSWORD:-admin}
+      # Upstream data sources — startup defaults only; editable live in Admin →
+      # Data sources without a restart. Each key must match the HOLO_API_KEY /
+      # FOCUS_API_KEY set on that app.
+      - HOLO_BASE_URL=${HOLO_BASE_URL:-http://localhost:9093}
+      - HOLO_API_KEY=${HOLO_API_KEY:-}
+      - FOCUS_BASE_URL=${FOCUS_BASE_URL:-http://localhost:9094}
+      - FOCUS_API_KEY=${FOCUS_API_KEY:-}
+      - VISTA_POLL_INTERVAL_MINUTES=${VISTA_POLL_INTERVAL_MINUTES:-5}
+    volumes:
+      - vista-data:/data
+    restart: unless-stopped
+
+volumes:
+  vista-data:

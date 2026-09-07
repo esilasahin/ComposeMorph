@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  php:
+    build:
+      context: ./
+      dockerfile: DockerFile
+    container_name: sindicato_apache
+    restart: always
+    volumes:
+      - ./:/var/www/html 
+    ports:
+      - '2020:80'
+    networks:
+      - sindicato
+    environment:
+      TZ: "America/Maceio"
+    depends_on:
+      - db 
+
+  db:
+    container_name: sindicato_mysql
+    restart: always
+    image: mysql:latest
+    volumes:
+      - ./database:/docker-entrypoint-initdb.d
+    environment:
+      MYSQL_ROOT_PASSWORD: sindicato@!#
+      MYSQL_DATABASE: Wallisson
+      MYSQL_PASSWORD: sindicato@!#
+      TZ: "America/Maceio"
+    ports:
+      - '3307:3306'
+    networks:
+      - sindicato
+networks:
+  sindicato:
+    driver: bridge
+

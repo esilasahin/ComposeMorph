@@ -1,0 +1,26 @@
+version: "2"
+services:
+    lim:
+        image: "fortifydocker/lim:21.2"
+        container_name: lim
+        ports:
+            - "8090:80"
+        environment:
+          - LimUseSSL=false
+          - LimAdminWebSiteName=LimAdmin
+          - LimServiceSiteName=LimService
+          - LimApiSiteName=LimAPI
+          - LimDirectory=c:\lim
+          - certpath=c:\lim\limcert.pfx
+          - certpassword=limcert
+          - LimAdminUsername=limuser
+          - LimAdminPassword=limuser!1
+          - LimAdminEmail=limadmin@limadmin.com
+          - LimAdminFriendlyName=LimAdmin!
+        restart: always
+        volumes:
+          -  lim:c:/lim
+        command: "--memory=8g --cpus=2"
+    
+volumes:
+  lim:

@@ -1,0 +1,551 @@
+# ============================================================================
+# AI stack — LLM frontend, automation, image gen, speech, vector/graph DBs,
+# meta-search, and Langfuse observability (Postgres + ClickHouse + Redis + S3).
+# GPU services use the NVIDIA runtime (comfyui, wyoming-*). Confirm the host
+# has nvidia-container-toolkit installed on jarvis.
+# ============================================================================
+
+networks:
+  proxy:
+    external: true
+  ai:
+    external: true
+  data:
+    external: true
+
+volumes:
+  comfyui_storage:
+
+services:
+
+  # ---- Open WebUI — LLM frontend ------------------------------------------
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:v0.10.2
+    container_name: openwebui
+    restart: unless-stopped
+    networks: [proxy, ai, data]   # data: reach shared Redis (Qdrant is on ai)
+    environment:
+      # Config is authoritative from env (not persisted to the DB), so the LLM
+      # backend below is applied on every boot. User accounts/chats are unaffected.
+      ENABLE_PERSISTENT_CONFIG: "False"
+      # LLM backend: via the LiteLLM gateway (fronts unsloth, traces to Langfuse).
+      ENABLE_OPENAI_API: "true"
+      # TWO connections to the SAME gateway, on purpose (`;`-separated — Open WebUI
+      # zips URLS with KEYS positionally, so the two lists must stay same-length
+      # and same-order). Both point at LiteLLM; they differ only in the KEY:
+      #   1. OPENWEBUI_LLM_KEY          -> local models only (unsloth, bge-m3)
+      #   2. OPENWEBUI_EXTERNAL_LLM_KEY -> the three `openrouter/*` models
+      #
+      # WHY SPLIT rather than one key holding all five. The external key carries
+      # max_budget $5/30d, which is the ONLY spend control LiteLLM actually
+      # enforces (deployment rpm/tpm and key tpm_limit were all measured NOT to
+      # bite — see ai/litellm/config.yaml). Putting that budget on the shared key
+      # would mean a demo overspend also 429s local chat and OpenWebUI's RAG
+      # embeddings. Split, the blast radius stays on the paid models — and
+      # Langfuse attributes external spend to its own alias.
+      OPENAI_API_BASE_URLS: "http://litellm:4000/v1;http://litellm:4000/v1"
+      OPENAI_API_KEYS: ${OPENWEBUI_LLM_KEY};${OPENWEBUI_EXTERNAL_LLM_KEY}
+      ENABLE_OLLAMA_API: "false"
+      # Web search via the internal SearXNG (JSON). Internal URL bypasses the SSO
+      # gate on searxng.pdx; the literal <query> placeholder is required.
+      ENABLE_WEB_SEARCH: "true"
+      # Tavily (LLM/RAG-optimized; returns extracted content -> better grounding).
+      # Switch to "searxng" to use the self-hosted fallback below instead.
+      WEB_SEARCH_ENGINE: "tavily"
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>"
+      # Inject fetched web-search results straight into the prompt (BYPASS=true)
+      # instead of the embed -> Qdrant -> top-k retrieval path. The retrieval path
+      # is broken in OpenWebUI v0.9.6 (the latest release as of 2026-06): a
+      # regression in chat_web_search_handler / get_sources_from_items drops every
+      # source, so non-bypass web search returns "no sources, no answer" (upstream
+      # OPEN issue open-webui#25585, dup #25908 — introduced by v0.9.6's
+      # access-control rework). Until a fix lands in a release >0.9.6 we must
+      # bypass + full-inject.
+      #
+      # Full injection is UNBOUNDED, and our unsloth context is 40k tokens/slot
+      # (80k total / --parallel 2, q8_0 KV — see host/unsloth/README.md). 4 full
+      # results overflowed it (observed 20k then 33.7k-token prompts), so cap at
+      # 2 results (~17k worst case — fits with headroom). The grounding template
+      # below keeps it from hallucinating. PROPER FIX once #25585 is released:
+      # set BYPASS=false + raise the count — retrieval injects only top-k chunks,
+      # bounding context regardless of page size (and keeps VRAM low).
+      BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL: "true"
+      WEB_SEARCH_RESULT_COUNT: "2"
+      # Grounding template for retrieved web-search context: answer ONLY from the
+      # context; if it's empty/insufficient, say so instead of hallucinating.
+      RAG_TEMPLATE: |
+        ### Task
+        Answer the user's query using ONLY the context below (web-search results).
+        ### Rules
+        - Use only information present in the context; do NOT use prior knowledge to fill gaps.
+        - If the context is empty or does not contain the answer, reply that you could not find
+          reliable sources and cannot verify it. Do NOT guess, fabricate, or invent facts, names,
+          dates, numbers, quotes, citations, or URLs.
+        - Cite only sources that actually appear in the context.
+        <context>
+        {{CONTEXT}}
+        </context>
+        <user_query>
+        {{QUERY}}
+        </user_query>
+      # Image generation via ComfyUI (same `ai` network)
+      ENABLE_IMAGE_GENERATION: "true"
+      IMAGE_GENERATION_ENGINE: comfyui
+      COMFYUI_BASE_URL: "http://comfyui:8188"
+      IMAGE_GENERATION_MODEL: "sd_xl_base_1.0.safetensors"
+      IMAGE_SIZE: "1024x1024"
+      IMAGE_STEPS: "30"
+      # SDXL txt2img workflow (ComfyUI API format) + node mapping. YAML literal
+      # blocks keep the JSON intact (no .env/Infisical quoting issues).
+      COMFYUI_WORKFLOW: |
+        {
+          "3": {"class_type": "KSampler", "inputs": {"seed": 0, "steps": 30, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+          "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
+          "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+          "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+          "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+          "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+          "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "owui", "images": ["8", 0]}}
+        }
+      COMFYUI_WORKFLOW_NODES: |
+        [
+          {"type": "model", "key": "ckpt_name", "node_ids": ["4"]},
+          {"type": "prompt", "key": "text", "node_ids": ["6"]},
+          {"type": "negative_prompt", "key": "text", "node_ids": ["7"]},
+          {"type": "width", "key": "width", "node_ids": ["5"]},
+          {"type": "height", "key": "height", "node_ids": ["5"]},
+          {"type": "steps", "key": "steps", "node_ids": ["3"]},
+          {"type": "seed", "key": "seed", "node_ids": ["3"]}
+        ]
+      # ---- Keycloak SSO (OIDC); merges onto the existing account by email ----
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
+      OAUTH_PROVIDER_NAME: Keycloak
+      OAUTH_CLIENT_ID: openwebui
+      OAUTH_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET}
+      OPENID_PROVIDER_URL: https://keycloak.${DOMAIN}/realms/homelab/.well-known/openid-configuration
+      OAUTH_SCOPES: "openid email profile"
+      WEBUI_NAME: "Jarvis Open WebUI"
+      WEBUI_URL: https://openwebui.${DOMAIN}
+      # ---- Vector store: shared Qdrant (replaces the local embedded Chroma) ----
+      # Backs document/Knowledge RAG with a persistent, shared vector DB. (Web
+      # search bypasses retrieval above, so this is for uploaded docs/knowledge.)
+      VECTOR_DB: "qdrant"
+      QDRANT_URI: "http://qdrant:6333"
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      QDRANT_COLLECTION_PREFIX: "open-webui"
+      # ---- RAG embeddings: BGE-M3 (1024-dim) via the LiteLLM gateway ----------
+      # GPU-served + Langfuse-traced, replacing the in-container CPU MiniLM (384-dim).
+      # Document/Knowledge collections embed at 1024 (Cosine). The pre-existing
+      # 384-dim `open-webui_web-search` collection was dropped on cutover so OW
+      # recreates collections at the new dimension (dimensions can't be mixed).
+      RAG_EMBEDDING_ENGINE: "openai"
+      RAG_OPENAI_API_BASE_URL: "http://litellm:4000/v1"
+      RAG_OPENAI_API_KEY: ${OPENWEBUI_LLM_KEY}
+      RAG_EMBEDDING_MODEL: "bge-m3"
+      # ---- Redis: websocket manager + app cache (shared instance, DB 7) ----
+      # (DB 1=infisical, 2-3=netbox, 4=baserow, 5=langfuse, 6=searxng, 7=open-webui)
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/7"
+      WEBSOCKET_MANAGER: "redis"
+      WEBSOCKET_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/7"
+      ENABLE_WEBSOCKET_SUPPORT: "true"
+      TZ: ${TZ}
+    volumes:
+      - ./openwebui/data:/app/backend/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openwebui.rule=Host(`openwebui.${DOMAIN}`)"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls=true"
+      - "traefik.http.routers.openwebui.middlewares=secure-chain-stream@file"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+
+  # ---- n8n — workflow automation ------------------------------------------
+  n8n:
+    image: n8nio/n8n:2.32.5
+    container_name: n8n
+    restart: unless-stopped
+    networks: [proxy, ai, data]
+    environment:
+      N8N_HOST: n8n.${DOMAIN}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://n8n.${DOMAIN}/
+      N8N_EDITOR_BASE_URL: https://n8n.${DOMAIN}/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_PROXY_HOPS: "1"
+      # Task runners are the standard code-execution path in n8n 2.x
+      N8N_RUNNERS_ENABLED: "true"
+      # ---- KB-ingestion flows (Code nodes) ----------------------------------
+      # Allow the crypto builtin (deterministic hashing for dedup) + $env access
+      # in Code nodes, and expose the creds those flows need via $env — kept OUT
+      # of the workflow JSON so exported workflows are secret-free + git-committable.
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      # Surface Code-node console.log on n8n's stdout so Promtail ships it to
+      # Loki. Without this n8n sandboxes Code-node output and it goes NOWHERE —
+      # which silently defeated the "log every generated Cypher statement"
+      # guardrail (todos.md #41): the web-app-graph-search guard logs every
+      # allowed/refused text2cypher statement, and none of it was reaching Loki.
+      # Search: {compose_service="n8n"} |= "[graph-guard]"
+      CODE_ENABLE_STDOUT: "true"
+      GITHUB_PAT: ${GITHUB_PAT}
+      # LITELLM_MASTER_KEY removed 2026-07-22 (todos.md #38). n8n's LLM nodes now
+      # use per-system SCOPED credentials — "LiteLLM (n8n-kb scoped)",
+      # "(content-curator scoped)", "(web-app scoped)", "(example-site
+      # scoped)" — so traffic is attributable in Langfuse and bounded by tier
+      # limits. Verified before removal: no workflow node referenced $env
+      # .LITELLM_MASTER_KEY and no node bound the master credential. Putting it
+      # back would hand every Code node an ADMIN credential that can mint and
+      # revoke keys — the master key is administrative, never runtime.
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      # web-app public chat: shared BFF<->n8n token checked by the workflow
+      # auth-gate Code nodes via $env (the BFF sends it as the x-app-token header).
+      WEB_APP_BFF_TOKEN: ${WEB_APP_BFF_TOKEN}
+      # example-site public chat: its OWN shared BFF<->n8n token (distinct from
+      # WEB_APP_BFF_TOKEN) — same x-app-token gate, separate isolated workflow.
+      EXAMPLE_SITE_BFF_TOKEN: ${EXAMPLE_SITE_BFF_TOKEN}
+      # Postgres backend (shared instance) — gets workflows/credentials into the
+      # nightly pg_dumpall and supports concurrency/queue-mode, unlike SQLite.
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+      GENERIC_TIMEZONE: ${TZ}
+      TZ: ${TZ}
+    volumes:
+      - ./n8n/data:/home/node/.n8n
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.${DOMAIN}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls=true"
+      - "traefik.http.routers.n8n.middlewares=secure-chain-stream@file"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+
+  # ---- ComfyUI — image generation (GPU) -----------------------------------
+  # mmartial/comfyui-nvidia-docker (actively maintained) — replaced the
+  # unmaintained ai-dock build. Headless API on :8188 with no built-in auth, so
+  # OpenWebUI reaches it internally on the `ai` network; Keycloak SSO gates the
+  # Traefik route. Two mounts: ./comfyui/run (venv + ComfyUI source, populated on
+  # first boot) and ./comfyui/basedir (models + outputs). The SDXL checkpoint
+  # OpenWebUI uses lives at basedir/models/checkpoints/sd_xl_base_1.0.safetensors.
+  comfyui:
+    image: mmartial/comfyui-nvidia-docker:ubuntu24_cuda13.0-20260605
+    container_name: comfyui
+    restart: unless-stopped
+    networks: [proxy, ai]
+    environment:
+      WANTED_UID: "1001"        # run as the deploy user (sanctioned) for file perms
+      WANTED_GID: "1001"
+      BASE_DIRECTORY: /basedir  # models/outputs separated from the venv/run dir
+      SECURITY_LEVEL: normal
+      # Offload models from VRAM when idle (frees ~6.5 GB for the LLM between gens).
+      COMFY_CMDLINE_EXTRA: "--disable-smart-memory"
+      TZ: ${TZ}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./comfyui/run:/comfy/mnt
+      - ./comfyui/basedir:/basedir
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comfyui.rule=Host(`comfyui.${DOMAIN}`)"
+      - "traefik.http.routers.comfyui.entrypoints=websecure"
+      - "traefik.http.routers.comfyui.tls=true"
+      - "traefik.http.routers.comfyui.middlewares=sso@file,secure-chain-stream@file"
+      - "traefik.http.services.comfyui.loadbalancer.server.port=8188"
+
+  # ---- BGE-M3 embeddings — llama.cpp server (GPU), OpenAI-compatible -------
+  # Serves 1024-dim BGE-M3 embeddings to the whole lab via LiteLLM. ai-net
+  # internal only (no Traefik route). Notes: BGE-M3 is a non-causal encoder, so
+  # the batch must span the full context (-b/-ub == -c) or llama.cpp errors; and
+  # dense embedding uses CLS pooling (not mean). Image pinned by digest
+  # (server-cuda build b9692). Model .gguf lives on the host (gitignored).
+  bge-m3:
+    image: ghcr.io/ggml-org/llama.cpp@sha256:8d9129ac859493c23e0db914c6940a729a33d6fe42d9e5ec9ee8a5c667f10e7a
+    container_name: bge-m3
+    restart: unless-stopped
+    networks: [ai]
+    command: ["-m", "/models/bge-m3-Q8_0.gguf", "--embeddings", "--pooling", "cls", "-c", "8192", "-b", "8192", "-ub", "8192", "-ngl", "99", "--host", "0.0.0.0", "--port", "8080"]
+    volumes:
+      - ./bge-m3/models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---- Wyoming Piper — TTS (Wyoming protocol, TCP — not HTTP) --------------
+  # Consumed by Home Assistant etc. over the Wyoming TCP protocol, so it is
+  # published as a raw TCP port rather than routed through Traefik.
+  wyoming-piper:
+    image: rhasspy/wyoming-piper:2.3.1
+    container_name: wyoming-piper
+    restart: unless-stopped
+    networks: [ai]
+    command: ["--voice", "en_US-amy-medium"]
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./wyoming-piper/data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---- Wyoming Faster-Whisper — STT (Wyoming protocol, TCP) ----------------
+  wyoming-faster-whisper:
+    image: rhasspy/wyoming-whisper:3.5.0
+    container_name: wyoming-faster-whisper
+    restart: unless-stopped
+    networks: [ai]
+    command: ["--model", "base", "--language", "en"]
+    ports:
+      - "10300:10300"
+    volumes:
+      - ./wyoming-faster-whisper/data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Jupyter removed (dropped for now).
+  # Flowise removed 2026-07-20 (deprecated — superseded by n8n; todos #9).
+
+  # ---- Qdrant — vector database -------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.18.3   # within 1 minor of Open WebUI's 1.17 client
+    container_name: qdrant
+    restart: unless-stopped
+    networks: [proxy, ai]
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+      TZ: ${TZ}
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qdrant.rule=Host(`qdrant.${DOMAIN}`)"
+      - "traefik.http.routers.qdrant.entrypoints=websecure"
+      - "traefik.http.routers.qdrant.tls=true"
+      - "traefik.http.routers.qdrant.middlewares=secure-chain@file"
+      - "traefik.http.services.qdrant.loadbalancer.server.port=6333"
+
+  # ---- Neo4j — graph database ---------------------------------------------
+  neo4j:
+    image: neo4j:5.26.28
+    container_name: neo4j
+    restart: unless-stopped
+    networks: [proxy, ai]
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+      TZ: ${TZ}
+    ports:
+      - "7687:7687"   # Bolt protocol (drivers connect here)
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.neo4j.rule=Host(`neo4j.${DOMAIN}`)"
+      - "traefik.http.routers.neo4j.entrypoints=websecure"
+      - "traefik.http.routers.neo4j.tls=true"
+      - "traefik.http.routers.neo4j.middlewares=secure-chain@file"
+      - "traefik.http.services.neo4j.loadbalancer.server.port=7474"
+
+  # ---- SearXNG — privacy meta-search --------------------------------------
+  searxng:
+    image: searxng/searxng:2026.6.16-502c820a2
+    container_name: searxng
+    restart: unless-stopped
+    networks: [proxy, ai, data]
+    environment:
+      SEARXNG_BASE_URL: https://searxng.${DOMAIN}/
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/6
+      TZ: ${TZ}
+    volumes:
+      - ./searxng/config:/etc/searxng
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.searxng.rule=Host(`searxng.${DOMAIN}`)"
+      - "traefik.http.routers.searxng.entrypoints=websecure"
+      - "traefik.http.routers.searxng.tls=true"
+      - "traefik.http.routers.searxng.middlewares=secure-sso@file"
+      - "traefik.http.services.searxng.loadbalancer.server.port=8080"
+
+  # ---- Langfuse v3 — AI observability (web + worker) ----------------------
+  langfuse-web:
+    image: langfuse/langfuse:3.224.1
+    container_name: langfuse-web
+    restart: unless-stopped
+    networks: [proxy, ai, data]
+    depends_on:
+      - langfuse-worker
+    environment: &langfuse-env
+      # Next.js binds to $HOSTNAME; on a multi-network container that pins it to one
+      # interface and Traefik (proxy net) gets 502. Bind all interfaces instead.
+      HOSTNAME: "0.0.0.0"
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_URL: https://langfuse.${DOMAIN}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@redis:6379/5
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # ---- Keycloak SSO (dedicated provider; handles Keycloak's extra token
+      # fields like refresh_expires_in that break the generic 'custom' provider) ----
+      AUTH_KEYCLOAK_CLIENT_ID: langfuse
+      AUTH_KEYCLOAK_CLIENT_SECRET: ${LANGFUSE_OIDC_CLIENT_SECRET}
+      AUTH_KEYCLOAK_ISSUER: https://keycloak.${DOMAIN}/realms/homelab
+      AUTH_KEYCLOAK_ALLOW_ACCOUNT_LINKING: "true"
+      TZ: ${TZ}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.langfuse.rule=Host(`langfuse.${DOMAIN}`)"
+      - "traefik.http.routers.langfuse.entrypoints=websecure"
+      - "traefik.http.routers.langfuse.tls=true"
+      - "traefik.http.routers.langfuse.middlewares=secure-chain@file"
+      - "traefik.http.services.langfuse.loadbalancer.server.port=3000"
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3.224.1
+    container_name: langfuse-worker
+    restart: unless-stopped
+    networks: [ai, data]
+    environment: *langfuse-env
+
+  # ---- LiteLLM — OpenAI-compatible gateway for unsloth, logs to Langfuse ---
+  # One chokepoint: clients hit LiteLLM (master-key auth) instead of unsloth, and
+  # every call is traced in Langfuse. UI/API not SSO-gated (it's a programmatic
+  # API); auth is the LiteLLM master key.
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.93.0
+    container_name: litellm
+    restart: unless-stopped
+    networks: [proxy, ai, data]   # data: Postgres for virtual-key store
+    environment:
+      UNSLOTH_API_KEY: ${UNSLOTH_API_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # The only third-party provider on the gateway (the `openrouter/*` models
+      # in litellm/config.yaml). Prepaid, no auto-recharge — the balance is the
+      # hard spend ceiling. Absent this var LiteLLM starts fine and only fails at
+      # call time with a 401, so a missing key looks like a model outage.
+      OPENROUTER_TOKEN: ${OPENROUTER_TOKEN}
+      # ---- Admin UI SSO via Keycloak (OIDC) --------------------------------
+      # The /ui admin surface can mint+revoke every virtual key, and was gated
+      # only by the master key used as a web password. Native OIDC gives real
+      # per-user identity (you see WHO minted/revoked a key), which is what the
+      # governance layer wants. Client: core/keycloak/provision-litellm-client.sh
+      #
+      # FREE without an enterprise licence while LiteLLM_UserTable holds <= 5
+      # users AND a DB is connected — verified in v1.89.1's ui_sso.py, not from
+      # docs. Each Keycloak user who logs in becomes a row counting toward the 5;
+      # the 6th gets a hard 403, not a graceful degrade.
+      PROXY_BASE_URL: https://litellm.${DOMAIN}
+      GENERIC_CLIENT_ID: litellm
+      GENERIC_CLIENT_SECRET: ${LITELLM_OIDC_CLIENT_SECRET}
+      GENERIC_AUTHORIZATION_ENDPOINT: https://keycloak.${DOMAIN}/realms/homelab/protocol/openid-connect/auth
+      GENERIC_TOKEN_ENDPOINT: https://keycloak.${DOMAIN}/realms/homelab/protocol/openid-connect/token
+      GENERIC_USERINFO_ENDPOINT: https://keycloak.${DOMAIN}/realms/homelab/protocol/openid-connect/userinfo
+      # Postgres-backed key store — enables per-app virtual keys (/key/generate).
+      # LiteLLM runs its Prisma migrations against this DB on startup.
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_HOST: http://langfuse-web:3000
+      TZ: ${TZ}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+      # Our own guardrail category files (referenced by `category_file:` in
+      # config.yaml). Read-only: the proxy reads these at request time, and a
+      # writable mount would let a proxy compromise disable its own filters.
+      #
+      # They MUST land inside the package's own categories/ directory — LiteLLM
+      # path-checks `category_file` and silently WARNS-and-skips anything outside
+      # it ("invalid category_file path, skipping"). Skipping is the dangerous
+      # failure mode: the proxy comes up healthy with the filter quietly absent,
+      # which is why `guardrail-blocks-injection` is a BLOCKING eval.
+      #
+      # ⚠️ The path embeds the image's Python version. We pin the image
+      # (v1.89.1) so it is stable, but re-check it on any LiteLLM bump.
+      - ./litellm/guardrails/homelab_malicious_code.yaml:/app/.venv/lib/python3.13/site-packages/litellm/proxy/guardrails/guardrail_hooks/litellm_content_filter/categories/homelab_malicious_code.yaml:ro
+      - ./litellm/guardrails/homelab_prompt_leak.yaml:/app/.venv/lib/python3.13/site-packages/litellm/proxy/guardrails/guardrail_hooks/litellm_content_filter/categories/homelab_prompt_leak.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.litellm.rule=Host(`litellm.${DOMAIN}`)"
+      - "traefik.http.routers.litellm.entrypoints=websecure"
+      - "traefik.http.routers.litellm.tls=true"
+      - "traefik.http.routers.litellm.middlewares=secure-chain@file"
+      - "traefik.http.services.litellm.loadbalancer.server.port=4000"
+
+  # ---- MLflow — experiment tracking + model registry ----------------------
+  # Postgres backend store + MinIO artifact store (server proxies artifacts, so
+  # clients don't need S3 creds). UI gated by Keycloak (secure-sso@file); ML jobs
+  # log to the internal http://mlflow:5000 (no auth needed in-cluster).
+  mlflow:
+    build: ./mlflow
+    image: homelab/mlflow:3.13.0
+    container_name: mlflow
+    restart: unless-stopped
+    networks: [proxy, ai, data]
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_DEFAULT_REGION: us-east-1
+      TZ: ${TZ}
+      # MLflow 3.x adds a FastAPI Host-header allow-list (DNS-rebinding guard) that
+      # otherwise 403s any host but localhost/private-IPs — rejecting both the public
+      # name (mlflow.${DOMAIN}) and internal experiment-logging callers (http://mlflow:5000).
+      # Setting the env var REPLACES the built-in defaults (it doesn't extend them), so an
+      # explicit list would also drop the localhost/private-IP patterns the healthcheck and
+      # in-cluster clients rely on. The guard is redundant here: Traefik only routes
+      # mlflow.${DOMAIN} to this container and oauth2-proxy (Keycloak) gates all browser
+      # access, so we disable it with "*".
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+      # Backend DSN via env, NOT --backend-store-uri: anything on argv is world-readable
+      # to any local user via `ps -eww`, continuously for a long-lived server. mlflow
+      # server reads MLFLOW_BACKEND_STORE_URI natively, so the flag is unnecessary.
+      # (Same class of leak closed for markets-ingest — see todos.md #29.)
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:${MLFLOW_DB_PASSWORD}@postgres:5432/mlflow
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --artifacts-destination s3://mlflow/
+      --serve-artifacts
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mlflow.rule=Host(`mlflow.${DOMAIN}`)"
+      - "traefik.http.routers.mlflow.entrypoints=websecure"
+      - "traefik.http.routers.mlflow.tls=true"
+      - "traefik.http.routers.mlflow.middlewares=secure-sso@file"
+      - "traefik.http.services.mlflow.loadbalancer.server.port=5000"

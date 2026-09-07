@@ -1,0 +1,73 @@
+[16:34:01] ======================================================================
+[16:34:01] Dataset B toplama başlıyor. target=600, token=YOK (fallback mod)
+[16:34:01] GITHUB_TOKEN bulunamadı -> repository-search + raw-probe fallback moduna geçiliyor. Daha zengin bir corpus için GITHUB_TOKEN ortam değişkenini set edip tekrar çalıştırmanız önerilir (bkz. script docstring'i).
+[16:34:01] Repo search query: 'topic:docker-compose'
+[16:35:43]   -> 1000 repo bulundu
+[16:35:43] Repo search query: 'topic:docker-compose-file'
+[16:35:44]   -> 0 repo bulundu
+[16:35:44] Repo search query: 'docker-compose in:readme,description stars:>50'
+[16:37:24]   -> 1000 repo bulundu
+[16:37:24] Toplam benzersiz repo: 1979, toplam prob edilecek aday yol: 142488
+[16:37:24] Toplam 20000 aday denenecek.
+[16:38:43] ...50 aday denendi, 3 dosya toplandı
+[07:59:49] ======================================================================
+[07:59:49] Dataset B toplama başlıyor. target=600, token=YOK (fallback mod)
+[07:59:49] GITHUB_TOKEN bulunamadı -> repository-search + raw-probe fallback moduna geçiliyor. Daha zengin bir corpus için GITHUB_TOKEN ortam değişkenini set edip tekrar çalıştırmanız önerilir (bkz. script docstring'i).
+[07:59:49] Repo search query: 'topic:docker-compose'
+[08:00:36]   rate-limited on repo search (HTTP 403); backing off 60s
+[08:02:23]   -> 900 repo bulundu
+[08:02:23] Repo search query: 'topic:docker-compose-file'
+[08:02:23]   -> 0 repo bulundu
+[08:02:23] Repo search query: 'docker-compose in:readme,description stars:>50'
+[08:03:55]   -> 1000 repo bulundu
+[08:03:55] Toplam benzersiz repo: 1879, toplam prob edilecek aday yol: 135288
+[08:03:55] Toplam 20000 aday denenecek.
+[08:03:55] Mevcut manifestte 3 dosya bulundu, üzerine eklenecek.
+[08:04:40] ...50 aday denendi, 3 dosya toplandı
+[08:10:23] ======================================================================
+[08:10:23] Dataset B toplama başlıyor. target=600, token=VAR
+[08:10:23] Code search query: 'filename:docker-compose.yml'
+[08:10:53]   -> 1000 sonuç
+[08:10:53] Code search query: 'filename:docker-compose.yaml'
+[08:10:53]   rate-limited on code search (HTTP 403); backing off 60s
+[08:12:20]   -> 900 sonuç
+[08:12:20] Toplam 1285 aday denenecek.
+[08:12:20] Mevcut manifestte 3 dosya bulundu, üzerine eklenecek.
+[08:12:45]   25/600 dosya toplandı (son: xiaopeng163/twittor/docker-compose.yml.dev)
+[08:13:04] ...50 aday denendi, 41 dosya toplandı
+[08:13:12]   50/600 dosya toplandı (son: oxiverse-labs/intentforge/docker-compose.yml.bak)
+[08:13:41]   75/600 dosya toplandı (son: jochemfuchs/mysql8-polygonal-geolocator/docker-compose.yml.dist)
+[08:13:49] ...100 aday denendi, 82 dosya toplandı
+[08:14:17]   100/600 dosya toplandı (son: namboy94/progstats/docker-compose.yml)
+[08:14:30] ...150 aday denendi, 116 dosya toplandı
+[08:14:38]   125/600 dosya toplandı (son: Prushka/Recipe-Fullstack/docker-compose.yml)
+[08:14:56]   150/600 dosya toplandı (son: Oliver0804/docker_phpmyadmin/docker-compose.yml)
+[08:15:09] ...200 aday denendi, 166 dosya toplandı
+[08:15:16]   175/600 dosya toplandı (son: compasify/giapha-4.0/docker-compose.yml)
+[08:15:40]   200/600 dosya toplandı (son: jacqueshuang-fresnostate/rust-chain/docker-compose.yml)
+[08:15:45] ...250 aday denendi, 207 dosya toplandı
+[08:15:59]   225/600 dosya toplandı (son: steedos/docker/ee/node-red/docker-compose.yml)
+[08:16:21]   250/600 dosya toplandı (son: decwest/nav2_test_environment/docker-compose.yml)
+[08:16:25] ...300 aday denendi, 255 dosya toplandı
+[08:16:39]   275/600 dosya toplandı (son: ak1nttr/blog-api/docker-compose.yml)
+[08:16:57]   300/600 dosya toplandı (son: kilrasemifir/spring-sql-bingo/docker-compose.yml)
+[08:17:00] ...350 aday denendi, 304 dosya toplandı
+[08:17:18]   325/600 dosya toplandı (son: VelarIQ/brain-free/docker-compose.yml)
+[08:17:43]   350/600 dosya toplandı (son: SeaXen/StatSea/docker-compose.yml)
+[08:17:43] ...400 aday denendi, 350 dosya toplandı
+[08:18:00]   375/600 dosya toplandı (son: Sergei2019/foodgram/infra/docker-compose.yml)
+[08:18:19] ...450 aday denendi, 398 dosya toplandı
+[08:18:23]   400/600 dosya toplandı (son: davutD/user-dashboard-app/docker-compose.yml)
+[08:18:49]   425/600 dosya toplandı (son: quochuy14775/study-course-be/docker-compose.yml)
+[08:18:56] ...500 aday denendi, 436 dosya toplandı
+[08:19:09]   450/600 dosya toplandı (son: Bensmina-Anass/streaming-sales-analytics/clickhouse/docker-compose.yml)
+[08:19:30]   475/600 dosya toplandı (son: zee-ham-su/alx-backend-python/messaging_app/messaging_app/docker-compose.yml)
+[08:19:36] ...550 aday denendi, 481 dosya toplandı
+[08:19:53]   500/600 dosya toplandı (son: BarrySong97/next-blog-backend/docker-compose.yml)
+[08:20:46] ...600 aday denendi, 523 dosya toplandı
+[08:20:49]   525/600 dosya toplandı (son: 4linux/540/mentoria/compose/frontend2/docker-compose.yml)
+[08:21:15]   550/600 dosya toplandı (son: kevinleonj/studioface-flet/docker-compose.yml)
+[08:21:25] ...650 aday denendi, 565 dosya toplandı
+[08:21:32]   575/600 dosya toplandı (son: naubergois/AgenteInvestimento/observability/docker-compose.yml)
+[08:21:54]   600/600 dosya toplandı (son: mlcommons/storage_results_v3.0/FarmGPU/code-f1b36da9/vdb_benchmark/stacks/milvus/standalone/minio/docker-compose.yml)
+[08:21:54] Bitti. Denenen aday: 687, toplanan geçerli dosya: 600 (hedef: 600)

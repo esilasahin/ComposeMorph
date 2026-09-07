@@ -1,0 +1,26 @@
+version: "3"
+networks:
+  vlinux-kmom10:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+services:
+  server:
+    image: kryman/vlinux-kmom10:server
+    container_name: kmom10-server
+    ports:
+      - "1337:1337"
+    networks:
+      vlinux-kmom10:
+        ipv4_address: 172.20.0.20
+    volumes:
+      - ./data:/server/data
+    restart:
+      unless-stopped
+  client:
+    image: kryman/vlinux-kmom10:client
+    container_name: kmom10-client
+    networks:
+      vlinux-kmom10:
+    command: bash

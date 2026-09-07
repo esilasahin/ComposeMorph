@@ -1,0 +1,51 @@
+version: '3.7'
+
+services:
+#контейнер с рабочей бд 
+  postgres_bank:
+    image: postgres:13
+    container_name: postgres_bank
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bank
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./init_sql:/docker-entrypoint-initdb.d
+      - postgres_bank_data:/var/lib/postgresql/data
+
+  postgres_airflow:
+    image: postgres:13
+    container_name: postgres_airflow
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+
+  airflow:
+    image: apache/airflow:2.7.0
+    container_name: airflow_etl
+    depends_on:
+      - postgres_airflow
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres_airflow:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      _PIP_ADDITIONAL_REQUIREMENTS: "pandas psycopg2-binary chardet" #пробрасываем модули в контейнер
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./files:/opt/airflow/dags/files
+      - ./scripts/init_airflow.sh:/init_airflow.sh
+      - ./scripts:/opt/airflow/scripts
+    ports:
+      - "8080:8080"
+    entrypoint: ["/bin/bash", "/init_airflow.sh"]
+
+volumes:
+  postgres_bank_data:
+  postgres_airflow_data:

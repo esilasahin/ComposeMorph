@@ -1,0 +1,360 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stock_pipeline_db_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AIRFLOW_DB=${AIRFLOW_DB}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stock_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  pgadmin:
+    image: dpage/pgadmin4:8.4
+    container_name: stock_pipeline_pgadmin_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:5051:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - stock_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  superset:
+    build:
+      context: .
+      dockerfile: superset/Dockerfile
+    image: stock_pipeline_superset:4.1.2
+    container_name: stock_pipeline_superset_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY}
+      - SUPERSET_LOAD_EXAMPLES=no
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    ports:
+      - "8089:8088"
+    volumes:
+      - superset_home:/app/superset_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      superset-init:
+        condition: service_completed_successfully
+    networks:
+      - stock_network
+    command: superset run -h 0.0.0.0 -p 8088
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  superset-init:
+    build:
+      context: .
+      dockerfile: superset/Dockerfile
+    image: stock_pipeline_superset:4.1.2
+    container_name: stock_pipeline_superset_init_v2
+    env_file:
+      - .env
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY}
+      - SUPERSET_LOAD_EXAMPLES=no
+      - SUPERSET_ADMIN_USERNAME=${SUPERSET_ADMIN_USERNAME:-admin}
+      - SUPERSET_ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:-admin}
+      - SUPERSET_ADMIN_FIRSTNAME=${SUPERSET_ADMIN_FIRSTNAME:-Stock}
+      - SUPERSET_ADMIN_LASTNAME=${SUPERSET_ADMIN_LASTNAME:-Pipeline}
+      - SUPERSET_ADMIN_EMAIL=${SUPERSET_ADMIN_EMAIL:-admin@stockpipeline.local}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+    volumes:
+      - superset_home:/app/superset_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - stock_network
+    entrypoint: /bin/bash -c
+    command: >
+      "superset db upgrade &&
+      superset fab create-admin
+      --username $$SUPERSET_ADMIN_USERNAME
+      --firstname $$SUPERSET_ADMIN_FIRSTNAME
+      --lastname $$SUPERSET_ADMIN_LASTNAME
+      --email $$SUPERSET_ADMIN_EMAIL
+      --password $$SUPERSET_ADMIN_PASSWORD || true &&
+      superset init &&
+      python /app/bootstrap_superset.py"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+      network: host
+    image: stock_pipeline_app:v2
+    container_name: stock_pipeline_app_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_PORT=5432
+      - PYTHONPATH=/
+    volumes:
+      - ./app:/app
+      - ./data:/data
+      - ./logs:/logs
+      - ./reports:/reports
+    networks:
+      - stock_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: tail -f /dev/null
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/init-complete"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+      network: host
+    image: stock_pipeline_airflow:v2
+    container_name: stock_pipeline_airflow_webserver_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Africa/Lagos
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_WEBSERVER_SECRET_KEY}
+      - POSTGRES_PORT=5432
+      - PYTHONPATH=/Stock_pipeline
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs_v2:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/Stock_pipeline/app
+      - ./data:/data
+      - ./logs:/logs
+      - ./reports:/reports
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - stock_network
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  airflow-scheduler:
+    image: stock_pipeline_airflow:v2
+    container_name: stock_pipeline_airflow_scheduler_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Africa/Lagos
+      - POSTGRES_PORT=5432
+      - PYTHONPATH=/Stock_pipeline
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs_v2:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/Stock_pipeline/app
+      - ./data:/data
+      - ./logs:/logs
+      - ./reports:/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - stock_network
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  airflow-init:
+    image: stock_pipeline_airflow:v2
+    container_name: stock_pipeline_airflow_init_v2
+    env_file:
+      - .env
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - POSTGRES_PORT=5432
+      - _AIRFLOW_DB_MIGRATE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_ADMIN_USERNAME}
+      - _AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs_v2:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - stock_network
+    command: version
+    entrypoint: /bin/bash -c "airflow db migrate && airflow users create --username ${AIRFLOW_ADMIN_USERNAME} --password ${AIRFLOW_ADMIN_PASSWORD} --firstname Admin --lastname User --role Admin --email admin@stockpipeline.com || true"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlflow/Dockerfile
+    image: stock_pipeline_mlflow:v2
+    container_name: stock_pipeline_mlflow_v2
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5050:5000"
+    volumes:
+      - mlflow_data_v2:/mlflow/artifacts
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      --default-artifact-root /mlflow/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - stock_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+networks:
+  stock_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: stock_bridge_v2
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  postgres_data:
+  superset_home:
+  pgadmin_data:
+  airflow_logs_v2:
+  mlflow_data_v2:

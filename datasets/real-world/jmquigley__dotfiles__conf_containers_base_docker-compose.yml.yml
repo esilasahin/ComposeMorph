@@ -1,0 +1,73 @@
+version: "3.9"
+name: base
+
+services:
+
+  devcontainer:
+    container_name: devcontainer
+    build:
+      context: .
+    command: /bin/bash /tmp/dev.sh
+    hostname: dev.local
+    secrets:
+      - root_ssh_key
+      - root_ssh_pub_key
+      - root_password
+    ports:
+      - "22:22"
+    networks:
+      devnet:
+        ipv4_address: 192.168.2.2
+
+  database:
+    container_name: postgres
+    image: postgres:15
+    environment:
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+      - POSTGRES_USER=mes
+      - POSTGRES_DB=postgres
+    volumes:
+      - ../data/database/data:/var/lib/postgresql/data
+      - ../config/postgres.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - "5432:5432"
+    secrets:
+      - db_password
+    networks:
+      devnet:
+        ipv4_address: 192.168.2.3
+
+  dbadmin:
+    container_name: postgres_admin
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=mes@deltarfasteners.com
+      - PGADMIN_DEFAULT_PASSWORD_FILE=/run/secrets/db_password_admin
+      - PGADMIN_LISTEN_ADDRESS=0.0.0.0
+    ports:
+      - "8777:80"
+    secrets:
+      - db_password_admin
+    networks:
+      devnet:
+        ipv4_address: 192.168.2.4
+
+secrets:
+  db_password:
+    file: "${SECRETS_DIR}/db.txt"
+  db_password_admin:
+    file: "${SECRETS_DIR}/dbadmin.txt"
+  root_password:
+    file: "${SECRETS_DIR}/root.txt"
+  root_ssh_key:
+    file: "~/.ssh/devcontainer/id_rsa"
+  root_ssh_pub_key:
+    file: "~/.ssh/devcontainer/id_rsa.pub"
+
+networks:
+  devnet:
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.2.0/24
+          gateway: 192.168.2.1

@@ -1,0 +1,47 @@
+## ComfyUI Docker Compose File by John Aldred
+# http://www.johnaldred.com
+# http://github.com/kaouthia
+# 
+# Updated to use AMD with ROCm by Colbix
+# https://github.com/Colbix/ComfyUI-Docker
+
+services:
+  comfyk:
+    build:
+      dockerfile: Dockerfile
+    image: comfyui:latest
+    container_name: comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      # persist your models, output, and settings:
+      - ${HOME}/comfyui/models:/app/ComfyUI/models:Z
+
+      # persist your output images:
+      - ${HOME}/comfyui/output:/app/ComfyUI/output:Z
+
+      # persist all your settings & extra nodes:
+      - ${HOME}/comfyui/settings:/app/ComfyUI/user/default:rw,Z
+
+      # persist just your saved flows (overrides the workflows/ in default):
+      - ${HOME}/comfyui/flows:/app/ComfyUI/user/default/workflows:rw,Z
+
+     # Add the container's non-root user to additional container groups which will be used to access
+     # the Kernel Fusion Driver and Direct Rendering Interface
+    group_add:
+      - video
+      - render
+     # Add devices from the host system that should be accessible to the container
+     # See https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html#accessing-gpus-in-containers
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0 # Edit according to your AMD GPU
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

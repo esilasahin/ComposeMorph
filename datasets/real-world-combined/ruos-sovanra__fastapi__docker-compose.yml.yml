@@ -1,0 +1,22 @@
+version: '3.9'
+
+services:
+  web:
+    build: .
+    command: ["python", "app.py"]
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql://alumni:alumni@136.228.158.126:3108/alumni_prod"
+      API_ID: '25819837'
+      API_HASH: 'a4269a6a82ce4557b243ed09965abcb6'
+      SESSION: 'me'
+      PHONE: 'your_phone_or_bot_token'
+      DESTINATION: ''
+      CHATS: 'sokvis,-1002163862772'
+      KEY_WORDS: 'python'
+
+volumes:
+  db_data:

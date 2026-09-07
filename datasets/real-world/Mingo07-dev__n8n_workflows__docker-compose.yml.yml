@@ -1,0 +1,50 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n_workflows
+      POSTGRES_USER: n8n_user
+      POSTGRES_PASSWORD: N8N.workflows
+    volumes:
+      - n8n_postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - n8n_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n_user -d n8n_workflows"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      GENERIC_TIMEZONE: Europe/Rome
+      TZ: Europe/Rome
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - n8n_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  n8n_postgres_data:
+    name: n8n_postgres_data
+  n8n_data:
+    name: n8n_data      # riusa il volume esistente, i tuoi dati n8n restano intatti
+
+networks:
+  n8n_net:
+    name: n8n_net
+    driver: bridge

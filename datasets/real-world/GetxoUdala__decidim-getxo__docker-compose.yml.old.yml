@@ -1,0 +1,91 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    pull_policy: build
+    depends_on:
+      - app
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /home/dockerexec/.local/share/docker/certs/:/etc/ssl/certs
+    networks:
+      - getxo
+    restart: ${RESTART_POLICY:-always}
+  app:
+    image: decidim-production-app:latest
+    volumes:
+      - /home/dockerexec/storage:/app/storage
+    restart: ${RESTART_POLICY:-always}
+    environment:
+      - RUN_RAILS=true
+      - RUN_SIDEKIQ=true
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:decidim@db/decidim}
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE:-132a6ee88fe7cbc9bfd8f6dfeda5casdf03d0278e16dd40ec199109acde7fdda524d495a013d20e2b962dbafb61234136278ea6d6ac2c134776bd445da9671e}
+      - DECIDIM_FORCE_SSL=${DECIDIM_FORCE_SSL:-false}
+      - QUEUE_ADAPTER=${QUEUE_ADAPTER:-sidekiq}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DECIDIM_ENABLE_HTML_HEADER_SNIPPETS=${DECIDIM_ENABLE_HTML_HEADER_SNIPPETS:-true}
+      - DECIDIM_ADMIN_PASSWORD_EXPIRATION_DAYS=${DECIDIM_ADMIN_PASSWORD_EXPIRATION_DAYS:-360}
+      - CHANGE_ACTIVE_STEP=${CHANGE_ACTIVE_STEP:-disabled}
+      - SEND_REMINDERS=${SEND_REMINDERS:-enabled}
+      - WEEKLY_NOTIFICATIONS_DIGEST=${WEEKLY_NOTIFICATIONS_DIGEST:-enabled}
+      - DAILY_NOTIFICATIONS_DIGEST=${DAILY_NOTIFICATIONS_DIGEST:-enabled}
+      - SMTP_STARTTLS_AUTO=${SMTP_STARTTLS_AUTO:-true}
+      - SMTP_USERNAME
+      - SMTP_PASSWORD
+      - SMTP_ADDRESS
+      - SMTP_DOMAIN=${SMTP_DOMAIN:-getxo.eus}
+      - SMTP_PORT=${SMTP_PORT:-25}
+      - DECIDIM_MAILER_SENDER
+      - MAPS_API_KEY
+      - MAPS_PROVIDER=${MAPS_PROVIDER:-here}
+      - HEALTHCHECK_EXCLUDE_CHECKS=${HEALTHCHECK_EXCLUDE_CHECKS:-emailconf}
+      - SENTRY_DSN
+      - RACK_ATTACK_SECRET
+      - CENSUS_URL
+      - OMNIAUTH_FACEBOOK_APP_ID
+      - OMNIAUTH_FACEBOOK_APP_SECRET
+      - OMNIAUTH_GOOGLE_CLIENT_ID
+      - OMNIAUTH_GOOGLE_CLIENT_SECRET
+      - RECAPTCHA_SITE_KEY
+      - RECAPTCHA_SECRET_KEY
+      - GOOGLE_TAG_MANAGER
+      - DECIDIM_THROTTLING_MAX_REQUESTS
+      - DECIDIM_THROTTLING_PERIOD
+    depends_on:
+      - db
+      - redis
+    networks:
+      - getxo
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-decidim}
+      - POSTGRES_DB=${POSTGRES_DB:-decidim}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - getxo
+    restart: ${RESTART_POLICY:-always}
+  redis:
+    image: redis
+    volumes:
+      - redis_data:/data
+    networks:
+      - getxo
+    restart: ${RESTART_POLICY:-always}
+volumes:
+  pg_data:
+  redis_data:
+  decidim_uploads:
+  decidim_storage:
+networks:
+  getxo:
+    name: net_containers_service
+    external: true

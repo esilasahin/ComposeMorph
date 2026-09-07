@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Spring Boot Backend (H2 in-memory database)
+  backend:
+    build:
+      context: ./smartfleet
+      dockerfile: Dockerfile
+    container_name: smartfleet-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:smartfleet
+      SPRING_DATASOURCE_USERNAME: sa
+      SPRING_DATASOURCE_PASSWORD: ""
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.h2.Driver
+      JWT_SECRET: ${JWT_SECRET:-smartfleet_secret_key_demo_2026}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    networks:
+      - smartfleet-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: smartfleet-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      VITE_API_URL: http://localhost:8080
+      VITE_USE_BACKEND: "true"
+    depends_on:
+      - backend
+    networks:
+      - smartfleet-net
+
+networks:
+  smartfleet-net:
+    driver: bridge

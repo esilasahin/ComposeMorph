@@ -1,0 +1,22 @@
+services:
+  postgres-db:
+    image: postgres:16
+    container_name: world_cup_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Kmr*ms22
+      POSTGRES_DB: de_training
+    ports:
+      - "5432:5432"
+
+  world-cup-app:
+    build: .
+    container_name: world_cup_pipeline
+    depends_on:
+      - postgres-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Kmr*ms22
+      POSTGRES_HOST: postgres-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: de_training

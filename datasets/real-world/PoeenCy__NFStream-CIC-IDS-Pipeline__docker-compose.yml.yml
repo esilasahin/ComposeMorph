@@ -1,0 +1,13 @@
+# docker-compose.yml
+# File này được thiết kế để build image từ mã nguồn và chạy các tác vụ.
+
+services:
+  extractor:
+    # Build image từ Dockerfile trong thư mục hiện tại
+    build: .
+    # Đặt tên cho image sau khi build
+    image: poeency/nfstream-cic-ids-pipeline
+    # Liên kết các thư mục để container có thể thấy dữ liệu và ghi kết quả
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output

@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # MinIO (Stockage des images/couvertures)
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+
+  # Ton API Node.js
+    # Ton API Node.js
+#  api:
+  #    build: .
+  #    ports:
+  #      - "${PORT}:${PORT}"
+  #    # Ajoute cette ligne pour charger automatiquement toutes les variables du .env dans le conteneur
+  #    env_file:
+  #      - .env
+  #    environment:
+  #      - DB_HOST=db
+  #      - DB_DIALECT=postgres
+  #    depends_on:
+  #      - db
+  #      - minio
+  #    volumes:
+  #      - .:/usr/src/app
+  #      - /usr/src/app/node_modules
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+volumes:
+  pgdata:
+  minio_data:

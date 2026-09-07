@@ -1,0 +1,101 @@
+# Compose dla projektu METRO.
+#
+# Tryby uruchamiania (profiles):
+#   docker compose --profile prod up --build   # backend (gunicorn) + nginx -> http://localhost
+#   docker compose --profile dev  up --build   # backend (gunicorn) + CRA dev server -> http://localhost:3000
+#   docker compose up backend                  # sam backend -> http://localhost:8000
+#
+# Zmienne w pliku .env w katalogu głównym (patrz env.example):
+#   SECRET_KEY=...
+#   DJANGO_DEBUG=False
+#   DJANGO_ALLOWED_HOSTS=twoja-domena.pl,127.0.0.1
+#   DJANGO_CSRF_TRUSTED_ORIGINS=https://twoja-domena.pl
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: metro-backend:latest
+    container_name: metro-backend
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-secret-key-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      PYTHONUNBUFFERED: "1"
+    # Persistencja bazy SQLite na hoście (plik musi istnieć przed pierwszym startem;
+    # jest już w repo jako backend/db.sqlite3).
+    volumes:
+      - ./backend/db.sqlite3:/app/db.sqlite3
+    # Migracje + gunicorn. Jeśli baza nie wymaga migracji, polecenie i tak jest idempotentne.
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn --bind 0.0.0.0:8000 --workers 3 metro.wsgi:application"
+    expose:
+      - "8000"
+    # Dostęp z hosta tylko lokalnie (debug); na serwerze wystarczy nginx :80
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/admin/login/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - metro
+
+  nginx:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: metro-nginx:latest
+    container_name: metro-nginx
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - metro
+
+  frontend:
+    profiles: ["dev"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: metro-frontend-dev:latest
+    container_name: metro-frontend
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    # Bind-mount źródeł dla hot-reloadu (node_modules zostaje z obrazu).
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    tty: true
+    networks:
+      - metro
+
+networks:
+  metro:
+    driver: bridge

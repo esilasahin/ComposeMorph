@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "127.0.0.1:4000:4000"
+    env_file:
+      - ./api-gateway/.env
+    environment:
+      - AUTH_SERVICE=http://auth-service:4001
+      - TUTORIAL_SERVICE=http://tutorial-service:4002
+    restart: unless-stopped
+    networks:
+      - brainloom-net
+
+  auth-service:
+    build:
+      context: ./auth-service
+    container_name: auth-service
+    expose:
+      - "4001"
+    env_file:
+      - ./auth-service/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - brainloom-net
+
+  tutorial-service:
+    build:
+      context: ./tutorial-service
+    container_name: tutorial-service
+    expose:
+      - "4002"
+    env_file:
+      - ./tutorial-service/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - brainloom-net
+
+networks:
+  brainloom-net:
+    driver: bridge

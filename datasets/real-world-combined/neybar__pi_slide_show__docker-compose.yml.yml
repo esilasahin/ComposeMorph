@@ -1,0 +1,21 @@
+volumes:
+  photo:
+    driver_opts:
+      type: nfs
+      o: addr=192.168.0.6,rw,nfsvers=4.1,async
+      device: :/volume1/photo
+
+services:
+  slideshow:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - photo:/photos:ro
+      # - ./test:/app/test:ro  # Uncomment to enable fixture endpoint for perf testing
+    environment:
+      - PHOTO_LIBRARY=/photos
+      - PORT=3000
+      # - NODE_ENV=development  # Uncomment to enable fixture endpoint (disabled in production by default)
+      # - LOG_LEVEL=info  # Uncomment to override default (error). Options: error, warn, info, debug
+    restart: unless-stopped

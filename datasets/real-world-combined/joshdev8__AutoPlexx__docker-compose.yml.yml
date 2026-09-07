@@ -1,0 +1,555 @@
+name: autoplexx
+
+services:
+  # LinuxServer images are pulled from lscr.io, their own registry, rather than
+  # the bare `linuxserver/*` Docker Hub names. Same images, but anonymous Docker
+  # Hub pulls are rate-limited (and on some hosts refused outright), and a first
+  # `docker compose up` on this stack is a couple of dozen pulls at once —
+  # exactly when hitting a limit is most likely and most confusing. Only the
+  # LinuxServer images can move; the rest have no equivalent mirror.
+
+  # ============ MEDIA SERVER ============
+  plex:
+    container_name: plex
+    image: lscr.io/linuxserver/plex
+    network_mode: "host"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    volumes:
+      - ${USERDIR}/plex/config:/config
+      - ${USERDIR}/plex/media:/media
+    restart: unless-stopped
+
+  # ---- Optional: Jellyfin (Plex alternative) ----
+  # Jellyfin is a free, fully open-source media server with no paid tier. To use
+  # it INSTEAD of Plex: run `docker compose rm -sf plex` FIRST, then comment out
+  # the entire `plex:` service above, uncomment the `jellyfin:` service below,
+  # and run `docker compose up -d`. Removing Plex first matters: a commented-out
+  # service is invisible to compose, so `up -d` would leave the old container
+  # running and you'd have both media servers on the same library.
+  # Jellyfin's web UI is on http://<host>:8096 and needs no claim token.
+  # Heads up: Tautulli, Watchlistarr, Kometa, and Maintainerr are Plex-only and
+  # will NOT work against Jellyfin — see the README "Using Jellyfin instead of
+  # Plex" section for the full compatibility list.
+  # jellyfin:
+  #   container_name: jellyfin
+  #   image: lscr.io/linuxserver/jellyfin
+  #   network_mode: "host"
+  #   environment:
+  #     - PUID=${PUID}
+  #     - PGID=${PGID}
+  #     - TZ=${TZ}
+  #   volumes:
+  #     - ${USERDIR}/jellyfin/config:/config
+  #     - ${USERDIR}/plex/media:/media
+  #   restart: unless-stopped
+
+  # ============ MONITORING ============
+  tautulli:
+    container_name: tautulli
+    image: tautulli/tautulli
+    networks:
+      - monitoring_network
+    # No `depends_on: plex` on purpose. Plex is host-network and Tautulli is on
+    # monitoring_network, so compose can't order or link them anyway — but a
+    # depends_on would make the whole project invalid the moment someone
+    # comments out `plex:` to run Jellyfin instead. Tautulli starts fine against
+    # an unreachable Plex and reconnects on its own.
+    ports:
+      - "8181:8181"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/tautulli:/config
+    restart: unless-stopped
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    networks:
+      - monitoring_network
+    depends_on:
+      - telegraf
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/grafana:/var/lib/grafana
+    restart: unless-stopped
+
+  telegraf:
+    container_name: telegraf
+    image: telegraf:latest
+    networks:
+      - monitoring_network
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/telegraf:/etc/telegraf
+    restart: unless-stopped
+
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower:latest
+    networks:
+      - monitoring_network
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    networks:
+      - monitoring_network
+    ports:
+      - "9000:9000"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    networks:
+      - monitoring_network
+    ports:
+      - "9090:9090"
+    environment:
+      - TZ=${TZ}
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  # Container resource metrics for Prometheus. Reads the Docker socket
+  # read-only and several host filesystems to enumerate running containers.
+  cadvisor:
+    container_name: cadvisor
+    image: gcr.io/cadvisor/cadvisor:latest
+    networks:
+      - monitoring_network
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    privileged: true
+    restart: unless-stopped
+
+  # Host (kernel / disk / network) metrics for Prometheus.
+  node-exporter:
+    container_name: node-exporter
+    image: prom/node-exporter:latest
+    networks:
+      - monitoring_network
+    ports:
+      - "9100:9100"
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    restart: unless-stopped
+
+  # ============ DASHBOARD ============
+  # AutoPlexx Command Center — a single pane over the whole stack. Pulls a
+  # prebuilt image so a fresh clone needs no Node toolchain and no build step;
+  # `build:` is here for contributors (`docker compose build dashboard`).
+  #
+  # Joins three networks because it reaches Radarr/Sonarr/Seerr (media),
+  # Transmission (download) and Prometheus/Tautulli/the socket proxy
+  # (monitoring). Plex runs on the host network, so it's reached through
+  # host.docker.internal via the extra_hosts entry below.
+  #
+  # The /discover mounts are read-only and let the dashboard pick up each
+  # service's API key from the config file that service already writes — see
+  # the "Dashboard" section of README.md. They're declared now and consumed by
+  # the widgets in a follow-up; an unreadable or missing path is handled.
+  dashboard:
+    container_name: autoplexx-dashboard
+    image: ghcr.io/joshdev8/autoplexx-dashboard:latest
+    build: ./dashboard
+    networks:
+      - media_network
+      - download_network
+      - monitoring_network
+    ports:
+      # DASHBOARD_BIND defaults to all interfaces so the dashboard is reachable
+      # from other machines on the LAN. Set it to 127.0.0.1 when fronting the
+      # dashboard with an authenticating reverse proxy — otherwise the published
+      # port lets anyone bypass that proxy.
+      - "${DASHBOARD_BIND:-0.0.0.0}:${DASHBOARD_PORT:-8090}:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=${TZ}
+      - GRAFANA_PORT=${GRAFANA_PORT:-3000}
+    volumes:
+      - ${USERDIR}/sonarr/config:/discover/sonarr:ro
+      - ${USERDIR}/radarr/config:/discover/radarr:ro
+      - ${USERDIR}/prowlarr/config:/discover/prowlarr:ro
+      - ${USERDIR}/bazarr/config:/discover/bazarr:ro
+      - ${USERDIR}/tautulli:/discover/tautulli:ro
+      - ${USERDIR}/docker/seerr/config:/discover/seerr:ro
+    depends_on:
+      - docker-socket-proxy
+    restart: unless-stopped
+
+  # Read-only Docker API for the dashboard's container-status view.
+  #
+  # This deliberately does NOT mount the Docker socket into the dashboard
+  # itself. Note that `:ro` on a socket does not make the Docker API read-only
+  # — it only affects the file node — so a direct mount would be a second
+  # root-equivalent exposure alongside Portainer's. This proxy is what actually
+  # constrains access: CONTAINERS=1 permits GET /containers/json and nothing
+  # else. Every other capability is left at its default of 0.
+  docker-socket-proxy:
+    container_name: autoplexx-socket-proxy
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    networks:
+      - monitoring_network
+    environment:
+      - CONTAINERS=1
+      - POST=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # ============ MEDIA MANAGEMENT ============
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    init: true
+    container_name: seerr
+    volumes:
+      - ${USERDIR}/docker/seerr/config:/app/config
+    ports:
+      - "5055:5055"
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    networks:
+      - media_network
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/status || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+
+  radarr:
+    container_name: radarr
+    image: lscr.io/linuxserver/radarr
+    networks:
+      - media_network
+      - download_network
+    ports:
+      - "7878:7878"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/radarr/config:/config
+      - ${USERDIR}/plex/media:/media
+    restart: unless-stopped
+
+  sonarr:
+    container_name: sonarr
+    image: lscr.io/linuxserver/sonarr
+    networks:
+      - media_network
+      - download_network
+    ports:
+      - "8989:8989"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/sonarr/config:/config
+      - ${USERDIR}/plex/media:/media
+    restart: unless-stopped
+
+  prowlarr:
+    container_name: prowlarr
+    image: lscr.io/linuxserver/prowlarr
+    networks:
+      - media_network
+    ports:
+      - "9696:9696"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/prowlarr/config:/config
+    restart: unless-stopped
+
+  bazarr:
+    container_name: bazarr
+    image: lscr.io/linuxserver/bazarr
+    networks:
+      - media_network
+    ports:
+      - "6767:6767"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/bazarr/config:/config
+      - ${USERDIR}/plex/media:/media
+    restart: unless-stopped
+
+  # Cloudflare bypass proxy. Prowlarr (and any other indexer client)
+  # routes requests through this to reach indexer sites behind Cloudflare.
+  flaresolverr:
+    container_name: flaresolverr
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    networks:
+      - media_network
+    ports:
+      - "8191:8191"
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    restart: unless-stopped
+
+  # Rule-based Plex library maintenance (auto-remove watched / aged items).
+  maintainerr:
+    container_name: maintainerr
+    image: ghcr.io/jorenn92/maintainerr:latest
+    networks:
+      - media_network
+    ports:
+      - "6246:6246"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/maintainerr/data:/opt/data
+    restart: unless-stopped
+
+  # ============ MEDIA CENTER ============
+  watchlistarr:
+    container_name: watchlistarr
+    image: nylonee/watchlistarr
+    networks:
+      - download_network
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/watchlistarr:/config
+    restart: unless-stopped
+
+  # ============ DOWNLOADING ============
+  # haugene/transmission-openvpn tunnels all transmission traffic through an
+  # OpenVPN connection. NET_ADMIN + /dev/net/tun are required for the
+  # in-container OpenVPN client. LOCAL_NETWORK must include your LAN CIDR
+  # or the web UI on port 9091 will be unreachable from your machine.
+  transmission:
+    container_name: transmission
+    image: haugene/transmission-openvpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    networks:
+      - download_network
+    ports:
+      - "9091:9091"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - OPENVPN_PROVIDER=${OPENVPN_PROVIDER:?OPENVPN_PROVIDER must be set}
+      - OPENVPN_CONFIG=${OPENVPN_CONFIG:?OPENVPN_CONFIG must be set}
+      - OPENVPN_USERNAME=${OPENVPN_USERNAME:?OPENVPN_USERNAME must be set}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:?OPENVPN_PASSWORD must be set}
+      - LOCAL_NETWORK=${LOCAL_NETWORK:-192.168.0.0/16}
+      - TRANSMISSION_RPC_USERNAME=${TRANSMISSION_RPC_USERNAME:-}
+      - TRANSMISSION_RPC_PASSWORD=${TRANSMISSION_RPC_PASSWORD:-}
+    volumes:
+      - ${USERDIR}/transmission/data:/data
+    restart: unless-stopped
+
+  # ============ LIBRARY MAINTENANCE ============
+  # Cleans stalled/failed downloads out of Radarr/Sonarr queues. Skips any
+  # service whose API key is blank, so it's safe to leave keys empty on
+  # first boot and fill them in after the *arrs are running.
+  # Pinned to v1: v2 (Nov 2025) requires both base_url and api_key in
+  # structured RADARR/SONARR blocks, which breaks the blank-keys-on-first-boot
+  # workflow this service is configured around. Re-evaluate if v2 ever
+  # gains a "skip instances with empty api_key" behavior.
+  decluttarr:
+    container_name: decluttarr
+    image: ghcr.io/manimatter/decluttarr:v1.50.2
+    networks:
+      - download_network
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=INFO
+      - RADARR_URL=http://radarr:7878
+      - RADARR_KEY=${RADARR_API_KEY:-}
+      - SONARR_URL=http://sonarr:8989
+      - SONARR_KEY=${SONARR_API_KEY:-}
+      - REMOVE_TIMER=10
+      - REMOVE_FAILED=True
+      - REMOVE_STALLED=True
+      - REMOVE_MISSING_FILES=True
+      - REMOVE_ORPHANS=True
+    labels:
+      # Tell Watchtower not to update this container — the pin above is
+      # intentional and v2 silently breaks on the v1 env var schema.
+      - "com.centurylinklabs.watchtower.enable=false"
+    restart: unless-stopped
+
+  # Scans media files for codec / corruption issues. Web UI on :8585.
+  # checkrr publishes no multi-arch tag — every tag is arch-suffixed, so there
+  # is no bare `latest`. Defaults to amd64; arm64 hosts set
+  # CHECKRR_IMAGE_TAG=latest-arm64v8 in .env instead of editing this file.
+  checkrr:
+    container_name: checkrr
+    image: ghcr.io/aetaric/checkrr:${CHECKRR_IMAGE_TAG:-latest-amd64}
+    networks:
+      - media_network
+    ports:
+      - "8585:8585"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/checkrr/config:/etc/checkrr
+      - ${USERDIR}/plex/media:/media:ro
+    restart: unless-stopped
+
+  cleanarr:
+    container_name: cleanarr
+    image: selexin/cleanarr
+    networks:
+      - download_network
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/cleanarr:/config
+    restart: unless-stopped
+
+  requestrr:
+    container_name: requestrr
+    image: thomst08/requestrr
+    networks:
+      - download_network
+    ports:
+      - "4545:4545"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${USERDIR}/requestrr:/config
+    restart: unless-stopped
+
+  # ============ STREAM TRACKING ============
+  tracearr:
+    image: ghcr.io/connorgallopo/tracearr:latest
+    container_name: tracearr
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - TZ=${TZ}
+      - DATABASE_URL=postgres://tracearr:${DB_PASSWORD:?DB_PASSWORD must be set}@timescale:5432/tracearr
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - COOKIE_SECRET=${COOKIE_SECRET:?COOKIE_SECRET must be set}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3001}
+      - LOG_LEVEL=info
+    depends_on:
+      timescale:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tracearr-network
+
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: tracearr-timescale
+    shm_size: 512mb
+    environment:
+      - POSTGRES_USER=tracearr
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
+      - POSTGRES_DB=tracearr
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracearr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tracearr-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: tracearr-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tracearr-network
+
+networks:
+  monitoring_network:
+  media_network:
+  download_network:
+  tracearr-network:
+    driver: bridge
+
+volumes:
+  plex:
+  tautulli:
+  grafana:
+  telegraf:
+  watchlistarr:
+  cleanarr:
+  requestrr:
+  transmission:
+  radarr:
+  sonarr:
+  prowlarr:
+  bazarr:
+  portainer_data:
+  prometheus_data:
+  timescale_data:
+  redis_data:

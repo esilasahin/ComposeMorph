@@ -1,0 +1,284 @@
+version: "3.9"
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: hms-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - hms-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  patient-service:
+    build:
+      context: ./hospital-microservices/patient-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: patient-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8081
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  doctor-service:
+    build:
+      context: ./hospital-microservices/doctor-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: doctor-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8082
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  appointment-service:
+    build:
+      context: ./hospital-microservices/appointment-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: appointment-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8083
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  pharmacy-service:
+    build:
+      context: ./hospital-microservices/pharmacy-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: pharmacy-service
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8084
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  billing-service:
+    build:
+      context: ./hospital-microservices/billing-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: billing-service
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8085
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  labtest-service:
+    build:
+      context: ./hospital-microservices/labtest-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: labtest-service
+    ports:
+      - "8086:8086"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8086
+      - MONGODB_URI=${MONGODB_URI_DOCKER:-mongodb://mongodb:27017}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api-gateway:
+    build:
+      context: ./hospital-microservices/api-gateway
+      dockerfile: Dockerfile
+      args:
+        - BUILD_VERSION=1.0.0
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      patient-service:
+        condition: service_started
+      doctor-service:
+        condition: service_started
+      appointment-service:
+        condition: service_started
+      pharmacy-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      labtest-service:
+        condition: service_started
+    networks:
+      - hms-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ./hospital-frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_GATEWAY_URL=/gateway
+    container_name: hms-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - hms-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mongodb_data:
+    name: hms_mongodb_data
+
+networks:
+  hms-network:
+    driver: bridge
+    name: hms-network

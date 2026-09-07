@@ -1,0 +1,511 @@
+name: s3-alarik-cluster
+
+services:
+  api01:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api01-internal:8080
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api01-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api01-external
+    volumes:
+      - api01-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api01-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api01-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api01-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api01-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api01-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api01-https.tls=true"
+      #- "traefik.http.routers.alarik-api01-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api01-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  api02:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api02-internal:8080
+      - CLUSTER_SEED_NODES=http://api01-internal:8080
+    depends_on:
+      api01:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api02-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api02-external
+    volumes:
+      - api02-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api02-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api02-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api02-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api02-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api02-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api02-https.tls=true"
+      #- "traefik.http.routers.alarik-api02-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api02-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  api03:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api03-internal:8080
+      - CLUSTER_SEED_NODES=http://api01-internal:8080
+    depends_on:
+      api01:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api03-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api03-external
+    volumes:
+      - api03-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api03-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api03-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api03-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api03-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api03-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api03-https.tls=true"
+      #- "traefik.http.routers.alarik-api03-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api03-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  api04:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api04-internal:8080
+      - CLUSTER_SEED_NODES=http://api01-internal:8080
+    depends_on:
+      api01:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api04-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api04-external
+    volumes:
+      - api04-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api04-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api04-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api04-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api04-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api04-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api04-https.tls=true"
+      #- "traefik.http.routers.alarik-api04-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api04-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  api05:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api05-internal:8080
+      - CLUSTER_SEED_NODES=http://api01-internal:8080
+    depends_on:
+      api01:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api05-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api05-external
+    volumes:
+      - api05-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api05-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api05-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api05-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api05-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api05-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api05-https.tls=true"
+      #- "traefik.http.routers.alarik-api05-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api05-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  api06:
+    image: ghcr.io/achtungsoftware/alarik:${VERSION:-latest}
+    #image: alarik-cluster:latest
+    restart: unless-stopped
+    env_file:
+      - .env.secrets
+      - .env.cluster
+    environment:
+      # URLs públicas (usadas em respostas, links, callbacks OIDC)
+      - API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      # Região S3 que os clientes devem assinar nas requests
+      - ALARIK_REGION=${ALARIK_REGION:-us-east-1}
+      # true = fsync antes de ack (durabilidade); false = throughput (benchmarks)
+      - ALARIK_FSYNC=${ALARIK_FSYNC:-true}
+      # Nível de log: debug | info | notice | warning | error | critical
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      - CLUSTER_NODE_ADDRESS=http://api06-internal:8080
+      - CLUSTER_SEED_NODES=http://api01-internal:8080
+    depends_on:
+      api01:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - api06-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - api06-external
+    volumes:
+      - api06-storage:/app/Storage
+    healthcheck:
+      # Verifica se a API está respondendo (401 é OK — prova que o servidor está vivo)
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-api06-http.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-api06-http.entrypoints=web"
+      - "traefik.http.routers.alarik-api06-http.service=alarik-api"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-api06-https.rule=Host(`alarik-api.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-api06-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-api06-https.tls=true"
+      #- "traefik.http.routers.alarik-api06-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-api06-https.service=alarik-api"
+
+      # Service
+      - "traefik.http.services.alarik-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.path=/readyz"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.alarik-api.loadbalancer.healthcheck.timeout=3s"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  console:
+    image: ghcr.io/achtungsoftware/alarik-console:${VERSION:-latest}
+    #image: alarik-cluster-console:latest
+    restart: unless-stopped
+    # Nenhuma porta exposta no host — acesso 100% via Traefik
+    environment:
+      - NUXT_PUBLIC_API_BASE_URL=http://alarik-api.${DOMAIN:-teste.local}
+      - NUXT_PUBLIC_CONSOLE_BASE_URL=http://alarik-console.${DOMAIN:-teste.local}
+      - NUXT_PUBLIC_ALLOW_ACCOUNT_CREATION=${ALLOW_ACCOUNT_CREATION:-false}
+    # Só sobe quando a API estiver realmente pronta (não só o processo iniciado)
+    depends_on:
+      api01:
+        condition: service_healthy
+      api02:
+        condition: service_healthy
+      api03:
+        condition: service_healthy
+      api04:
+        condition: service_healthy
+      api05:
+        condition: service_healthy
+      api06:
+        condition: service_healthy
+    expose:
+      - "3000"
+    networks:
+      alarik-net:
+        interface_name: eth0
+        aliases:
+          - console-internal
+      traefik_public:
+        interface_name: eth1
+        aliases:
+          - console-external
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+
+      # HTTP router
+      - "traefik.http.routers.alarik-console-http.rule=Host(`alarik-console.${DOMAIN:-teste.local}`)"
+      - "traefik.http.routers.alarik-console-http.entrypoints=web"
+      - "traefik.http.routers.alarik-console-http.service=alarik-console"
+      
+      ## HTTPS router
+      #- "traefik.http.routers.alarik-console-https.rule=Host(`alarik-console.${DOMAIN:-teste.local}`)"
+      #- "traefik.http.routers.alarik-console-https.entrypoints=websecure"
+      #- "traefik.http.routers.alarik-console-https.tls=true"
+      #- "traefik.http.routers.alarik-console-https.tls.certresolver=${MYRESOLVER:-staging}"
+      #- "traefik.http.routers.alarik-console-https.service=alarik-console"
+
+      # Service
+      - "traefik.http.services.alarik-console.loadbalancer.server.port=3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+networks:
+  alarik-net:
+  traefik_public:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_public}
+
+volumes:
+  api01-storage:
+  api02-storage:
+  api03-storage:
+  api04-storage:
+  api05-storage:
+  api06-storage:

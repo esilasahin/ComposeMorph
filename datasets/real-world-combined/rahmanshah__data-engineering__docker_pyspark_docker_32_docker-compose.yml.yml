@@ -1,0 +1,7 @@
+services:
+  pyspark:
+    build: .
+    volumes:
+      - ./:/app
+    ports:
+      - "4040:4040"  # Spark UI

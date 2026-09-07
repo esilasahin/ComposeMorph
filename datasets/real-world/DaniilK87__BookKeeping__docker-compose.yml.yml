@@ -1,0 +1,28 @@
+version: '3.0'
+
+services:
+  bookkeeping-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: 'bookkeeping-app'
+    ports:
+      - '8087:8087'
+    depends_on:
+      - myPostgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://myPostgres:5432/test
+  myPostgres:
+    image: postgres
+    build:
+      context: ./
+      dockerfile: Dockerfile.postgres
+    container_name: 'db-bookkeeping-app'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1987
+      POSTGRES_DB: test
+      POSTGRES_HOST: myPostgres
+
+
+

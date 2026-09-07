@@ -1,0 +1,12 @@
+version: '3.1'
+
+services:
+  mysql:
+    image: mysql:latest
+    container_name: my-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootroot
+      MYSQL_DATABASE: esave_db
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - "3308:3306"

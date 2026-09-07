@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: decayer
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./decayer-backend/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d decayer"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./decayer-backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./decayer-backend/.env
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/decayer?sslmode=disable"
+      JWT_SECRET: "decayer-local-dev-secret-change-in-prod"
+      SPOTIFY_API_URL: "https://api.spotify.com/v1"
+      SPOTIFY_AUTH_REDIRECT_URI: "${SPOTIFY_AUTH_REDIRECT_URI:-http://127.0.0.1:5173/login/spotify/callback}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./decayer-frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: "http://api:8080"
+      PUBLIC_API_BASE_URL: ""
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:
+    # Manteniamo la continuita' dati con il vecchio compose dentro /decayer-backend.
+    # Override possibile: DECAYER_DB_VOLUME=<nome-volume>.
+    name: "${DECAYER_DB_VOLUME:-decayer-backend_pgdata}"

@@ -1,0 +1,29 @@
+version: "3.8"
+services:
+  twingate_connector1:
+    container_name: twingate_connector1
+    restart: always
+    image: "twingate/connector:latest"
+    environment:
+      - TWINGATE_NETWORK=<TENANT NAME>
+      - TWINGATE_ACCESS_TOKEN=<ACCESS TOKEN 1>
+      - TWINGATE_REFRESH_TOKEN=<REFRESH TOKEN 1>
+      - TWINGATE_LOG_ANALYTICS=v2
+      - TWINGATE_LOG_LEVEL=3
+    network_mode: host
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+
+  twingate_connector2:
+    container_name: twingate_connector2
+    restart: always
+    image: "twingate/connector:latest"
+    environment:
+      - TWINGATE_NETWORK=<TENANT NAME>
+      - TWINGATE_ACCESS_TOKEN=<ACCESS TOKEN 2>
+      - TWINGATE_REFRESH_TOKEN=<REFRESH TOKEN 2>
+      - TWINGATE_LOG_ANALYTICS=v2
+      - TWINGATE_LOG_LEVEL=3
+    network_mode: host
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"

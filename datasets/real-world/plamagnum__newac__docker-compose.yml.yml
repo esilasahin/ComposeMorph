@@ -1,0 +1,47 @@
+version: '3.1'
+
+services:
+  php:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./newac:/var/www/html
+    links:
+      - mysql   
+    depends_on :
+      - mysql   
+
+  mysql:
+    image: mysql:5.7
+    #restart: always
+    environment:
+      #MYSQL_ROOT_HOST: "0.0.0.0"
+      #MYSQL_ALLOW_EMPTY_PASSWORD: 'yes' 
+      MYSQL_ROOT_PASSWORD: root13
+      MYSQL_DATABASE: newac
+      MYSQL_USER: mark
+      MYSQL_PASSWORD: root13
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./my.cnf:/etc/my.cnf  
+
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    #restart: always
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root13
+      #MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+      MYSQL_ROOT_PASSWORD: root_password
+    depends_on:
+      - mysql    
+
+volumes:
+  db_data:

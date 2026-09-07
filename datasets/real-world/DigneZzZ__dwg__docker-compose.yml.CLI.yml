@@ -1,0 +1,50 @@
+version: "3"
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    depends_on: [adguardhome] 
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TZ=Europe/Moscow # Замените на свой часовой пояс
+      - SERVERURL=MYHOST_IP #optional - Для использования с DDNS (раскомментируйте, чтобы использовать)
+      - SERVERPORT=51820
+      - PEERS=1 # Количество пиров (клиентов)
+      - PEERDNS=10.2.0.100 # Установите его, чтобы указать на AdGuard
+      - INTERNAL_SUBNET=10.10.10.0
+      - DNS=10.2.0.100 # Указывает на AdGuard
+      - POSTUP='iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE'
+      - POSTDOWN='iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE'
+      - ALLOWEDIPS=0.0.0.0/0,::/0 # Разрешить трафик от всех IP
+    volumes:
+      - ./wireguard:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      private_network:
+        ipv4_address: 10.2.0.3
+
+  adguardhome:
+    image: adguard/adguardhome:latest
+    container_name: adguardhome
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Moscow
+    volumes:
+      - ./work:/opt/adguardhome/work
+      - ./conf:/opt/adguardhome/conf
+    networks:
+      private_network:
+        ipv4_address: 10.2.0.100
+
+networks:
+  private_network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.2.0.0/24

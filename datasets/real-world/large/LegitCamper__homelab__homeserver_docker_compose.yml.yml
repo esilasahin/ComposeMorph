@@ -1,0 +1,1005 @@
+networks:
+  # exposed through newt/pangolin
+  web:
+    external: true
+  arr-internal: 
+    external: false
+  immich-internal: 
+    external: false
+  logs-internal: 
+    external: false
+  meilisearch-internal:
+    external: false
+
+volumes:
+  logs:
+  jellyfin-cache:
+  fetcharr-cache:
+  fetcharr-logs:
+  fileflows-temp:
+  immich-model-cache:
+  immich-db:
+
+services:
+  backup:
+    image: mazzolino/restic:1.8.2
+    container_name: restic-backup
+    restart: always
+    hostname: homeserver
+    environment:
+      RUN_ON_STARTUP: "true"
+      BACKUP_CRON: "0 30 3 * * *"
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY} 
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD} 
+      RESTIC_BACKUP_SOURCES: /mnt
+      RESTIC_BACKUP_ARGS: >-
+        --compression auto
+        --tag docker-volumes
+        --exclude *.tmp
+        --verbose
+      RESTIC_FORGET_ARGS: >-
+        --keep-last 10
+        --keep-daily 7
+        --keep-weekly 5
+        --keep-monthly 12
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY}
+      TZ: ${TZ}
+    volumes:
+      - /var/lib/docker/volumes:/mnt/volumes:ro
+      - /mnt/homelab_iscsi:/mnt/homelab:ro
+
+  prune:
+    image: mazzolino/restic:1.8.2
+    container_name: restic-prune
+    restart: always
+    hostname: homeserver
+    environment:
+      SKIP_INIT: "true"
+      RUN_ON_STARTUP: "true"
+      PRUNE_CRON: "0 0 4 * * *"
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY} 
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD} 
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY}
+      TZ: ${TZ}
+
+  check:
+    image: mazzolino/restic:1.8.2
+    container_name: restic-check
+    restart: always
+    hostname: homeserver
+    environment:
+      SKIP_INIT: "true"
+      RUN_ON_STARTUP: "false"
+      CHECK_CRON: "0 15 5 * * *"
+      RESTIC_CHECK_ARGS: >-
+        --read-data-subset=10%
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY} 
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD} 
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY}
+      TZ: ${TZ}
+
+  # traffic ingress from pangolin
+  newt:
+    image: fosrl/newt:1.16.0
+    container_name: newt
+    restart: always
+    networks:
+      - web
+    environment:
+      - TZ=${TZ}
+      - PANGOLIN_ENDPOINT=https://pangolin.${DOMAIN}
+      - NEWT_ID=${NEWT_ID}
+      - NEWT_SECRET=${NEWT_SECRET}
+
+  gitea:
+    image: docker.gitea.com/gitea:1.27.1
+    container_name: gitea
+    restart: always
+    environment:
+      - TZ=${TZ}
+      - USER_UID=1000
+      - USER_GID=1000
+    networks:
+      - web
+    volumes:
+      - /mnt/homelab_iscsi/gitea:/data:rw
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    expose:
+      - 3000
+      - 22
+
+  fileflows:
+    container_name: fileflows
+    image: revenz/fileflows:26.07
+    restart: always
+    networks:
+      - web
+    expose:
+      - 5000
+    environment:
+      - TZ=${TZ}
+      - PUID=1000
+      - PGID=1000
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - fileflows-temp:/temp:rw
+      - /mnt/homelab_iscsi/fileflows/configs:/app/Data:rw
+      - /mnt/media/movies:/media/movies:rw
+      - /mnt/media/shows:/media/shows:rw
+      - /mnt/media/music:/media/music:rw
+    security_opt:
+      - label=type:nvidia_container_t
+    deploy:
+      resources:
+        limits:
+          memory: 15G
+        reservations:
+          devices:
+          - driver: nvidia
+            capabilities: [gpu]
+            count: -1
+
+  jellyfin:
+    image: ghcr.io/jellyfin/jellyfin:10.11.11
+    container_name: jellyfin
+    restart: always
+    user: "1000:1000"
+    networks:
+      - web
+      - meilisearch-internal
+    expose:
+      - 8096
+    volumes:
+      - /mnt/homelab_iscsi/jellyfin:/config:rw
+      - jellyfin-cache:/cache:rw
+      - /mnt/media:/data:rw
+
+    environment:
+      - TZ=${TZ}
+      - JELLYFIN_PublishedServerUrl=https://jellyfin.${DOMAIN}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+    security_opt:
+      - label=type:nvidia_container_t
+    deploy:
+      resources:
+        reservations:
+          memory: 20G
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: -1
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.53.1
+    container_name: meilisearch
+    restart: always
+    networks:
+      - meilisearch-internal
+    expose:
+      - 7700
+    environment:
+      TZ: ${TZ}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+    volumes:
+      - /mnt/homelab_iscsi/meili_data:/meili_data
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.3.0
+    container_name: seerr
+    user: "1000:1000"
+    environment:
+      - TZ=${TZ}
+      - PORT=5055
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 5055
+    volumes:
+      - /mnt/homelab_iscsi/seerr:/app/config
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/settings/public || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    restart: always
+
+  maintainerr:
+    image: ghcr.io/maintainerr/maintainerr:3.18.0
+    container_name: maintainerr
+    user: 1000:1000
+    volumes:
+      - /mnt/homelab_iscsi/maintainerr:/opt/data/:rw
+    environment:
+      - TZ=${TZ}
+      # - GITHUB_TOKEN=ghp_yourtoken # Optional: GitHub Personal Access Token for higher API rate limits (60/hr without, 5000/hr with token)
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 6246
+    restart: always
+    healthcheck: 
+      test: ['CMD', '/opt/app/healthcheck.sh']
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  flaresolverr:
+    # use fork as flaresolverr is not working
+    image: ghcr.io/yoori/flare-bypasser:main
+    container_name: flaresolverr
+    networks:
+      - arr-internal
+    environment:
+      TZ: ${TZ}
+      UNUSED: "false"
+      DEBUG: "false"
+      VERBOSE: "true"
+      SAVE_CHALLENGE_SCREENSHOTS: "true"
+    expose:
+      - 8080
+    restart: always
+    deploy:
+      resources:
+        reservations:
+          memory: 8G # has memory leak :(
+
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3
+    container_name: gluetun
+    restart: always
+    environment:
+      - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE='{"auth":"none"}'
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
+      - PORT_FORWARD_ONLY=on
+      - VPN_PORT_FORWARDING=on
+      - UPDATER_PERIOD="6h"
+      - UPDATER_PROTONVPN_EMAIL=${UPDATER_PROTONVPN_EMAIL}
+      - UPDATER_PROTONVPN_PASSWORD=${UPDATER_PROTONVPN_PASSWORD}
+      - DNS_SERVER=off
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/gluetun:/gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 8888 # HTTP proxy
+      - 8000 # control server
+      - 9091 # transmission
+      - 8080 # Sabnzbd
+
+  transmission:
+    image: lscr.io/linuxserver/transmission:4.0.6-r5-ls322
+    container_name: transmission
+    restart: always
+    depends_on:
+      - gluetun
+    network_mode: "service:gluetun"
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:8000/v1/vpn/status", "|", "grep", "-q", '{"status":"running"}']
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    volumes:
+      - /mnt/homelab_iscsi/transmission:/config:rw
+      - /mnt/media:/data:rw
+    environment:
+      - DOCKER_MODS=ghcr.io/michsior14/docker-mods:transmission-gluetun-port-update
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - GLUETUN_ENDPOINT=/v1/portforward
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:5.0.4-ls258
+    container_name: sabnzbd
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/media:/data:rw
+      - /mnt/homelab_iscsi/sabnzbd:/config:rw
+    restart: always
+    depends_on:
+      - gluetun
+    network_mode: "service:gluetun"
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:8000/v1/vpn/status", "|", "grep", "-q", '{"status":"running"}']
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+
+  jackett:
+    image: ghcr.io/linuxserver/jackett:0.24.2173
+    container_name: jackett
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/jackett:/config
+      - /mnt/media/completed:/downloads
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 9117
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+    depends_on:
+      - transmission 
+    restart: always
+
+  prowlarr:
+    image: ghcr.io/linuxserver/prowlarr:2.4.0
+    container_name: prowlarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/prowlarr:/config:rw
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 9696
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  lidarr:
+    image: ghcr.io/linuxserver/lidarr:3.1.0
+    container_name: lidarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/lidarr:/config:rw
+      - /mnt/media:/data:rw
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 8686
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  tidarr:
+    image: cstaelen/tidarr
+    container_name: tidarr
+    user: 1000:1000 
+    environment:
+      - TZ=${TZ}
+    expose:
+      - 8484
+    networks:
+      - web
+      - arr-internal
+    volumes:
+      - /mnt/homelab_iscsi/tidarr:/shared:rw
+      - /mnt/media/tidarr:/shared/nzb_downloads/:rw
+    restart: always
+
+  sonarr:
+    image: ghcr.io/linuxserver/sonarr:4.0.19
+    container_name: sonarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/sonarr:/config:rw
+      - /mnt/media:/data:rw
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 8989
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  radarr:
+    image: ghcr.io/linuxserver/radarr:6.3.0
+    container_name: radarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/radarr:/config:rw
+      - /mnt/media:/data:rw   
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 7878
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  fetcharr:
+    image: ghcr.io/egg82/fetcharr:2.0.2
+    container_name: fetcharr
+    restart: always
+    user: 1000:1000 
+    environment:
+      - VERIFY_CERTS=false
+      - SEARCH_AMOUNT=5
+      - SEARCH_INTERVAL=1hour
+      - USE_CUTOFF=true
+      - RADARR_0_URL=http://radarr:7878
+      - RADARR_0_API_KEY=${RADARR_API_KEY}
+      - SONARR_0_URL=http://sonarr:8989
+      - SONARR_0_API_KEY=${SONARR_API_KEY}
+      - LIDARR_0_URL=http://lidarr:8686
+      - LIDARR_0_API_KEY=${LIDARR_API_KEY}
+      - TZ=${TZ}
+    networks:
+      - arr-internal
+    volumes:
+      - /mnt/homelab_iscsi/fetcharr:/app/config:rw
+      - fetcharr-cache:/app/cache:rw
+      - fetcharr-logs:/app/logs:rw
+
+  cleanuparr:
+    image: ghcr.io/cleanuparr/cleanuparr:2.9.16
+    container_name: cleanuparr
+    restart: always 
+    networks:
+      - arr-internal
+    volumes:
+      - /mnt/media/completed:/downloads
+    environment:
+      - TZ=${TZ}
+      - DRY_RUN=false
+      - HTTP_MAX_RETRIES=0
+      - HTTP_TIMEOUT=100
+           
+      - SEARCH_ENABLED=true
+      - SEARCH_DELAY=30
+      
+      - TRIGGERS__QUEUECLEANER=0 0/5 * * * ?
+      - QUEUECLEANER__ENABLED=true
+      - QUEUECLEANER__RUNSEQUENTIALLY=true
+      
+      - QUEUECLEANER__IMPORT_FAILED_MAX_STRIKES=5
+      - QUEUECLEANER__IMPORT_FAILED_IGNORE_PRIVATE=false
+      - QUEUECLEANER__IMPORT_FAILED_DELETE_PRIVATE=false
+      - QUEUECLEANER__IMPORT_FAILED_IGNORE_PATTERNS__0=title mismatch
+      - QUEUECLEANER__IMPORT_FAILED_IGNORE_PATTERNS__1=manual import required
+      
+      - QUEUECLEANER__STALLED_MAX_STRIKES=5
+      - QUEUECLEANER__STALLED_RESET_STRIKES_ON_PROGRESS=true
+      - QUEUECLEANER__STALLED_IGNORE_PRIVATE=false
+      - QUEUECLEANER__STALLED_DELETE_PRIVATE=false
+      - QUEUECLEANER__DOWNLOADING_METADATA_MAX_STRIKES=5
+      
+      - QUEUECLEANER__SLOW_MAX_STRIKES=5
+      - QUEUECLEANER__SLOW_RESET_STRIKES_ON_PROGRESS=true
+      - QUEUECLEANER__SLOW_IGNORE_PRIVATE=false
+      - QUEUECLEANER__SLOW_DELETE_PRIVATE=false
+      - QUEUECLEANER__SLOW_MIN_SPEED=1MB
+      - QUEUECLEANER__SLOW_MAX_TIME=20
+      - QUEUECLEANER__SLOW_IGNORE_ABOVE_SIZE=60GB
+      
+      - TRIGGERS__CONTENTBLOCKER=0 0/5 * * * ?
+      - CONTENTBLOCKER__ENABLED=true
+      - CONTENTBLOCKER__IGNORE_PRIVATE=false
+      - CONTENTBLOCKER__DELETE_PRIVATE=false
+      
+      - TRIGGERS__DOWNLOADCLEANER=0 0 * * * ?
+      - DOWNLOADCLEANER__ENABLED=true
+      - DOWNLOADCLEANER__DELETE_PRIVATE=false
+      
+      - DOWNLOADCLEANER__CATEGORIES__0__NAME=tv-sonarr
+      - DOWNLOADCLEANER__CATEGORIES__0__MAX_RATIO=2
+      - DOWNLOADCLEANER__CATEGORIES__0__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__0__MAX_SEED_TIME=240
+      - DOWNLOADCLEANER__CATEGORIES__1__NAME=radarr
+      - DOWNLOADCLEANER__CATEGORIES__1__MAX_RATIO=2
+      - DOWNLOADCLEANER__CATEGORIES__1__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__1__MAX_SEED_TIME=240
+      - DOWNLOADCLEANER__CATEGORIES__2__NAME=lidarr
+      - DOWNLOADCLEANER__CATEGORIES__2__MAX_RATIO=2
+      - DOWNLOADCLEANER__CATEGORIES__2__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__2__MAX_SEED_TIME=240
+      - DOWNLOADCLEANER__CATEGORIES__3__NAME=readarr
+      - DOWNLOADCLEANER__CATEGORIES__3__MAX_RATIO=2
+      - DOWNLOADCLEANER__CATEGORIES__3__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__3__MAX_SEED_TIME=240
+      - DOWNLOADCLEANER__CATEGORIES__4__NAME=speakarr
+      - DOWNLOADCLEANER__CATEGORIES__4__MAX_RATIO=2
+      - DOWNLOADCLEANER__CATEGORIES__4__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__4__MAX_SEED_TIME=240
+      - DOWNLOADCLEANER__CATEGORIES__5__NAME=cleanuperr-unlinked
+      - DOWNLOADCLEANER__CATEGORIES__5__MAX_RATIO=1
+      - DOWNLOADCLEANER__CATEGORIES__5__MIN_SEED_TIME=0
+      - DOWNLOADCLEANER__CATEGORIES__5__MAX_SEED_TIME=240
+      
+      - DOWNLOADCLEANER__UNLINKED_TARGET_CATEGORY=cleanuperr-unlinked
+      - DOWNLOADCLEANER__UNLINKED_USE_TAG=false
+      - DOWNLOADCLEANER__UNLINKED_IGNORED_ROOT_DIR=/downloads
+      - DOWNLOADCLEANER__UNLINKED_CATEGORIES__0=tv-sonarr
+      - DOWNLOADCLEANER__UNLINKED_CATEGORIES__1=radarr
+      - DOWNLOADCLEANER__UNLINKED_CATEGORIES__2=lidarr
+      - DOWNLOADCLEANER__UNLINKED_CATEGORIES__3=readarr
+      - DOWNLOADCLEANER__UNLINKED_CATEGORIES__4=speakarr
+      
+      - DOWNLOAD_CLIENT=transmission
+      - TRANSMISSION__URL=http://gluetun:9091
+      
+      - SONARR__ENABLED=true
+      - SONARR__IMPORT_FAILED_MAX_STRIKES=-1
+      - SONARR__SEARCHTYPE=Episode
+      - SONARR__INSTANCES__0__URL=http://sonarr:8989
+      - SONARR__INSTANCES__0__APIKEY=${SONARR_API_KEY}
+      
+      - RADARR__ENABLED=true
+      - RADARR__IMPORT_FAILED_MAX_STRIKES=-1
+      - RADARR__INSTANCES__0__URL=http://radarr:7878
+      - RADARR__INSTANCES__0__APIKEY=${RADARR_API_KEY}
+      
+      - LIDARR__ENABLED=true
+      - LIDARR__IMPORT_FAILED_MAX_STRIKES=-1
+      - LIDARR__INSTANCES__0__URL=http://lidarr:8686
+      - LIDARR__INSTANCES__0__APIKEY=${LIDARR_API_KEY}
+
+  speakarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: speakarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/speakarr:/config:rw
+      - /mnt/media:/data:rw
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 8787
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:2.35.1
+    container_name: audiobookshelf
+    restart: always
+    networks:
+      - web
+    expose:
+      - 80
+    volumes:
+      - /mnt/media/audio_books:/audiobooks
+      - /mnt/homelab_iscsi/audiobookshelf/config:/config
+      - /mnt/homelab_iscsi/audiobookshelf/metadata:/metadata
+    environment:
+      - TZ=${TZ}
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/readarr:/config:rw
+      - /mnt/media:/data:rw
+    networks:
+      - web
+      - arr-internal
+    expose:
+      - 8787
+    depends_on:
+      - transmission 
+    restart: always
+    healthcheck: 
+      test: curl -f http://localhost:9091 || exit 1
+      interval: 5m00s
+      timeout: 10s
+      retries: 2
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2.4.0
+    container_name: uptime-kuma
+    restart: always
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/uptimekuma:/app/data
+    networks:
+      - web
+    expose:
+      - 3001
+
+  unduck:
+    image: ghcr.io/legitcamper/unduck:latest
+    container_name: unduck
+    restart: always
+    environment:
+      - TZ=${TZ}
+    networks:
+      - web
+    expose:
+      - 3000
+
+  searxng:
+    image: searxng/searxng:2025.12.19-8bf600cc6
+    container_name: searxng
+    restart: always
+    user: "1000:1000"
+    environment:
+      - TZ=${TZ}
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
+    networks:
+      - web
+    expose:
+      - 8080
+    volumes:
+      - /home/core/compose-files/docker/searxng:/etc/searxng:rw
+
+  private-search:
+    image: ghcr.io/legitcamper/private-search:latest
+    container_name: private-search
+    restart: always
+    user: 1000:1000 
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/private-search:/app/data:rw
+    networks:
+      - web
+    expose:
+      - 8080
+
+  immich_server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:v3.1.0
+    volumes:
+      - /mnt/homelab_iscsi/immich/server:/data:rw
+      - /etc/localtime:/etc/localtime:ro
+    user: 1000:1000 
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - DB_USER=${IMMICH_DB_USERNAME}
+      - DB_PASSWORD=${IMMICH_DB_PASSWORD}
+      - DB_DATABASE_NAME=${IMMICH_DB_DATABASE_NAME}
+      - DB_HOSTNAME=immich_postgres
+      - REDIS_HOSTNAME=immich_redis
+    expose:
+      - 2283
+    networks:
+      - web
+      - immich-internal
+    depends_on:
+      - immich_redis
+      - immich_postgres
+    restart: always
+    healthcheck:
+      disable: false
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+
+  immich_redis:
+    container_name: immich_redis
+    image: docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9
+    environment:
+      - TZ=${TZ}
+    networks:
+      - immich-internal
+    expose:
+      - 6379
+    healthcheck:
+      test: redis-cli ping || exit 1
+    restart: always
+
+  immich_postgres:
+    container_name: immich_postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      - TZ=${TZ}
+      - POSTGRES_PASSWORD=${IMMICH_DB_PASSWORD}
+      - POSTGRES_USER=${IMMICH_DB_USERNAME}
+      - POSTGRES_DB=${IMMICH_DB_DATABASE_NAME}
+      - POSTGRES_INITDB_ARGS='--data-checksums'
+    volumes:
+      - immich-db:/var/lib/postgresql/data:rw
+    expose:
+      - 5432
+    networks:
+      - immich-internal
+    shm_size: 128mb
+    restart: always
+
+  immich-machine-learning:
+    container_name: immich_machine_learning
+    image: ghcr.io/immich-app/immich-machine-learning:v3.1.0-cuda
+    expose:
+      - 3003
+    networks:
+      - immich-internal
+    volumes:
+      - immich-model-cache:/cache
+    restart: always
+    healthcheck:
+      disable: false
+    environment:
+      - TZ=${TZ}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+    security_opt:
+      - label=type:nvidia_container_t
+    deploy:
+      resources:
+        limits:
+          memory: 15G
+        reservations:
+          devices:
+          - driver: nvidia
+            capabilities: [gpu]
+            count: -1
+
+  languagetool:
+    image: meyay/languagetool:6.8
+    container_name: languagetool
+    restart: always
+    user: "1000:1000"
+    networks:
+      - web
+    expose:
+      - 8081
+    environment:
+      TZ: ${TZ}
+      download_ngrams_for_langs: en
+      langtool_languageModel: /ngrams
+      langtool_fasttextModel: /fasttext/lid.176.bin
+    volumes:
+      - /mnt/homelab_iscsi/languagetool/ngrams:/ngrams:rw
+      - /mnt/homelab_iscsi/languagetool/fasttext:/fasttext:rw
+    deploy:
+      resources:
+        limits:
+          memory: 5G
+
+  syncthing:
+    image: lscr.io/linuxserver/syncthing:2.1.3
+    container_name: syncthing
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - /mnt/homelab_iscsi/syncthing/config:/config
+      - /mnt/homelab_iscsi/syncthing/data:/data
+    networks:
+      - web
+    expose:
+      - 8384
+      - 22000
+      - 22000
+      - 21027
+    restart: always
+
+  loki:
+    image: grafana/loki:3.7.6
+    container_name: loki
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - /home/core/compose-files/docker/loki/:/mnt/config:ro
+    command: -config.file=/mnt/config/config.yml
+    networks:
+      - logs-internal
+    expose:
+     - 3100  
+    restart: always
+
+  promtail:
+    container_name: promtail
+    image: grafana/promtail:3.6.11
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - /home/core/compose-files/docker/promtail:/mnt/config:ro
+      - logs:/var/log:ro
+    command: -config.file=/mnt/config/config.yml
+    expose:
+      - 9080
+    networks:
+      - logs-internal
+    depends_on:
+      - loki
+    restart: always
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana-enterprise:12.4 
+    user: "1000:1000"
+    environment:
+      TZ: ${TZ}
+    expose:
+      - 3000
+    networks:
+      - web
+      - logs-internal
+    volumes:
+      - /mnt/homelab_iscsi/grafana_data:/var/lib/grafana:rw
+      - /home/core/compose-files/docker/grafana/:/etc/grafana/provisioning/datasources:rw
+    depends_on:
+      - loki
+    restart: always
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:v3.13.2
+    user: "1000:1000"
+    environment:
+      TZ: ${TZ}
+    networks:
+      - web
+      - logs-internal
+    expose:
+      - 9090
+    restart: always
+    volumes:
+      - /home/core/compose-files/docker/prometheus:/etc/prometheus:ro
+      - /mnt/homelab_iscsi/prometheus:/prometheus:rw
+    command:
+      - --config.file=/etc/prometheus/config.yml
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      - node_exporter
+      - dcgm-exporter
+
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1
+    container_name: node_exporter
+    environment:
+      TZ: ${TZ}
+    command:
+      - --path.rootfs=/host
+      - --collector.systemd
+      - --collector.processes
+    networks:
+      - logs-internal
+    expose:
+      - 9100
+    restart: always
+    volumes:
+      - /:/host:ro,rslave
+
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.4.2-4.7.1-distroless
+    container_name: dcgm-exporter
+    environment:
+      TZ: ${TZ}
+    networks:
+      - logs-internal
+    expose:
+      - 9400
+    restart: always
+    security_opt:
+      - label=type:nvidia_container_t
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: -1
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    container_name: cadvisor
+    privileged: true
+    restart: always
+    environment:
+      TZ: ${TZ}
+    expose:
+      - 8080
+    networks:
+      - logs-internal
+    volumes:
+      - /:/rootfs:ro 
+      - /var/run:/var/run:ro 
+      - /sys:/sys:ro 
+      - /var/lib/docker/:/var/lib/docker:ro 
+      - /dev/disk/:/dev/disk:ro 
+    devices:
+      - /dev/kmsg:/dev/kmsg
+
+  portfolio:
+    image: ghcr.io/legitcamper/portfolio-site:latest
+    container_name: portfolio
+    restart: always
+    environment:
+      - TZ=${TZ}
+    networks:
+      - web
+    expose:
+        - 8000
+
+  mom-contact:
+    image: ghcr.io/legitcamper/mom-contact:latest
+    container_name: mom-contact
+    restart: always
+    environment:
+      - TZ=${TZ}
+    networks:
+      - web
+    expose:
+        - 8000

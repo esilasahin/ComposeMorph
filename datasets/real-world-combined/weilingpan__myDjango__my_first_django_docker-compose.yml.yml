@@ -1,0 +1,63 @@
+# 可以一個容器內執行多的進程
+# 也可以在多個容器內分別運行每個進程
+
+services:
+  mydjango:
+    build: .
+    image: regina-django
+    container_name: mydjango
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.django.rule=Host(`localhost`)"
+      - "traefik.http.services.django.loadbalancer.server.port=8000"
+    networks:
+      - web
+
+  rqworker:
+    # build: .
+    image: regina-django
+    container_name: rq_worker
+    command: python manage.py rqworker default
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    networks:
+      - web
+
+  redis:
+    image: redis:4.0-alpine
+    container_name: myredis
+    ports:
+      - "6380:6379"
+    networks:
+      - web
+
+  traefik:
+    image: traefik:v2.4
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      # - "80:80"
+      - "8080:8080"  # Traefik Dashboard
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+# 訪問 Django http://localhost。
+# 訪問 Traefik Dashboard http://localhost:8080.
+  
+  

@@ -1,0 +1,77 @@
+version: '3.9'
+
+networks:
+  paulistense_network:
+    driver: bridge
+
+services:      
+  db_mysql:
+    build: ./mysql
+    container_name: container_db_mysql
+    ports:
+      - '3306:3306'
+    networks:
+      - paulistense_network
+    volumes:
+      - './mysql/setup.sql:/docker-entrypoint-initdb.d/setup.sql'
+    environment:
+      - MYSQL_ROOT_PASSWORD=$BANCO_SENHA
+      - MYSQL_USER=$BANCO_USUARIO
+      - MYSQL_PASS=$BANCO_SENHA
+
+  db_sqlserver:
+    build: ./sql_server
+    container_name: container_db_sqlserver
+    environment:
+      - SA_PASSWORD=$BANCO_SENHA
+      - ACCEPT_EULA=Y
+      - MSSQL_PID=Developer
+    ports:
+      - 1433:1433
+    networks:
+      - paulistense_network
+
+  setup_db_sqlserver:
+    image: mcr.microsoft.com/mssql-tools
+    networks:
+          - paulistense_network
+    depends_on:
+      - db_sqlserver
+    volumes:
+      - ./sql_server/01-setup.sql:/tmp/01-setup.sql
+      - ./sql_server/init-setup.sh:/tmp/init-setup.sh
+    command: /bin/bash ./tmp/init-setup.sh
+  
+  # db_postgres:
+  #   build: ./postgres
+  #   container_name: container_db_postgres
+  #   volumes:
+  #     - ./postgres/setup.sql:/docker-entrypoint-initdb.d/setup.sql'
+  #   environment:
+  #     - POSTGRES_PASSWORD=$BANCO_SENHA
+  #   ports:
+  #     - '5432:5432'
+  
+  # db_firebird:
+  #   build: ./firebird
+  #   container_name: container_db_firebird
+  #   # volumes:
+  #   #   - ./firebird/setup.sql:/docker-entrypoint-initdb.d/setup.sql'
+  #   environment:
+  #     - FIREBIRD_USER=$BANCO_USUARIO
+  #     - FIREBIRD_DATABASE=$BANCO_NOME
+  #     - FIREBIRD_PASSWORD=$BANCO_SENHA
+  #   ports:
+  #     - '3050:3050'
+
+  proxy_paulistense:
+    build: ./nginx
+    container_name: container_proxy_paulistense
+    ports:
+      - '3306:3306'
+      - '1433:1433'
+      - '5432:5432'
+      - '1521:1521'
+      - '3050:3050'
+    networks:
+      - paulistense_network

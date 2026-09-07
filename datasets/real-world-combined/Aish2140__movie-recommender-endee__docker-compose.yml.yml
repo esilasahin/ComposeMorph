@@ -1,0 +1,35 @@
+services:
+  endee:
+    image: endeeio/endee-server:latest
+    container_name: endee-server
+    ports:
+      - "8080:8080"
+    ulimits:
+      nofile: 100000
+    environment:
+      NDD_NUM_THREADS: 0
+      NDD_AUTH_TOKEN: ""          # leave empty for no auth (dev mode)
+    volumes:
+      - endee-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  movie-api:
+    build: .
+    container_name: movie-recommender-api
+    ports:
+      - "8000:8000"
+    environment:
+      ENDEE_HOST: "http://endee:8080"
+      ENDEE_AUTH_TOKEN: ""
+    depends_on:
+      endee:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  endee-data:

@@ -1,0 +1,64 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ftp-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-YourStrong_Passw0rd123}
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ftp-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  customerservice:
+    build:
+      context: ..
+      dockerfile: docker/CustomerService.Dockerfile
+    container_name: ftp-customerservice
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__CustomerDatabase: Server=mssql,1433;Database=FinancialTransactionCustomer;User Id=sa;Password=${MSSQL_SA_PASSWORD:-YourStrong_Passw0rd123};Encrypt=False;TrustServerCertificate=True;
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__UserName: guest
+      RabbitMq__Password: guest
+    depends_on:
+      - mssql
+      - rabbitmq
+    ports:
+      - "5019:8080"
+
+  accountservice:
+    build:
+      context: ..
+      dockerfile: docker/AccountService.Dockerfile
+    container_name: ftp-accountservice
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__AccountDatabase: Server=mssql,1433;Database=FinancialTransactionAccount;User Id=sa;Password=${MSSQL_SA_PASSWORD:-YourStrong_Passw0rd123};Encrypt=False;TrustServerCertificate=True;
+      CustomerService__BaseUrl: http://customerservice:8080
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__UserName: guest
+      RabbitMq__Password: guest
+    depends_on:
+      - mssql
+      - rabbitmq
+      - customerservice
+    ports:
+      - "5020:8080"
+
+volumes:
+  mssql-data:
+  rabbitmq-data:

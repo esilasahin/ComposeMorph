@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  riva-speech:
+    image: nvcr.io/nim/nvidia/riva-speech:latest
+    container_name: riva-speech
+    runtime: nvidia
+    shm_size: 8GB
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY}
+      - NIM_MANIFEST_PROFILE=${NIM_MANIFEST_PROFILE}
+      - NIM_HTTP_API_PORT=9000
+      - NIM_GRPC_API_PORT=50051
+      - NIM_OPTIMIZE=True
+    ports:
+      - "9000:9000"
+      - "50051:50051"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

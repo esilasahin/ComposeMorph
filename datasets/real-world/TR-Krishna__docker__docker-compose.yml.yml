@@ -1,0 +1,83 @@
+services:
+  apimeter:
+    build: ./ApiMeter
+    # image: ghcr.io/tr-krishna/apimeter:latest
+    # image : tr-krishna/apimeter:latest
+    image : krishnatr/apimeter:latest
+    container_name: apimeter
+    restart: on-failure
+    ports:
+      - "5000:8080"
+    depends_on:
+      apimeter_db:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=apimeter_db;Port=5432;Database=apimeter_db;Username=postgres;Password=password
+
+  orderapi:
+    build: ./DemoOrder
+    # image: ghcr.io/tr-krishna/orderapi:latest
+    # image: tr-krishna/orderapi:latest
+    image : krishnatr/orderapi:latest
+    container_name: orderapi
+    restart: on-failure
+    ports:
+      - "5001:8080"
+    depends_on:
+      order_db:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=order_db;Port=5432;Database=order_db;Username=postgres;Password=password
+
+  apimeter_db:
+    image: postgres:15
+    container_name: apimeter_db
+    restart: always
+    environment:
+      POSTGRES_DB: apimeter_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432"
+    volumes:
+      - apimeter_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  order_db:
+    image: postgres:15
+    container_name: order_db
+    restart: always
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5435:5432"
+    volumes:
+      - order_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - apimeter
+      - orderapi
+
+volumes:
+  apimeter_pgdata:
+  order_pgdata:

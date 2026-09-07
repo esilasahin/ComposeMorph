@@ -1,0 +1,14 @@
+version: '3.9'
+
+services:
+  postgres:
+    container_name: join
+    image: postgres:17.3-alpine3.21
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - /var/lib/postgresql/join/data:/var/lib/postgresql/data

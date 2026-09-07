@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  nginx:
+    image: docker-swarm-ingress:latest
+    build:
+     context: nginx-ingress/
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

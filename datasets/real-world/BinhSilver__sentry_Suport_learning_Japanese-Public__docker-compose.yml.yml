@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mysql:8.0.36
+    container_name: sentry-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: sentry
+      MYSQL_USER: sentry_user
+      MYSQL_PASSWORD: sentry_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sentrymysql.sql:/docker-entrypoint-initdb.d/01-sentrymysql.sql:ro
+    command: --default-authentication-plugin=mysql_native_password --sql-mode="" --lower_case_table_names=1 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - sentry-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  python-handwriting:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: sentry-python
+    ports:
+      - "5001:5001"
+    networks:
+      - sentry-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentry-app
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/sentry?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8&useUnicode=true&connectionCollation=utf8mb4_unicode_ci
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      SPRING_JPA_PROPERTIES_HIBERNATE_CONNECTION_CHARACTERENCODING: utf8mb4
+      SPRING_JPA_PROPERTIES_HIBERNATE_CONNECTION_USEUNICODE: true
+      PYTHON_AUTO_START_ENABLED: false
+      HANDWRITING_SERVICE_URL: http://python-handwriting:5001/recognize
+    ports:
+      - "8081:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      python-handwriting:
+        condition: service_healthy
+    networks:
+      - sentry-network
+    volumes:
+      - ./uploads:/app/uploads
+
+networks:
+  sentry-network:
+    driver: bridge
+
+volumes:
+  mysql_data:

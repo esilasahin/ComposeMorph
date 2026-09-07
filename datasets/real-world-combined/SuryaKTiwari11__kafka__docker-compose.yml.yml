@@ -1,0 +1,29 @@
+services:
+  zookeeper:
+    image: zookeeper:latest
+    container_name: zookeeper_standalone
+    restart: always
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/data
+      - zookeeper_datalog:/datalog
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka_standalone
+    restart: always
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+
+volumes:
+  zookeeper_data:
+  zookeeper_datalog:

@@ -1,0 +1,559 @@
+x-common-variables: &common-variables
+  HOST: ${HOST}
+  PROVISION_SSL: ${PROVISION_SSL}
+
+  HTTP_PROTOCOL: ${HTTP_PROTOCOL}
+
+  STATUS_PAGE_CNAME_RECORD: ${STATUS_PAGE_CNAME_RECORD}
+  DASHBOARD_CNAME_RECORD: ${DASHBOARD_CNAME_RECORD}
+
+  LOG_LEVEL: ${LOG_LEVEL}
+
+  NODE_ENV: ${ENVIRONMENT}
+  BILLING_ENABLED: ${BILLING_ENABLED}
+  IS_ENTERPRISE_EDITION: ${IS_ENTERPRISE_EDITION}
+  BILLING_PUBLIC_KEY: ${BILLING_PUBLIC_KEY}
+  SUBSCRIPTION_PLAN_BASIC: ${SUBSCRIPTION_PLAN_BASIC}
+  SUBSCRIPTION_PLAN_GROWTH: ${SUBSCRIPTION_PLAN_GROWTH}
+  SUBSCRIPTION_PLAN_SCALE: ${SUBSCRIPTION_PLAN_SCALE}
+  SUBSCRIPTION_PLAN_ENTERPRISE: ${SUBSCRIPTION_PLAN_ENTERPRISE}
+  ANALYTICS_KEY: ${ANALYTICS_KEY}
+  ANALYTICS_HOST: ${ANALYTICS_HOST}
+  GOOGLE_TAG_MANAGER_ENABLED: ${GOOGLE_TAG_MANAGER_ENABLED}
+  CAPTCHA_ENABLED: ${CAPTCHA_ENABLED}
+  CAPTCHA_SITE_KEY: ${CAPTCHA_SITE_KEY}
+
+  # VAPID keys for Web Push Notifications
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+  VAPID_SUBJECT: ${VAPID_SUBJECT}
+
+  ALLOWED_ACTIVE_MONITOR_COUNT_IN_FREE_PLAN: ${ALLOWED_ACTIVE_MONITOR_COUNT_IN_FREE_PLAN}
+
+  # Outbound webhook egress policy — see config.example.env for the full
+  # explanation. Both are off by default and both need a matching per-project
+  # opt-in in Project Settings before they grant anything.
+  ALLOW_PRIVATE_NETWORK_WEBHOOKS: ${ALLOW_PRIVATE_NETWORK_WEBHOOKS:-false}
+  PRIVATE_NETWORK_WEBHOOK_ALLOWLIST: ${PRIVATE_NETWORK_WEBHOOK_ALLOWLIST:-}
+
+  SERVER_APP_HOSTNAME: app
+  SERVER_HOME_HOSTNAME: home
+  #Ports. Usually they don't need to change.
+  APP_PORT: ${APP_PORT}
+  HOME_PORT: ${HOME_PORT}
+  OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT: ${OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT}
+  OPENTELEMETRY_EXPORTER_OTLP_HEADERS: ${OPENTELEMETRY_EXPORTER_OTLP_HEADERS}
+
+  SLACK_APP_CLIENT_ID: ${SLACK_APP_CLIENT_ID}
+
+  MICROSOFT_TEAMS_APP_CLIENT_ID: ${MICROSOFT_TEAMS_APP_CLIENT_ID}
+  MICROSOFT_TEAMS_APP_TENANT_ID: ${MICROSOFT_TEAMS_APP_TENANT_ID}
+
+x-common-runtime-variables: &common-runtime-variables
+  <<: *common-variables
+  ONEUPTIME_SECRET: ${ONEUPTIME_SECRET}
+
+  # Seed a Global LLM Provider from env at startup (e.g. a local Ollama or
+  # vLLM server). Set GLOBAL_LLM_PROVIDER_TYPE to enable; unset it to remove
+  # the seeded provider on the next restart.
+  GLOBAL_LLM_PROVIDER_NAME: ${GLOBAL_LLM_PROVIDER_NAME}
+  GLOBAL_LLM_PROVIDER_DESCRIPTION: ${GLOBAL_LLM_PROVIDER_DESCRIPTION}
+  GLOBAL_LLM_PROVIDER_TYPE: ${GLOBAL_LLM_PROVIDER_TYPE}
+  GLOBAL_LLM_PROVIDER_BASE_URL: ${GLOBAL_LLM_PROVIDER_BASE_URL}
+  GLOBAL_LLM_PROVIDER_MODEL_NAME: ${GLOBAL_LLM_PROVIDER_MODEL_NAME}
+  GLOBAL_LLM_PROVIDER_API_KEY: ${GLOBAL_LLM_PROVIDER_API_KEY}
+
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+
+  EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN}
+  PUSH_NOTIFICATION_RELAY_URL: ${PUSH_NOTIFICATION_RELAY_URL}
+
+  DATABASE_PORT: ${DATABASE_PORT}
+  DATABASE_USERNAME: ${DATABASE_USERNAME}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+  DATABASE_NAME: ${DATABASE_NAME}
+  DATABASE_HOST: ${DATABASE_HOST}
+  DATABASE_SSL_CA: ${DATABASE_SSL_CA}
+  DATABASE_SSL_KEY: ${DATABASE_SSL_KEY}
+  DATABASE_SSL_CERT: ${DATABASE_SSL_CERT}
+  DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED}
+  LETS_ENCRYPT_NOTIFICATION_EMAIL: ${LETS_ENCRYPT_NOTIFICATION_EMAIL}
+  LETS_ENCRYPT_ACCOUNT_KEY: ${LETS_ENCRYPT_ACCOUNT_KEY}
+
+  REDIS_USERNAME: ${REDIS_USERNAME}
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  REDIS_HOST: ${REDIS_HOST}
+  REDIS_PORT: ${REDIS_PORT}
+  REDIS_DB: ${REDIS_DB}
+  REDIS_IP_FAMILY: ${REDIS_IP_FAMILY}
+  REDIS_TLS_CA: ${REDIS_TLS_CA}
+  REDIS_TLS_SENTINEL_MODE: ${REDIS_TLS_SENTINEL_MODE}
+
+  ENCRYPTION_SECRET: ${ENCRYPTION_SECRET}
+
+  BILLING_PRIVATE_KEY: ${BILLING_PRIVATE_KEY}
+  BILLING_PUBLIC_KEY: ${BILLING_PUBLIC_KEY}
+  BILLING_ENABLED: ${BILLING_ENABLED}
+  BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET}
+
+  # TEST-ONLY. Unset (empty) in every shipped config, so the API never returns
+  # a notification-channel verification code. The CI end-to-end job sets it to
+  # "true" for its own stack because the e2e suite has no mailbox to read the
+  # emailed code from; production leaves it empty and the code stays on the
+  # mail path only. See Common/Server/Services/UserEmailService.ts.
+  EXPOSE_VERIFICATION_CODE_IN_API_RESPONSE_FOR_E2E: ${EXPOSE_VERIFICATION_CODE_IN_API_RESPONSE_FOR_E2E:-}
+
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+  CLICKHOUSE_HOST: ${CLICKHOUSE_HOST}
+  CLICKHOUSE_PORT: ${CLICKHOUSE_PORT}
+  # Per-container ClickHouse pool ceilings; the ingest pool (fan-in telemetry
+  # writer) inherits CLICKHOUSE_MAX_OPEN_CONNECTIONS when left empty.
+  CLICKHOUSE_MAX_OPEN_CONNECTIONS: ${CLICKHOUSE_MAX_OPEN_CONNECTIONS}
+  CLICKHOUSE_INGEST_MAX_OPEN_CONNECTIONS: ${CLICKHOUSE_INGEST_MAX_OPEN_CONNECTIONS}
+
+  AVERAGE_SPAN_ROW_SIZE_IN_BYTES: ${AVERAGE_SPAN_ROW_SIZE_IN_BYTES}
+  AVERAGE_LOG_ROW_SIZE_IN_BYTES: ${AVERAGE_LOG_ROW_SIZE_IN_BYTES}
+  AVERAGE_METRIC_ROW_SIZE_IN_BYTES: ${AVERAGE_METRIC_ROW_SIZE_IN_BYTES}
+  AVERAGE_EXCEPTION_ROW_SIZE_IN_BYTES: ${AVERAGE_EXCEPTION_ROW_SIZE_IN_BYTES}
+
+  WORKFLOW_SCRIPT_TIMEOUT_IN_MS: ${WORKFLOW_SCRIPT_TIMEOUT_IN_MS}
+  WORKFLOW_TIMEOUT_IN_MS: ${WORKFLOW_TIMEOUT_IN_MS}
+
+  DISABLE_AUTOMATIC_INCIDENT_CREATION: ${DISABLE_AUTOMATIC_INCIDENT_CREATION}
+
+  DISABLE_AUTOMATIC_ALERT_CREATION: ${DISABLE_AUTOMATIC_ALERT_CREATION}
+
+  DISABLE_TELEMETRY_INGESTION: ${DISABLE_TELEMETRY_INGESTION}
+
+  # Defaulted, unlike its siblings: this one gates outbound traffic, and an
+  # existing config.env upgraded in place will not have the key.
+  DISABLE_UPDATE_CHECK: ${DISABLE_UPDATE_CHECK:-false}
+  LATEST_RELEASE_CHECK_URL: ${LATEST_RELEASE_CHECK_URL:-}
+
+  # On-call calendar feeds (token-in-URL .ics subscriptions). Defaulted so a
+  # config.env upgraded in place, which will not have these keys, neither warns
+  # nor hands the container an empty kill switch. Blank rate-limit values mean
+  # "use the built-in default".
+  DISABLE_ON_CALL_CALENDAR_FEED: ${DISABLE_ON_CALL_CALENDAR_FEED:-false}
+  ON_CALL_CALENDAR_FEED_RATE_LIMIT_WINDOW_SECONDS: ${ON_CALL_CALENDAR_FEED_RATE_LIMIT_WINDOW_SECONDS:-}
+  ON_CALL_CALENDAR_FEED_RATE_LIMIT_PER_TOKEN_PER_WINDOW: ${ON_CALL_CALENDAR_FEED_RATE_LIMIT_PER_TOKEN_PER_WINDOW:-}
+  ON_CALL_CALENDAR_FEED_RATE_LIMIT_PER_IP_PER_WINDOW: ${ON_CALL_CALENDAR_FEED_RATE_LIMIT_PER_IP_PER_WINDOW:-}
+
+  # Browser source map upload / symbolication limits. Blank means "use the
+  # built-in default", so a config.env upgraded in place keeps today's
+  # behaviour. maxFilesPerRequest and maxFileSizeBytes can only be lowered --
+  # the multipart parser's shared, pre-auth ceilings sit above them.
+  SOURCE_MAP_MAX_MAPS_PER_RELEASE: ${SOURCE_MAP_MAX_MAPS_PER_RELEASE:-}
+  SOURCE_MAP_MAX_FILES_PER_REQUEST: ${SOURCE_MAP_MAX_FILES_PER_REQUEST:-}
+  SOURCE_MAP_MAX_FILE_SIZE_BYTES: ${SOURCE_MAP_MAX_FILE_SIZE_BYTES:-}
+  SOURCE_MAP_MAX_BYTES_PER_RESOLVE: ${SOURCE_MAP_MAX_BYTES_PER_RESOLVE:-}
+  SOURCE_MAP_RETENTION_DAYS: ${SOURCE_MAP_RETENTION_DAYS:-}
+
+  # How many appending proxies of your own sit in front of the app. Decides
+  # which X-Forwarded-For entry counts as the client for IP allowlists and rate
+  # limits. Defaulted because an existing config.env upgraded in place will not
+  # have the key, and an empty value here would read as "no proxy" and make
+  # every visitor look like the ingress container.
+  TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+
+  # Open Source Deployment Webhook
+  OPEN_SOURCE_DEPLOYMENT_WEBHOOK_URL: ${OPEN_SOURCE_DEPLOYMENT_WEBHOOK_URL}
+
+  # Notification Webhooks
+  NOTIFICATION_SLACK_WEBHOOK_ON_CREATED_USER: ${NOTIFICATION_SLACK_WEBHOOK_ON_CREATED_USER}
+  NOTIFICATION_SLACK_WEBHOOK_ON_CREATED_PROJECT: ${NOTIFICATION_SLACK_WEBHOOK_ON_CREATED_PROJECT}
+  NOTIFICATION_SLACK_WEBHOOK_ON_DELETED_PROJECT: ${NOTIFICATION_SLACK_WEBHOOK_ON_DELETED_PROJECT}
+  NOTIFICATION_SLACK_WEBHOOK_ON_SUBSCRIPTION_UPDATE: ${NOTIFICATION_SLACK_WEBHOOK_ON_SUBSCRIPTION_UPDATE}
+
+  SLACK_APP_CLIENT_SECRET: ${SLACK_APP_CLIENT_SECRET}
+  SLACK_APP_SIGNING_SECRET: ${SLACK_APP_SIGNING_SECRET}
+
+  # Microsoft Teams Configuration
+
+  MICROSOFT_TEAMS_APP_CLIENT_SECRET: ${MICROSOFT_TEAMS_APP_CLIENT_SECRET}
+  CAPTCHA_SECRET_KEY: ${CAPTCHA_SECRET_KEY}
+
+  # GitHub App Configuration
+  GITHUB_APP_ID: ${GITHUB_APP_ID}
+  GITHUB_APP_NAME: ${GITHUB_APP_NAME}
+  GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID}
+  GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET}
+  GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
+  GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET}
+
+  # Inbound Email Configuration (for Incoming Email Monitor)
+  INBOUND_EMAIL_PROVIDER: ${INBOUND_EMAIL_PROVIDER}
+  INBOUND_EMAIL_DOMAIN: ${INBOUND_EMAIL_DOMAIN}
+  INBOUND_EMAIL_WEBHOOK_SECRET: ${INBOUND_EMAIL_WEBHOOK_SECRET}
+
+  # BullMQ Queue Dashboard (Bull Board)
+  ENABLE_QUEUE_DASHBOARD: ${ENABLE_QUEUE_DASHBOARD}
+  QUEUE_DASHBOARD_SECRET: ${QUEUE_DASHBOARD_SECRET}
+
+services:
+  redis:
+    image: redis:7.0.12
+    restart: always
+    networks:
+      - oneuptime
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --save "" --appendonly no
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  clickhouse:
+    # Pinned to 26.7 to match the Helm/production ClickHouse (which tracks the
+    # newer server). ClickHouse 26.7 validates that every off-key column on an
+    # AggregatingMergeTree is an aggregate measure; staying on 25.7 here
+    # diverged from production and let invalid aggregate schemas slip past the
+    # E2E stack.
+    image: clickhouse/clickhouse-server:26.7
+    restart: always
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    networks:
+      - oneuptime
+    volumes:
+      - clickhouse:/var/lib/clickhouse/
+      # Cluster + embedded-Keeper drop-in: OneUptime's analytics schema is always
+      # ReplicatedMergeTree + Distributed, so a single node runs an embedded
+      # Keeper and a 1-node "oneuptime" cluster (config.d is merged into the
+      # server config regardless of the main config.xml).
+      - ./Clickhouse/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml
+      # Profile-level drop-in: batch the background Distributed-insert sender so it
+      # keeps up with telemetry volume (otherwise system.distribution_queue backs up
+      # and dashboards lag). users.d is merged into the users config, where profiles
+      # are read. Mirrors the Altinity operator defaults.
+      - ./Clickhouse/users.d/distributed-insert-tuning.xml:/etc/clickhouse-server/users.d/distributed-insert-tuning.xml
+      # System-log retention drop-in: ClickHouse's own query_log/trace_log/… ship
+      # with their TTL commented out, so without this they grow forever and eat the
+      # clickhouse volume (processors_profile_log alone reached 536 GiB on the
+      # hosted deployment). Caps six system logs at 6h from event_time and removes
+      # processors_profile_log, mirroring the Helm path (values.yaml ->
+      # clickhouse.configuration); Tests/Ops fails the build if the two drift.
+      # The TTL keys off event_time (DateTime), NOT event_date (Date): adding
+      # hours to a Date pins the expiry to 06:00 on the row's own day, which
+      # discards nearly everything written after 06:00 instead of keeping 6h.
+      # See the header of Clickhouse/config.d/system-log-ttl.xml.
+      - ./Clickhouse/config.d/system-log-ttl.xml:/etc/clickhouse-server/config.d/system-log-ttl.xml
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    networks:
+      - oneuptime
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  test-server:
+    networks:
+      - oneuptime
+    restart: always
+    environment:
+      <<: *common-runtime-variables
+      PORT: ${TEST_SERVER_PORT}
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_TEST_SERVER}
+      ENABLE_PROFILING: ${ENABLE_PROFILING_FOR_TEST_SERVER}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  app:
+    networks:
+      - oneuptime
+    restart: always
+    environment:
+      <<: *common-runtime-variables
+      PORT: ${APP_PORT}
+      SMS_DEFAULT_COST_IN_CENTS: ${SMS_DEFAULT_COST_IN_CENTS}
+      WHATSAPP_TEXT_DEFAULT_COST_IN_CENTS: ${WHATSAPP_TEXT_DEFAULT_COST_IN_CENTS}
+      CALL_DEFAULT_COST_IN_CENTS_PER_MINUTE: ${CALL_DEFAULT_COST_IN_CENTS_PER_MINUTE}
+      SMS_HIGH_RISK_COST_IN_CENTS: ${SMS_HIGH_RISK_COST_IN_CENTS}
+      CALL_HIGH_RISK_COST_IN_CENTS_PER_MINUTE: ${CALL_HIGH_RISK_COST_IN_CENTS_PER_MINUTE}
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_APP}
+      ENABLE_PROFILING: ${ENABLE_PROFILING_FOR_APP}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY}
+      # Telemetry ingestion settings (merged from telemetry service)
+      TELEMETRY_CONCURRENCY: ${TELEMETRY_CONCURRENCY}
+      # Network device polling throughput — see config.example.env for docs.
+      # Empty falls back to the code default.
+      NETWORK_DEVICE_POLL_FETCH_LIMIT: ${NETWORK_DEVICE_POLL_FETCH_LIMIT:-}
+      # Fan-in telemetry writer knobs — see config.example.env for docs.
+      # Empty values fall back to the code defaults.
+      TELEMETRY_FANIN_MAX_BATCH_ROWS: ${TELEMETRY_FANIN_MAX_BATCH_ROWS}
+      TELEMETRY_FANIN_MAX_WAIT_MS: ${TELEMETRY_FANIN_MAX_WAIT_MS}
+      TELEMETRY_FANIN_MAX_CONCURRENT_INSERTS: ${TELEMETRY_FANIN_MAX_CONCURRENT_INSERTS}
+      TELEMETRY_FANIN_MAX_PENDING_ROWS: ${TELEMETRY_FANIN_MAX_PENDING_ROWS}
+      TELEMETRY_FANIN_RETRY_MAX_ATTEMPTS: ${TELEMETRY_FANIN_RETRY_MAX_ATTEMPTS}
+      TELEMETRY_FANIN_RETRY_BASE_DELAY_MS: ${TELEMETRY_FANIN_RETRY_BASE_DELAY_MS}
+      TELEMETRY_FANIN_RETRY_MAX_DELAY_MS: ${TELEMETRY_FANIN_RETRY_MAX_DELAY_MS}
+      TELEMETRY_WAIT_FOR_ASYNC_INSERT: ${TELEMETRY_WAIT_FOR_ASYNC_INSERT}
+      TELEMETRY_WRITER_URL: ${TELEMETRY_WRITER_URL}
+      TELEMETRY_WRITER_REQUEST_TIMEOUT_MS: ${TELEMETRY_WRITER_REQUEST_TIMEOUT_MS}
+      TELEMETRY_WRITER_MAX_BODY_BYTES: ${TELEMETRY_WRITER_MAX_BODY_BYTES}
+      TELEMETRY_WRITER_MAX_INFLIGHT_REQUESTS: ${TELEMETRY_WRITER_MAX_INFLIGHT_REQUESTS}
+      REGISTER_PROBE_KEY: ${REGISTER_PROBE_KEY}
+      # MQTT ingest for IoT devices. MQTT-over-WebSocket rides the
+      # ingress at /mqtt out of the box; the raw TCP listener stays
+      # internal to the compose network unless an operator publishes
+      # the port with a compose override.
+      MQTT_INGEST_ENABLED: ${MQTT_INGEST_ENABLED}
+      MQTT_INGEST_PORT: ${MQTT_INGEST_PORT}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  home:
+    networks:
+      - oneuptime
+    restart: always
+    environment:
+      <<: *common-runtime-variables
+      PORT: ${HOME_PORT}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  probe-1:
+    restart: always
+    network_mode: host
+    # The probe remains root so its trusted supervisor can assign a unique UID
+    # to every synthetic execution. Drop everything except the capabilities it
+    # needs to prepare, terminate, and clean up those workers (plus NET_RAW for
+    # ping/traceroute monitors). no-new-privileges is inherited by workers.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - KILL
+      - NET_RAW
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+      # Vendored unchanged from Playwright's official Docker profile:
+      # https://github.com/microsoft/playwright/blob/main/utils/docker/seccomp_profile.json
+      - seccomp=./Probe/seccomp_profile.json
+    environment:
+      ONEUPTIME_URL: ${GLOBAL_PROBE_1_ONEUPTIME_URL}
+      REGISTER_PROBE_KEY: ${REGISTER_PROBE_KEY}
+      PROBE_NAME: ${GLOBAL_PROBE_1_NAME}
+      PROBE_DESCRIPTION: ${GLOBAL_PROBE_1_DESCRIPTION}
+      PROBE_MONITORING_WORKERS: ${GLOBAL_PROBE_1_MONITORING_WORKERS}
+      PROBE_KEY: ${GLOBAL_PROBE_1_KEY}
+      PROBE_SYNTHETIC_MONITOR_SCRIPT_TIMEOUT_IN_MS: ${GLOBAL_PROBE_1_SYNTHETIC_MONITOR_SCRIPT_TIMEOUT_IN_MS}
+      PROBE_SYNTHETIC_MONITOR_MAX_CONCURRENCY: ${GLOBAL_PROBE_1_SYNTHETIC_MONITOR_MAX_CONCURRENCY}
+      PROBE_SYNTHETIC_MONITOR_MAX_PROCESS_TREE_RSS_BYTES: ${GLOBAL_PROBE_1_SYNTHETIC_MONITOR_MAX_PROCESS_TREE_RSS_BYTES:-1610612736}
+      PROBE_SYNTHETIC_MONITOR_MAX_DISK_BYTES: ${GLOBAL_PROBE_1_SYNTHETIC_MONITOR_MAX_DISK_BYTES:-268435456}
+      # Compose installs the bundled Playwright seccomp profile above, so the
+      # Chromium user-namespace sandbox can be required instead of silently
+      # falling back to --no-sandbox.
+      PROBE_SYNTHETIC_MONITOR_CHROMIUM_SANDBOX_ENABLED: "true"
+      PROBE_CUSTOM_CODE_MONITOR_SCRIPT_TIMEOUT_IN_MS: ${GLOBAL_PROBE_1_CUSTOM_CODE_MONITOR_SCRIPT_TIMEOUT_IN_MS}
+      # Whether Custom JavaScript Code monitors on this probe may reach
+      # private network addresses. Every other monitor type already can; this
+      # one inherits the API server's SSRF guard through the shared sandbox.
+      # See config.example.env.
+      PROBE_ALLOW_PRIVATE_NETWORK_MONITORS: ${PROBE_ALLOW_PRIVATE_NETWORK_MONITORS:-false}
+      PROBE_MONITOR_FETCH_LIMIT: ${GLOBAL_PROBE_1_MONITOR_FETCH_LIMIT}
+      PROBE_NETWORK_DEVICE_POLL_CONCURRENCY: ${GLOBAL_PROBE_1_NETWORK_DEVICE_POLL_CONCURRENCY:-}
+      PROBE_SNMP_GET_CHUNK_SIZE: ${GLOBAL_PROBE_1_SNMP_GET_CHUNK_SIZE:-}
+      HTTP_PROXY_URL: ${GLOBAL_PROBE_1_HTTP_PROXY_URL:-${GLOBAL_PROBE_1_PROXY_URL:-}}
+      HTTPS_PROXY_URL: ${GLOBAL_PROBE_1_HTTPS_PROXY_URL:-${GLOBAL_PROBE_1_PROXY_URL:-}}
+      NO_PROXY: ${GLOBAL_PROBE_1_NO_PROXY:-}
+      PORT: ${GLOBAL_PROBE_1_PORT}
+      NODE_ENV: ${ENVIRONMENT}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_PROBE}
+      ENABLE_PROFILING: ${ENABLE_PROFILING_FOR_PROBE}
+      OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT: ${OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT}
+      OPENTELEMETRY_EXPORTER_OTLP_HEADERS: ${OPENTELEMETRY_EXPORTER_OTLP_HEADERS}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  probe-2:
+    restart: always
+    network_mode: host
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - KILL
+      - NET_RAW
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./Probe/seccomp_profile.json
+    environment:
+      ONEUPTIME_URL: ${GLOBAL_PROBE_2_ONEUPTIME_URL}
+      REGISTER_PROBE_KEY: ${REGISTER_PROBE_KEY}
+      PROBE_NAME: ${GLOBAL_PROBE_2_NAME}
+      PROBE_DESCRIPTION: ${GLOBAL_PROBE_2_DESCRIPTION}
+      PROBE_MONITORING_WORKERS: ${GLOBAL_PROBE_2_MONITORING_WORKERS}
+      PROBE_KEY: ${GLOBAL_PROBE_2_KEY}
+      PROBE_SYNTHETIC_MONITOR_SCRIPT_TIMEOUT_IN_MS: ${GLOBAL_PROBE_2_SYNTHETIC_MONITOR_SCRIPT_TIMEOUT_IN_MS}
+      PROBE_SYNTHETIC_MONITOR_MAX_CONCURRENCY: ${GLOBAL_PROBE_2_SYNTHETIC_MONITOR_MAX_CONCURRENCY}
+      PROBE_SYNTHETIC_MONITOR_MAX_PROCESS_TREE_RSS_BYTES: ${GLOBAL_PROBE_2_SYNTHETIC_MONITOR_MAX_PROCESS_TREE_RSS_BYTES:-1610612736}
+      PROBE_SYNTHETIC_MONITOR_MAX_DISK_BYTES: ${GLOBAL_PROBE_2_SYNTHETIC_MONITOR_MAX_DISK_BYTES:-268435456}
+      PROBE_SYNTHETIC_MONITOR_CHROMIUM_SANDBOX_ENABLED: "true"
+      PROBE_CUSTOM_CODE_MONITOR_SCRIPT_TIMEOUT_IN_MS: ${GLOBAL_PROBE_2_CUSTOM_CODE_MONITOR_SCRIPT_TIMEOUT_IN_MS}
+      # Whether Custom JavaScript Code monitors on this probe may reach
+      # private network addresses. Every other monitor type already can; this
+      # one inherits the API server's SSRF guard through the shared sandbox.
+      # See config.example.env.
+      PROBE_ALLOW_PRIVATE_NETWORK_MONITORS: ${PROBE_ALLOW_PRIVATE_NETWORK_MONITORS:-false}
+      PROBE_MONITOR_FETCH_LIMIT: ${GLOBAL_PROBE_2_MONITOR_FETCH_LIMIT}
+      PROBE_NETWORK_DEVICE_POLL_CONCURRENCY: ${GLOBAL_PROBE_2_NETWORK_DEVICE_POLL_CONCURRENCY:-}
+      PROBE_SNMP_GET_CHUNK_SIZE: ${GLOBAL_PROBE_2_SNMP_GET_CHUNK_SIZE:-}
+      HTTP_PROXY_URL: ${GLOBAL_PROBE_2_HTTP_PROXY_URL:-${GLOBAL_PROBE_2_PROXY_URL:-}}
+      HTTPS_PROXY_URL: ${GLOBAL_PROBE_2_HTTPS_PROXY_URL:-${GLOBAL_PROBE_2_PROXY_URL:-}}
+      NO_PROXY: ${GLOBAL_PROBE_2_NO_PROXY:-}
+      PORT: ${GLOBAL_PROBE_2_PORT}
+      NODE_ENV: ${ENVIRONMENT}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_PROBE}
+      ENABLE_PROFILING: ${ENABLE_PROFILING_FOR_PROBE}
+      OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT: ${OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT}
+      OPENTELEMETRY_EXPORTER_OTLP_HEADERS: ${OPENTELEMETRY_EXPORTER_OTLP_HEADERS}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  runner:
+    restart: always
+    network_mode: host
+    environment:
+      <<: *common-runtime-variables
+      ONEUPTIME_RUNNER_KEY: ${ONEUPTIME_RUNNER_KEY}
+      ONEUPTIME_URL: ${ONEUPTIME_RUNNER_ONEUPTIME_URL}
+      # The in-cluster Runner serves code fixes for every project; customer
+      # installs run their own Runner with a project-scoped credential.
+      ONEUPTIME_RUNNER_ENABLE_CODE_FIXES: "true"
+      ONEUPTIME_RUNNER_ENABLE_RUNBOOKS: "false"
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_RUNNER}
+      ENABLE_PROFILING: ${ENABLE_PROFILING_FOR_RUNNER}
+      PORT: ${ONEUPTIME_RUNNER_PORT}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  fluentd:
+    networks:
+      - oneuptime
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  fluent-bit:
+    networks:
+      - oneuptime
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  e2e:
+    restart: "no"
+    network_mode: host # This is needed to access the host network,
+    environment:
+      <<: *common-variables
+      E2E_TEST_IS_USER_REGISTERED: ${E2E_TEST_IS_USER_REGISTERED}
+      E2E_TEST_REGISTERED_USER_EMAIL: ${E2E_TEST_REGISTERED_USER_EMAIL}
+      E2E_TEST_REGISTERED_USER_PASSWORD: ${E2E_TEST_REGISTERED_USER_PASSWORD}
+      E2E_TEST_STATUS_PAGE_URL: ${E2E_TEST_STATUS_PAGE_URL}
+      E2E_TESTS_FAILED_WEBHOOK_URL: ${E2E_TESTS_FAILED_WEBHOOK_URL}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+  ingress:
+    restart: always
+    networks:
+      - oneuptime
+    # The ingress proxies a high volume of short-lived upstream connections to a
+    # single backend. Widen the ephemeral source-port range and allow TIME_WAIT
+    # reuse so the gateway never exhausts local ports — otherwise nginx starts
+    # returning "connect() ... (99: Address not available)" 502s for every route.
+    # These are per-container (network-namespace) sysctls; no privileged mode.
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: "1"
+      net.ipv4.tcp_fin_timeout: "15"
+    environment:
+      <<: *common-runtime-variables
+      ONEUPTIME_HTTP_PORT: ${ONEUPTIME_HTTP_PORT}
+      NGINX_LISTEN_ADDRESS: ${NGINX_LISTEN_ADDRESS}
+      NGINX_LISTEN_OPTIONS: ${NGINX_LISTEN_OPTIONS}
+      # Per-request access logging for the high-volume ingest locations
+      # (/otlp, /telemetry, /session-replay, /kubernetes-cost, /pyroscope).
+      # Defaults to "on" here rather than to config.env, so an operator who has
+      # never heard of this knob keeps every ingest log line. Set it to off /
+      # false / 0 / no in config.env to opt out; anything else keeps logging.
+      NGINX_INGEST_ACCESS_LOG: ${NGINX_INGEST_ACCESS_LOG:-on}
+      DISABLE_TELEMETRY: ${DISABLE_TELEMETRY_FOR_INGRESS}
+    ports:
+      - "${ONEUPTIME_HTTP_PORT}:7849"
+      - "${STATUS_PAGE_HTTPS_PORT}:7850"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+
+volumes:
+  postgres:
+  clickhouse:
+
+networks:
+  oneuptime:
+    driver: bridge

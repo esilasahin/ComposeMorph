@@ -1,0 +1,62 @@
+version: "3"
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      DB_NAME: "traspac_test"
+      DB_USER: "postgres"
+      DB_PASS: "1234"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      SECRETKEY: "traspac-api"
+    networks:
+      - app-network
+    depends_on:
+      - postgres # Wait for PostgreSQL to be ready
+    command: >
+      sh -c "
+        sleep 5s && node ./bin/www" # Start the backend after a delay
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.client
+    ports:
+      - "3000:3000"
+    environment:
+      NUXT_PUBLIC_API_BASE: "http://backend:3001/"
+      COOKIE_NAME: __traspacsession
+      COOKIE_SECRET: traspac
+      COOKIE_EXPIRES: 86400000 # 1 day
+      COOKIE_REMEMBER_ME_EXPIRES: 604800000 # 1 week
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_DB: traspac_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backup:/backup # Mount backup directory
+    networks:
+      - app-network
+    command: >
+      sh -c "
+        /usr/local/bin/docker-entrypoint.sh postgres &
+        sleep 5s && pg_restore -U postgres -d traspac_test /backup/traspac_test.sql
+        wait"
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,12 @@
+networks:
+  default:
+    external: true
+    name: cvdp-bridge-cvdp_v1-0-2_nonagentic_code_generation_no_commercial
+services:
+  01-new-tb:
+    command: pytest -s -o cache_dir=/rundir/harness/.cache /src/test_runner.py -v
+    env_file: ./src/.env
+    image: ghcr.io/hdl/sim/osvb
+    volumes:
+    - ./src/:/src/:ro
+    working_dir: /code/rundir

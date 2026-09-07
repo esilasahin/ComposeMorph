@@ -1,0 +1,74 @@
+services:
+  # Redis for Caching
+  redis:
+    image: redis:7.0-alpine
+    container_name: book-management-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - book-management-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # RabbitMQ for Asynchronous Messaging
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: book-management-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - book-management-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for production use (alternative to H2)
+  postgres:
+    image: postgres:15-alpine
+    container_name: book-management-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: book_management
+      POSTGRES_USER: bookuser
+      POSTGRES_PASSWORD: bookpass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - book-management-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookuser -d book_management"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - production
+
+volumes:
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  book-management-network:
+    driver: bridge

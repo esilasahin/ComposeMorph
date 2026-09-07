@@ -1,0 +1,96 @@
+# groq: https://api.groq.com/openai/v1
+# ollama: http://localhost:11434/api/
+# ollama run llama3.2
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    # image: ollama/ollama:rocm # For AMD GPUs
+    container_name: ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "[+] Starting ollama"
+        ollama start & sleep 20
+        ollama pull phi3 && tail -f /dev/null
+    environment:
+      - TEST=
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    devices:
+      # For AMD GPUs
+      # - /dev/kfd:/dev/kfd
+      # - /dev/dri:/dev/dri
+    restart: unless-stopped
+    networks:
+      - internal
+      - web
+
+  # Host on subdomain
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: openwebui
+    environment:
+      - ENABLE_PERSISTENT_CONFIG=False
+      - ENABLE_SIGNUP=False # Comment this to create an admin user, then uncomment to disable signup
+      - WEBUI_SECRET_KEY=supersecretkey
+      - RAG_EMBEDDING_ENGINE=ollama
+      - AUDIO_STT_ENGINE=openai
+      - OLLAMA_BASE_URL=http://ollama:11434
+      # Searching
+      - ENABLE_WEB_SEARCH=True
+      - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>
+      # - WEBUI_AUTH=False
+      # - OLLAMA_PROXY_URL=
+      # - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    depends_on:
+      - ollama
+    ports:
+      - "127.0.0.1:9300:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
+    networks:
+      - internal
+      - web
+
+  # serge:
+  #   image: ghcr.io/serge-chat/serge:latest
+  #   container_name: serge
+  #   # environment:
+  #   #   -
+  #   ports:
+  #     - "127.0.0.1:8008:8008"
+  #   volumes:
+  #     - weights:/usr/src/app/weights
+  #     - datadb:/data/db/
+  #   restart: unless-stopped
+  #   networks:
+  #     - internal
+  #     - web
+
+  # lobe-chat:
+  #   image: lobehub/lobe-chat:latest
+  #   container_name: lobe-chat
+  #   # environment:
+  #   #   - OLLAMA_PROXY_URL=
+  #   ports:
+  #     - "127.0.0.1:3210:3210"
+  #   restart: unless-stopped
+  #   networks:
+  #     - internal
+  #     - web
+
+volumes:
+  ollama:
+  open-webui:
+  weights:
+  datadb:
+
+networks:
+  internal:
+    name: internal
+  web:
+    name: web

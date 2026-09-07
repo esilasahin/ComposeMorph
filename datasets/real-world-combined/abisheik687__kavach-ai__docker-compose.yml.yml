@@ -1,0 +1,34 @@
+# Internal trace:
+# - Wrong before: compose still described the old multi-service platform with postgres, redis, kafka, celery, mlflow, minio, prometheus, and grafana even though the active app no longer depends on them.
+# - Fixed now: compose only runs the cleaned backend and frontend for the current upload-first product path.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kavach_backend
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: INFO
+      ENABLE_REMOTE_MODEL_DOWNLOADS: "false"
+      CORS_ORIGINS: '["http://localhost:4173","http://127.0.0.1:4173"]'
+    volumes:
+      - ./backend:/app/backend
+      - ./temp:/app/temp
+      - ./models:/app/models
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kavach_frontend
+    ports:
+      - "4173:4173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on:
+      - backend

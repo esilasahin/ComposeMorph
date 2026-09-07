@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  linkedin-prospect:
+    image: docker.io/jltardim/linkedin-prospect:1.0
+    environment:
+      STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+      STREAMLIT_SERVER_PORT: "8501"
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - network_public
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=network_public"
+        - "traefik.http.routers.linkedin-prospect.rule=Host(`linkedinprospect.tecnologiajf.com`)"
+        - "traefik.http.routers.linkedin-prospect.entrypoints=websecure"
+        - "traefik.http.routers.linkedin-prospect.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.linkedin-prospect.loadbalancer.server.port=8501"
+
+networks:
+  network_public:
+    external: true
+    name: network_public

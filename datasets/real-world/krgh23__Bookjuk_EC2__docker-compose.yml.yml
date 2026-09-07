@@ -1,0 +1,59 @@
+volumes:
+  mysql_vol:
+
+services:
+  db:
+    container_name: mysql-container
+    image: mysql:8.0  # 공식 이미지 사용 시 build, args 불가
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - TZ=${TZ}
+    volumes:
+      - mysql_vol:/var/lib/mysql
+    ports:
+      - 3306:3306
+
+  backend:
+    container_name: backend-container
+    build:
+      context: ./bookjuk_backend
+      args:
+        - SPRING_DATABASE_URL=jdbc:mysql://db:3306/${MYSQL_DATABASE}
+        - SPRING_DATABASE_USERNAME=${MYSQL_USER}
+        - SPRING_DATABASE_PASSWORD=${MYSQL_PASSWORD}
+        - IMGBB_APP_KEY=${IMGBB_APP_KEY}
+        - KAKAO_CLIENT_ID=${KAKAO_CLIENT_ID}
+        - KAKAO_CLIENT_SECRET=${KAKAO_CLIENT_SECRET}
+        - NAVER_CLIENT_ID=${NAVER_CLIENT_ID}
+        - NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET}
+        - PORTONE_SECRET_API=${PORTONE_SECRET_API}
+        - PORTONE_SECRET_WEBHOOK=${PORTONE_SECRET_WEBHOOK}
+    ports:
+      - 8080:8080
+    depends_on:
+      - db
+
+  frontend:
+    container_name: frontend-container
+    build:
+      context: ./bookjuk_frontend
+      args:
+        - REACT_APP_PORT_ONE_STOREID=${REACT_APP_PORT_ONE_STOREID}
+        - REACT_APP_PORT_ONE_KACAO_CHANNELKEY=${REACT_APP_PORT_ONE_KACAO_CHANNELKEY}
+        - REACT_APP_PORT_ONE_KG_CHANNELKEY=${REACT_APP_PORT_ONE_KG_CHANNELKEY}
+        - REACT_APP_KAKAO_REST_API_KEY=${REACT_APP_KAKAO_REST_API_KEY}
+        - REACT_APP_KAKAO_CLIENT_SECRET=${REACT_APP_KAKAO_CLIENT_SECRET}
+        - REACT_APP_KAKAO_REDIRECT_URI=${REACT_APP_KAKAO_REDIRECT_URI}
+        - REACT_APP_NAVER_CLIENT_ID=${REACT_APP_NAVER_CLIENT_ID}
+        - REACT_APP_NAVER_CALLBACK_URI=${REACT_APP_NAVER_CALLBACK_URI}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    depends_on:
+      - backend
+    ports:
+      - 80:80

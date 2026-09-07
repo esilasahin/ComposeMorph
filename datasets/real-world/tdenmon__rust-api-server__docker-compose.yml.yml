@@ -1,0 +1,20 @@
+version: "3"
+
+services:
+  rust-api:
+    build: .
+    ports: 
+      - "8000:8000"
+    env_file:
+      - rust-api/.env
+    links:
+      - "postgres"
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    restart: always

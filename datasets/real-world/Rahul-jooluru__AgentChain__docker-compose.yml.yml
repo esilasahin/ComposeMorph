@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentchain-db
+    environment:
+      POSTGRES_USER: agentchain
+      POSTGRES_PASSWORD: agentchain
+      POSTGRES_DB: agentchain
+    ports:
+      - "5432:5432"
+    volumes:
+      - agentchain_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentchain"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agentchain_pgdata:

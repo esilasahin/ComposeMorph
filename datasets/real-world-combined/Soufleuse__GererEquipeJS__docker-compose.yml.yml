@@ -1,0 +1,32 @@
+services:
+  sqlserver-api-web:
+    build: 
+      context: ../../
+      dockerfile: js/GererEquipeJS/Dockerfile
+    container_name: GererEquipeJs
+    ports:
+      - "14330:1433"   # SQL Server
+      - "5245:5245"    # API .NET
+      - "12180:12080"  # Nginx
+    volumes:
+      - ../../c#/ServiceLigueHockeySqlServer/sqlserver-data:/var/opt/mssql
+    env_file:
+      - ../../c#/ServiceLigueHockeySqlServer/.env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5245
+      - DOTNET_ENVIRONMENT=Development
+    networks:
+      - ligue-hockey-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'mOtdepAssedemarde#01' -C -Q 'SELECT 1'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+networks:
+  ligue-hockey-network:
+    driver: bridge
+  

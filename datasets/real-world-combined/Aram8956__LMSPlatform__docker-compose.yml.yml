@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  sqlserver:
+    image: "mcr.microsoft.com/mssql/server:2022-latest"
+    container_name: sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=Your_password123!
+    ports:
+      - "1433:1433"
+    networks:
+      - lms-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - lms-net
+
+  courseapi:
+    build:
+      context: .
+      dockerfile: Services/Course/Course.API/Dockerfile
+    container_name: courseapi
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      - sqlserver
+      - rabbitmq
+    networks:
+      - lms-net
+
+  billingapi:
+    build:
+      context: .
+      dockerfile: Services/Billing/Billing.API/Dockerfile
+    container_name: billingapi
+    ports:
+      - "8090:8080"
+      - "8091:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      - sqlserver
+      - rabbitmq
+    networks:
+      - lms-net
+
+networks:
+  lms-net:
+    driver: bridge

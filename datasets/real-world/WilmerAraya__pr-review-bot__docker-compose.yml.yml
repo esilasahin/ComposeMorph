@@ -1,0 +1,70 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3000:3000"
+    # tty asigna una pseudo-terminal: Node deja de bufferear stdout y los
+    # console.log aparecen en vivo en `docker compose logs`.
+    tty: true
+    env_file: .env
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages:/app/packages
+    depends_on:
+      - redis
+      - postgres
+    command: npm run dev -w apps/api
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    # Ver comentario en el servicio api: evita el buffering de stdout de Node.
+    tty: true
+    env_file: .env
+    volumes:
+      - ./apps/worker/src:/app/apps/worker/src
+      - ./packages:/app/packages
+    depends_on:
+      - redis
+      - postgres
+    command: npm run dev -w apps/worker
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    ports:
+      - "5173:5173"
+    tty: true
+    environment:
+      # Desde el navegador (fuera de la red de docker-compose), el api se ve
+      # en localhost:3000 — no en "api:3000" (ese hostname solo resuelve
+      # dentro de la red interna de Docker).
+      VITE_API_URL: http://localhost:3000
+    volumes:
+      - ./apps/dashboard/src:/app/apps/dashboard/src
+      - ./apps/dashboard/index.html:/app/apps/dashboard/index.html
+    depends_on:
+      - api
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: prbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

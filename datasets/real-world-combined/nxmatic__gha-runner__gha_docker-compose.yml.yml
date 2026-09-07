@@ -1,0 +1,125 @@
+x-gha-common: &gha-common
+  profiles:
+    - github-flow
+  restart: always
+    
+services:
+
+  gha-kms:
+    <<: *gha-common
+    image: ${DOWNSTREAM:-ghcr.io/nuxeo/nos}/gha-kms:${VERSION:-latest}
+    networks:
+      gha:
+        aliases:
+          - kms.gha.${INTERNAL_DNS_DOMAIN}
+
+  gha-proxy-dns:
+    <<: *gha-common
+    image: ${DOWNSTREAM:-ghcr.io/nuxeo/nos}/gha-proxy-dns:${VERSION:-latest}
+    environment:
+      DOCKER_HOST: 'tcp://host.containers.internal:2375'
+    privileged: true
+    networks:
+      gha:
+        aliases:
+          - proxy-dns.gha.${INTERNAL_DNS_DOMAIN}
+
+  gha-runner-lima-nixos:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/lima-nixos'
+    networks:
+      gha:
+        aliases:
+          - nos.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-lima-nixos-home:/home/runner
+
+  gha-runner-nos:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/nos'
+    networks:
+      gha:
+        aliases:
+          - nos.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-nos-home:/home/runner
+      
+
+  gha-runner-bde:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/nuxeo-browser-extension'
+    networks:
+      gha:
+        aliases:
+          - bde.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-bde-home:/home/runner
+
+  gha-runner-gwt:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/gwt'
+    networks:
+      gha:
+        aliases:
+          - gwt.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-gwt-home:/home/runner
+
+  gha-runner-hangover:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/hangover'
+    networks:
+      gha:
+        aliases:
+          - hangover.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-hangover-home:/home/runner
+
+  gha-runner-zen:
+    <<: *gha-common
+    extends:
+      file: ./runner.yml
+      service: runner
+    environment:
+      RUNNER_REGISTER_TO: '${RUNNER_OWNER:-nuxeo}/zen-browser-desktop'
+    networks:
+      gha:
+        aliases:
+          - zen.gha.${INTERNAL_DNS_DOMAIN}
+    volumes:
+      - gha-runner-zen-home:/home/runner
+
+networks:
+  gha:
+    labels:
+      dns.domain: gha.${INTERNAL_DNS_DOMAIN}
+
+volumes:
+  m2-build-cache:
+  m2-repository:
+  gha-runner-lima-nixos:
+  gha-runner-nos-home:
+  gha-runner-bde-home:
+  gha-runner-gwt-home:
+  gha-runner-hangover-home:
+  gha-runner-zen-home:

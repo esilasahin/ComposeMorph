@@ -1,0 +1,17 @@
+services:
+  python-server:
+    build:
+      context: ./python-server
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+    volumes:
+      - ./python-server/src:/app/src
+  node-server:
+    build:
+      context: ./simple-express-server
+      dockerfile: Dockerfile
+    ports:
+      - 8001:8001
+    volumes:
+      - ./simple-express-server/src:/app/src

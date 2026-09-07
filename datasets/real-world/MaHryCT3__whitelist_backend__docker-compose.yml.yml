@@ -1,0 +1,39 @@
+services:
+  bot:
+    image: bot
+    container_name: bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        buildno: 1
+    tty: true
+    env_file: .env
+    volumes:
+      - .:/code
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15.2-alpine
+    container_name: postgres
+    ports:
+      - 5432:5432
+    env_file: .env
+    volumes:
+      - ./storage/postgres-main:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+    container_name: nginx
+    ports:
+      - 80:80
+    depends_on:
+      - bot

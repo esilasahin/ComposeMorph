@@ -1,0 +1,11 @@
+version: '3.7'
+services:
+  s3-minio:
+    image: "minio/minio"
+    restart: always
+    networks:
+      - default
+networks:
+  default:
+    name: ${DOCKER_NETWORK}
+    external: true

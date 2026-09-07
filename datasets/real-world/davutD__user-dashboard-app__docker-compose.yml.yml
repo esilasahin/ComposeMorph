@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  client:
+    build:
+      context: ./client
+    ports:
+      - '3000:3000'
+
+  # server:
+  #   build:
+  #     context: ./server
+  #   ports:
+  #     - '3333:3333'
+  #   command: sh -c "sleep 30 && npm run start:dev" # Use 'sh' instead of '/bin/bash' to execute the command
+  #   environment:
+  #     - NODE_ENV=development
+
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    ports:
+      - '7474:7474'
+      - '7687:7687'
+    volumes:
+      - neo4j-data:/data
+    environment:
+      NEO4J_AUTH: neo4j/mypassword
+    restart: unless-stopped
+
+volumes:
+  neo4j-data:

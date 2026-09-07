@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Flask API Server with GPU support
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: interior-design-api:latest
+    container_name: interior-api
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./prompt_history:/app/prompt_history
+      - ./generated_images:/app/generated_images
+      - ./uploads:/app/uploads
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - FLASK_ENV=production
+      - CUDA_VISIBLE_DEVICES=0
+      - HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend Server (optional - for serving frontend)
+  frontend:
+    image: nginx:alpine
+    container_name: interior-frontend
+    ports:
+      - "8000:80"
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./styles.css:/usr/share/nginx/html/styles.css:ro
+      - ./script.js:/usr/share/nginx/html/script.js:ro
+    environment:
+      - API_URL=http://api:5000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:
+    driver: local

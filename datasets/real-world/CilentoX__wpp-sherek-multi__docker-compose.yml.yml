@@ -1,0 +1,10 @@
+services:
+  shrek-bot:
+    build: .
+    volumes:
+      - ./.wwebjs_auth:/app/.wwebjs_auth
+      - ./shrek_script.txt:/app/shrek_script.txt
+    restart: unless-stopped
+    shm_size: '1gb' # Shared memory for Chrome
+    environment:
+      - NODE_ENV=production

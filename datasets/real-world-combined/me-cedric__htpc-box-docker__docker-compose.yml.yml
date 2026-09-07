@@ -1,0 +1,1149 @@
+networks:
+  default:
+    driver: bridge
+  nextcloud:
+    name: nextcloud
+    driver: bridge
+  npm_proxy:
+    name: npm_proxy
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.89.0/24
+
+x-public-dns: &public-dns
+  - 8.8.8.8
+  - 8.8.4.4
+  - 1.1.1.1
+  - 1.0.0.1
+
+x-common-keys-media: &common-keys-media
+  networks:
+    - npm_proxy
+  dns: *public-dns
+  restart: unless-stopped
+  security_opt:
+    - "no-new-privileges=true"
+  ulimits:
+    core: 0
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-common-env: &common-env
+  PUID: ${PUID}
+  PGID: ${PGID}
+  TZ: ${TZ}
+
+volumes:
+  nextcloud_aio_mastercontainer:
+    name: nextcloud_aio_mastercontainer
+
+services:
+  ############################
+  # Traefik
+  ############################
+  traefik:
+    container_name: traefik
+    mem_limit: 256m
+    image: traefik:latest
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.100
+    ports:
+      - 80:80
+      - 443:443
+    extra_hosts:
+      - "auth.${SERVERNAME}:192.168.89.100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - "./letsencrypt:/letsencrypt"
+      - "./traefik-dynamic:/etc/traefik/dynamic:ro"
+    environment:
+      - TZ=$TZ
+      - SERVERNAME=${SERVERNAME}
+      - OIDC_SECRET=${OIDC_SECRET}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+    command:
+      - --api
+      - --api.dashboard=true
+      - --ping=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --serverstransport.insecureskipverify=true
+      - "--certificatesresolvers.letsencrypt.acme.email=${EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--experimental.plugins.traefik-oidc-auth.modulename=github.com/sevenso\
+        lutions/traefik-oidc-auth"
+      - "--experimental.plugins.traefik-oidc-auth.version=v0.21.0"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${SERVERNAME}`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.middlewares=oidc-auth-admin@file"
+      # Redirect HTTP → HTTPS
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`.+`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    healthcheck:
+      test: [ "CMD", "traefik", "healthcheck", "--ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  ############################
+  # Pocket ID (OIDC IdP)
+  ############################
+  pocketid:
+    container_name: pocketid
+    mem_limit: 256m
+    image: ghcr.io/pocket-id/pocket-id:latest
+    ports:
+      - "1411"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.114
+    <<: *common-keys-media
+    volumes:
+      - ${CONFIG}/pocketid/data:/app/data
+    environment:
+      - TZ=${TZ}
+      - TRUST_PROXY=true
+      - APP_URL=https://auth.${SERVERNAME}
+      - COOKIE_DOMAIN=.${SERVERNAME}
+      - COOKIE_SECURE=true
+      - ENCRYPTION_KEY=${ENCRYPTIONKEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pocketid.rule=Host(`auth.${SERVERNAME}`)"
+      - "traefik.http.routers.pocketid.entrypoints=websecure"
+      - "traefik.http.routers.pocketid.tls=true"
+      - "traefik.http.routers.pocketid.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pocketid.service=pocketid"
+      - "traefik.http.services.pocketid.loadbalancer.server.port=1411"
+    healthcheck:
+      test: [ "CMD", "/app/pocket-id", "healthcheck" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - traefik
+
+  ############################
+  # Homarr (OIDC login, internal role mapping)
+  ############################
+  homarr:
+    container_name: homarr
+    mem_limit: 512m
+    image: ghcr.io/homarr-labs/homarr:latest
+    ports:
+      - "7575"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.113
+    <<: *common-keys-media
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CONFIG}/homarr/appdata:/appdata
+    environment:
+      <<: *common-env
+      PGID: 996 # overrides default
+      SECRET_ENCRYPTION_KEY: ${ENCRYPTIONKEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homarr.rule=Host(`homarr.${SERVERNAME}`)"
+      - "traefik.http.routers.homarr.middlewares=oidc-auth-user@file"
+      - "traefik.http.routers.homarr.entrypoints=websecure"
+      - "traefik.http.routers.homarr.tls=true"
+      - "traefik.http.routers.homarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.homarr.service=homarr"
+      - "traefik.http.services.homarr.loadbalancer.server.port=7575"
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:7575" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Portainer (admin group)
+  ############################
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    container_name: portainer
+    mem_limit: 256m
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.102
+    security_opt:
+      - "no-new-privileges=true"
+    environment:
+      <<: *common-env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.${SERVERNAME}`)"
+      - "traefik.http.routers.portainer.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls=true"
+      - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.portainer.service=portainer"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+    # No healthcheck: the portainer-ce image ships no HTTP client (no curl/wget),
+    # so any probe fails and Traefik's docker provider drops the router.
+    depends_on:
+      - traefik
+
+  ############################
+  # Prowlarr (admin group)
+  ############################
+  prowlarr:
+    image: linuxserver/prowlarr:latest
+    container_name: prowlarr
+    mem_limit: 512m
+    <<: *common-keys-media
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:prowlarr
+      TP_THEME: overseerr
+    ports:
+      - "9696"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.172
+    volumes:
+      - ${CONFIG}/prowlarr:/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.${SERVERNAME}`)"
+      - "traefik.http.routers.prowlarr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.prowlarr.entrypoints=websecure"
+      - "traefik.http.routers.prowlarr.tls=true"
+      - "traefik.http.routers.prowlarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prowlarr.service=prowlarr"
+      - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9696/ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+      - radarr
+      - sonarr
+      - flaresolverr
+
+  ############################
+  # Radarr (admin group)
+  ############################
+  radarr:
+    image: linuxserver/radarr:latest
+    container_name: radarr
+    mem_limit: 512m
+    ports:
+      - "7878"
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.104
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:radarr
+      TP_THEME: overseerr
+    volumes:
+      - ${CONFIG}/radarr:/config
+      - ${ROOT}/movies:/movies
+      - ${ROOT}/downloads:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.${SERVERNAME}`)"
+      - "traefik.http.routers.radarr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.radarr.entrypoints=websecure"
+      - "traefik.http.routers.radarr.tls=true"
+      - "traefik.http.routers.radarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.radarr.service=radarr"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7878/ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Sonarr (admin group)
+  ############################
+  sonarr:
+    image: linuxserver/sonarr:latest
+    container_name: sonarr
+    mem_limit: 512m
+    ports:
+      - "8989"
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:sonarr
+      TP_THEME: overseerr
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.105
+    volumes:
+      - ${CONFIG}/sonarr:/config
+      - ${ROOT}/tv:/tv
+      - ${ROOT}/downloads:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.${SERVERNAME}`)"
+      - "traefik.http.routers.sonarr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.sonarr.entrypoints=websecure"
+      - "traefik.http.routers.sonarr.tls=true"
+      - "traefik.http.routers.sonarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sonarr.service=sonarr"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8989/ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Bazarr (admin group)
+  ############################
+  bazarr:
+    image: linuxserver/bazarr:latest
+    container_name: bazarr
+    mem_limit: 512m
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.110
+    ports:
+      - "6767"
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:bazarr
+      TP_THEME: overseerr
+    volumes:
+      - ${CONFIG}/bazarr:/config
+      - ${ROOT}/movies:/movies
+      - ${ROOT}/tv:/tv
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bazarr.rule=Host(`bazarr.${SERVERNAME}`)"
+      - "traefik.http.routers.bazarr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.bazarr.entrypoints=websecure"
+      - "traefik.http.routers.bazarr.tls=true"
+      - "traefik.http.routers.bazarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.bazarr.service=bazarr"
+      - "traefik.http.services.bazarr.loadbalancer.server.port=6767"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6767" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Flaresolverr (admin group)
+  ############################
+  flaresolverr:
+    container_name: flaresolverr
+    mem_limit: 512m
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    <<: *common-keys-media
+    ports:
+      - "8191"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.166
+    environment:
+      <<: *common-env
+    volumes:
+      - ${CONFIG}/flaresolverr:/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flaresolverr.rule=Host(`flaresolverr.${SERVERNAME\
+        }`)"
+      - "traefik.http.routers.flaresolverr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.flaresolverr.entrypoints=websecure"
+      - "traefik.http.routers.flaresolverr.tls=true"
+      - "traefik.http.routers.flaresolverr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.flaresolverr.service=flaresolverr"
+      - "traefik.http.services.flaresolverr.loadbalancer.server.port=8191"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8191" ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Decluttarr - cleanup/declutter for Radarr & Sonarr
+  ############################
+  decluttarr:
+    image: ghcr.io/manimatter/decluttarr:latest
+    container_name: decluttarr
+    mem_limit: 256m
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.117
+    restart: unless-stopped
+    volumes:
+      - ${CONFIG}/decluttarr:/app/config:rw
+      - ${CONFIG}/decluttarr/logs:/app/logs:rw
+      - ${ROOT}/tv:/tv:rw
+      - ${ROOT}/movies:/movies:rw
+      - ${ROOT}/downloads:/downloads:rw
+    environment:
+      <<: *common-env
+      LOG_LEVEL: ${DECLUTTARR_LOG_LEVEL:-INFO}
+      TEST_RUN: ${DECLUTTARR_TEST_RUN:-false}
+      TIMER: ${DECLUTTARR_TIMER:-120}
+      SSL_VERIFICATION: ${DECLUTTARR_SSL_VERIFICATION:-true}
+      PRIVATE_TRACKER_HANDLING: ${DECLUTTARR_PRIVATE_TRACKER_HANDLING:-remove}
+      PUBLIC_TRACKER_HANDLING: ${DECLUTTARR_PUBLIC_TRACKER_HANDLING:-remove}
+      OBSOLETE_TAG: ${DECLUTTARR_OBSOLETE_TAG:-Obsolete}
+      PROTECTED_TAG: ${DECLUTTARR_PROTECTED_TAG:-Keep}
+      REMOVE_BAD_FILES: ${DECLUTTARR_REMOVE_BAD_FILES:-true}
+      REMOVE_FAILED_DOWNLOADS: ${DECLUTTARR_REMOVE_FAILED_DOWNLOADS:-true}
+      REMOVE_FAILED_IMPORTS: ${DECLUTTARR_REMOVE_FAILED_IMPORTS:-true}
+      REMOVE_METADATA_MISSING: ${DECLUTTARR_REMOVE_METADATA_MISSING:-true}
+      REMOVE_MISSING_FILES: ${DECLUTTARR_REMOVE_MISSING_FILES:-true}
+      REMOVE_ORPHANS: ${DECLUTTARR_REMOVE_ORPHANS:-true}
+      REMOVE_SLOW: ${DECLUTTARR_REMOVE_SLOW:-true}
+      REMOVE_STALLED: ${DECLUTTARR_REMOVE_STALLED:-true}
+      REMOVE_UNMONITORED: ${DECLUTTARR_REMOVE_UNMONITORED:-true}
+      SEARCH_UNMET_CUTOFF: ${DECLUTTARR_SEARCH_UNMET_CUTOFF:-true}
+      SEARCH_MISSING: ${DECLUTTARR_SEARCH_MISSING:-true}
+      DETECT_DELETIONS: ${DECLUTTARR_DETECT_DELETIONS:-true}
+      SONARR: >
+        - base_url: "${DECLUTTARR_SONARR_BASE_URL:-http://192.168.89.105:8989}"
+          api_key: "${SONARR_API_KEY}"
+      RADARR: >
+        - base_url: "${DECLUTTARR_RADARR_BASE_URL:-http://192.168.89.104:7878}"
+          api_key: "${RADARR_API_KEY}"
+      QBITTORRENT: >
+        - base_url: "${DECLUTTARR_QBITTORRENT_BASE_URL:-http://192.168.89.160:8123}"
+          name: "qBittorrent"
+          username: "${DECLUTTARR_QBITTORRENT_USERNAME:-}"
+          password: "${DECLUTTARR_QBITTORRENT_PASSWORD:-}"
+    depends_on:
+      traefik:
+        condition: service_started
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+      gluetun:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_started
+
+  ############################
+  # Gluetun VPN (NordVPN via OpenVPN)
+  ############################
+  gluetun:
+    container_name: gluetun
+    mem_limit: 512m
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.160
+    dns: *public-dns
+    cap_add:
+    - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${VPN_KEY}
+      - SERVER_COUNTRIES=${VPN_COUNTRY}
+      - FIREWALL_OUTBOUND_SUBNETS=${NETWORK}
+      - TZ=${TZ}
+    ports:
+      - 127.0.0.1:8123:8123 # qBittorrent WebUI (localhost only, Traefik proxies)
+      - 6881:6881 # qBittorrent torrenting
+      - 6881:6881/udp
+    healthcheck:
+      test: [ "CMD", "/gluetun-entrypoint", "healthcheck" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.${SERVERNAME}`)"
+      - "traefik.http.routers.qbittorrent.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.qbittorrent.entrypoints=websecure"
+      - "traefik.http.routers.qbittorrent.tls=true"
+      - "traefik.http.routers.qbittorrent.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.qbittorrent.service=qbittorrent"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8123"
+    depends_on:
+      - traefik
+
+  ############################
+  # qBittorrent (behind Gluetun VPN)
+  ############################
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    mem_limit: 1g
+    restart: unless-stopped
+    network_mode: service:gluetun
+    security_opt:
+      - "no-new-privileges=true"
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:qbittorrent
+      TP_THEME: dracula
+      WEBUI_PORT: 8123
+      TORRENTING_PORT: 6881
+    volumes:
+      - ${CONFIG}/qbittorrent:/config
+      - ${ROOT}/downloads:/downloads
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      traefik:
+        condition: service_started
+
+  ############################
+  # cross-seed (admin group)
+  ############################
+  cross-seed:
+    image: ghcr.io/cross-seed/cross-seed:6
+    container_name: cross-seed
+    mem_limit: 512m
+    user: "${PUID}:${PGID}"
+    command: daemon
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.162
+    expose:
+      - "2468"
+    environment:
+      <<: *common-env
+    volumes:
+      - ${CONFIG}/cross-seed:/config
+      # Copy config.example.js to config.js before you start this service.
+      - type: bind
+        source: ./config.js
+        target: /config/config.js
+        read_only: true
+        bind:
+          create_host_path: false
+      - ${ROOT}/downloads:/downloads
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "traefik.enable=true"
+      - "traefik.docker.network=npm_proxy"
+      - "traefik.http.routers.crossseed.rule=Host(`crossseed.${SERVERNAME}`)"
+      - "traefik.http.routers.crossseed.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.crossseed.entrypoints=websecure"
+      - "traefik.http.routers.crossseed.tls=true"
+      - "traefik.http.routers.crossseed.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.crossseed.service=crossseed"
+      - "traefik.http.services.crossseed.loadbalancer.server.port=2468"
+    depends_on:
+      - traefik
+
+  ############################
+  # Autobrr (ratio building)
+  ############################
+  # autobrr:
+  #   image: ghcr.io/autobrr/autobrr:latest
+  #   container_name: autobrr
+  #   mem_limit: 256m
+  #   <<: *common-keys-media
+  #   networks:
+  #     npm_proxy:
+  #       ipv4_address: 192.168.89.161
+  #   environment:
+  #     <<: *common-env
+  #   volumes:
+  #     - ${CONFIG}/autobrr:/config
+  #   ports:
+  #     - "7474"
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.autobrr.rule=Host(`autobrr.${SERVERNAME}`)"
+  #     - "traefik.http.routers.autobrr.middlewares=oidc-auth-admin@file"
+  #     - "traefik.http.routers.autobrr.entrypoints=websecure"
+  #     - "traefik.http.routers.autobrr.tls=true"
+  #     - "traefik.http.routers.autobrr.tls.certresolver=letsencrypt"
+  #     - "traefik.http.routers.autobrr.service=autobrr"
+  #     - "traefik.http.services.autobrr.loadbalancer.server.port=7474"
+  #   healthcheck:
+  #     test: [ "CMD", "curl", "-f", "http://localhost:7474/api/healthz" ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+  #   depends_on:
+  #     - traefik
+
+  ############################
+  # Plex (open access)
+  ############################
+  plex-server:
+    image: linuxserver/plex:latest
+    container_name: plex-server
+    mem_limit: 4g
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.106
+    ports:
+      - target: 32400
+        published: 32400
+        protocol: tcp
+        mode: host
+      - target: 32400
+        published: 32400
+        protocol: udp
+        mode: host
+    ulimits:
+      sigpending: 62793
+      nproc: 131072
+      nofile: 60000
+      core: 0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    environment:
+      <<: *common-env
+      VERSION: docker
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    volumes:
+      - ${CONFIG}/plex/library:/root/Library
+      - ${CONFIG}/plex/db:/config
+      - ${CONFIG}/plex/transcode:/transcode
+      - ${ROOT}/tv:/data/tvshows
+      - ${ROOT}/movies:/data/movies
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.plex-server.rule=Host(`plex.${SERVERNAME}`)"
+      - "traefik.http.routers.plex-server.middlewares=security-headers@file"
+      - "traefik.http.routers.plex-server.entrypoints=websecure"
+      - "traefik.http.routers.plex-server.tls=true"
+      - "traefik.http.routers.plex-server.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.plex-server.service=plex-server"
+      - "traefik.http.services.plex-server.loadbalancer.server.port=32400"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:32400/identity" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - traefik
+
+  ############################
+  # Ofelia to schedule Plex and Trakt sync every 6h (no UI)
+  ############################
+  scheduler:
+    image: mcuadros/ofelia:latest
+    container_name: scheduler
+    mem_limit: 128m
+    dns: *public-dns
+    security_opt:
+      - "no-new-privileges=true"
+    depends_on:
+      - plextraktsync
+      - plex-server
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.107
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      ofelia.job-run.plextraktsync.schedule: "@every 6h"
+      ofelia.job-run.plextraktsync.container: "plextraktsync"
+
+  ############################
+  # PlexTraktSync (no UI)
+  ############################
+  # run `docker-compose run --rm plextraktsync sync` before running compose to setup credentials
+  plextraktsync:
+    image: ghcr.io/taxel/plextraktsync
+    command: sync
+    container_name: plextraktsync
+    mem_limit: 256m
+    security_opt:
+      - "no-new-privileges=true"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.108
+    dns: *public-dns
+    restart: on-failure:2
+    volumes:
+      - ${CONFIG}/plextraktsync:/app/config
+    environment:
+      <<: *common-env
+    depends_on:
+      - plex-server
+
+  ############################
+  # Tdarr (admin group)
+  ############################
+  tdarr:
+    container_name: tdarr
+    mem_limit: 4g
+    image: ghcr.io/haveagitgat/tdarr:latest
+    <<: *common-keys-media
+    ports:
+      - "8265" # webUI port
+      - "8266" # server port
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.173
+    environment:
+      <<: *common-env
+      UMASK_SET: "002"
+      serverIP: 0.0.0.0
+      serverPort: 8266
+      webUIPort: 8265
+      internalNode: "true"
+      inContainer: "true"
+      ffmpegVersion: 6
+      nodeName: TdarrInternalNode
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ${CONFIG}/tdarr/server:/app/server
+      - ${CONFIG}/tdarr/configs:/app/configs
+      - ./logs/tdarr:/app/logs
+      - ${ROOT}/movies:/media/movies
+      - ${ROOT}/tv:/media/tv
+      - ./transcode_cache:/temp
+    devices:
+      - /dev/dri:/dev/dri
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tdarr.rule=Host(`tdarr.${SERVERNAME}`)"
+      - "traefik.http.routers.tdarr.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.tdarr.entrypoints=websecure"
+      - "traefik.http.routers.tdarr.tls=true"
+      - "traefik.http.routers.tdarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.tdarr.service=tdarr"
+      - "traefik.http.services.tdarr.loadbalancer.server.port=8265"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8265" ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Kavita (admin group)
+  ############################
+  kavita:
+    image: jvmilazz0/kavita:latest
+    container_name: kavita
+    mem_limit: 512m
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.171
+    environment:
+      <<: *common-env
+    volumes:
+      - ${CONFIG}/kavita:/kavita/config
+      - ${ROOT}/ebooks/comics:/comics
+      - ${ROOT}/ebooks/bd:/bd
+      - ${ROOT}/ebooks/books:/books
+      - ${ROOT}/ebooks/manga:/manga
+    ports:
+      - "5000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kavita.rule=Host(`kavita.${SERVERNAME}`)"
+      - "traefik.http.routers.kavita.entrypoints=websecure"
+      - "traefik.http.routers.kavita.tls=true"
+      - "traefik.http.routers.kavita.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.kavita.service=kavita"
+      - "traefik.http.services.kavita.loadbalancer.server.port=5000"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Seerr (user group)
+  ############################
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    init: true
+    container_name: seerr
+    mem_limit: 512m
+    <<: *common-keys-media
+    environment:
+      <<: *common-env
+      LOG_LEVEL: info
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.112
+    ports:
+      - "5055:5055"
+    volumes:
+      - ${CONFIG}/seerr:/app/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.seerr.rule=Host(`seerr.${SERVERNAME}`)"
+      - "traefik.http.routers.seerr.middlewares=oidc-auth-user@file"
+      - "traefik.http.routers.seerr.entrypoints=websecure"
+      - "traefik.http.routers.seerr.tls=true"
+      - "traefik.http.routers.seerr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.seerr.service=seerr"
+      - "traefik.http.services.seerr.loadbalancer.server.port=5055"
+    depends_on:
+      - traefik
+
+  ############################
+  # MariaDB for Nextcloud (not exposed)
+  ############################
+  database:
+    image: mariadb:10
+    container_name: database
+    mem_limit: 512m
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges=true"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - nextcloud
+    volumes:
+      - ${CONFIG}/mariadb:/var/lib/mysql
+
+  ############################
+  # Redis for Nextcloud (not exposed)
+  ############################
+  redis:
+    image: redis:alpine
+    container_name: redis
+    mem_limit: 128m
+    security_opt:
+      - "no-new-privileges=true"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      nextcloud:
+    restart: unless-stopped
+
+  ############################
+  # Nextcloud (admin group)
+  ############################
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    mem_limit: 1g
+    dns: *public-dns
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges=true"
+    depends_on:
+      - database
+      - redis
+      - traefik
+    hostname: nextcloud.${SERVERNAME}
+    volumes:
+      - ${CONFIG}/nextcloud:/var/www/html
+      - ${ROOT}:/nas-share
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.170
+      nextcloud:
+    environment:
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_HOST=database
+      - REDIS_HOST=redis
+      - "NEXTCLOUD_TRUSTED_DOMAINS=localhost 0.0.0.0 192.168.89.0 ${SERVERNAME}
+        homarr.${SERVERNAME} nextcloud.${SERVERNAME}"
+      - TRUSTED_PROXIES=192.168.89.0/24
+      - OVERWRITEPROTOCOL=https
+    ports:
+      - "8282"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.${SERVERNAME}`)"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud-dav,nextcloud-headers"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.routers.nextcloud.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nextcloud.service=nextcloud"
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-\
+        known/ca(l|rd)dav"
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/r\
+        emote.php/dav/"
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsIncludeSubdomain\
+        s=true"
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.nextcloud-headers.headers.forceSTSHeader=true"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      - "traefik.docker.network=npm_proxy"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80/status.php" ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  ############################
+  # Duplicati (admin group)
+  ############################
+  duplicati:
+    container_name: duplicati
+    mem_limit: 1g
+    image: linuxserver/duplicati:latest
+    <<: *common-keys-media
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.168
+    ports:
+      - "8200:80"
+    environment:
+      <<: *common-env
+      DOCKER_MODS: ghcr.io/themepark-dev/theme.park:duplicati
+      TP_THEME: overseerr
+      DUPLICATI__WEBSERVICE_PASSWORD: ${DUPLICATI__WEBSERVICE_PASSWORD}
+    volumes:
+      - ${CONFIG}/duplicati:/config
+      - ${CONFIG}:/source
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.duplicati.rule=Host(`duplicati.${SERVERNAME}`)"
+      - "traefik.http.routers.duplicati.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.duplicati.entrypoints=websecure"
+      - "traefik.http.routers.duplicati.tls=true"
+      - "traefik.http.routers.duplicati.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.duplicati.service=duplicati"
+      - "traefik.http.services.duplicati.loadbalancer.server.port=8200"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8200" ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - traefik
+
+  ############################
+  # Truenas behind Nginx (admin group)
+  ############################
+  nginx:
+    image: nginx:latest
+    container_name: truenas
+    mem_limit: 128m
+    <<: *common-keys-media
+    read_only: false
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.89.101
+    environment:
+      <<: *common-env
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/nginx.conf
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx.rule=Host(`truenas.${SERVERNAME}`)"
+      - "traefik.http.routers.nginx.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.nginx.entrypoints=websecure"
+      - "traefik.http.routers.nginx.tls=true"
+      - "traefik.http.routers.nginx.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nginx.service=nginx"
+      - "traefik.http.services.nginx.loadbalancer.server.port=8081"
+      - "traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forw\
+        arded-Proto=http"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - traefik
+
+  ############################
+  # Home Assistant (admin group)
+  ############################
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    mem_limit: 1g
+    # host networking is required for mDNS/multicast device discovery
+    # (Google Home/Cast, Yeelight LAN protocol, JBL Chromecast)
+    # NOTE: cannot use <<: *common-keys-media (incompatible with network_mode: host)
+    network_mode: host
+    dns: *public-dns
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges=true"
+    environment:
+      # PUID/PGID not used — HA manages its own user inside the container
+      TZ: ${TZ}
+      # Full URLs constructed here so HA config can use !env_var directly
+      # (HA's !env_var substitutes the whole value — no mid-string interpolation)
+      HA_EXTERNAL_URL: "https://ha.${SERVERNAME}"
+      HA_INTERNAL_URL: "http://${HOST_IP}:8124"
+    volumes:
+      - ${CONFIG}/homeassistant:/config
+      - ./homeassistant-configuration.yaml:/config/configuration.yaml:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homeassistant.rule=Host(`ha.${SERVERNAME}`)"
+      - "traefik.http.routers.homeassistant.middlewares=oidc-auth-admin@file"
+      - "traefik.http.routers.homeassistant.entrypoints=websecure"
+      - "traefik.http.routers.homeassistant.tls=true"
+      - "traefik.http.routers.homeassistant.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.homeassistant.service=homeassistant"
+      # host-networked containers have no Docker IP — point Traefik at the NAS LAN IP directly
+      # Port 8124 is used (8123 is already bound by qBittorrent/gluetun on this host)
+      # Requires HOST_IP=192.168.1.53 in .env
+      - "traefik.http.services.homeassistant.loadbalancer.server.url=http://${H\
+        OST_IP}:8124"
+    depends_on:
+      - traefik
+
+  ############################
+  # HTPC Dashboard (OIDC user group)
+  # Commented out — using dev compose from better-htpc-dashboard repo for testing
+  ############################
+  # htpc-dashboard:
+  #   container_name: htpc-dashboard
+  #   mem_limit: 512m
+  #   image: ghcr.io/me-cedric/better-htpc-dashboard:latest
+  #   ports:
+  #     - "3000"
+  #   networks:
+  #     npm_proxy:
+  #       ipv4_address: 192.168.89.175
+  #   <<: *common-keys-media
+  #   volumes:
+  #     - ${CONFIG}/htpc-dashboard:/config
+  #   environment:
+  #     <<: *common-env
+  #     APP_BASE_URL: "https://dashboard.${SERVERNAME}"
+  #     CONFIG_DIR: /config
+  #     DATABASE_URL: "file:/config/dashboard.sqlite"
+  #     POCKETID_ISSUER_URL: "https://auth.${SERVERNAME}"
+  #     POCKETID_CLIENT_ID: ${OIDC_CLIENT_ID}
+  #     POCKETID_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+  #     POCKETID_ADMIN_ROLE: credentials-admin
+  #     POCKETID_REQUESTER_ROLE: requester
+  #     POCKETID_VIEWER_ROLE: user
+  #     SONARR_BASE_URL: "http://sonarr:8989"
+  #     RADARR_BASE_URL: "http://radarr:7878"
+  #     PROWLARR_BASE_URL: "http://prowlarr:9696"
+  #     QBITTORRENT_BASE_URL: "http://gluetun:8123"
+  #     PLEX_BASE_URL: "http://plex:32400"
+  #     DUPLICATI_BASE_URL: "http://duplicati:8200"
+  #     DOCKER_MANAGEMENT_ENABLED: "true"
+  #     DOCKER_SOCKET_PROXY_URL: "http://docker-socket-proxy:2375"
+  #   labels:
+  #     - com.centurylinklabs.watchtower.enable=true
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.htpc-dashboard.rule=Host(`dashboard.${SERVERNAME}`)"
+  #     - "traefik.http.routers.htpc-dashboard.middlewares=oidc-auth-user@file"
+  #     - "traefik.http.routers.htpc-dashboard.entrypoints=websecure"
+  #     - "traefik.http.routers.htpc-dashboard.tls=true"
+  #     - "traefik.http.routers.htpc-dashboard.tls.certresolver=letsencrypt"
+  #     - "traefik.http.routers.htpc-dashboard.service=htpc-dashboard"
+  #     - "traefik.http.services.htpc-dashboard.loadbalancer.server.port=3000"
+  #   depends_on:
+  #     - traefik
+  #     - docker-socket-proxy
+
+  ############################
+  # Docker Socket Proxy (for dashboard container management)
+  ############################
+  # docker-socket-proxy:
+  #   container_name: docker-socket-proxy
+  #   mem_limit: 128m
+  #   image: tecnativa/docker-socket-proxy:latest
+  #   <<: *common-keys-media
+  #   networks:
+  #     npm_proxy:
+  #       ipv4_address: 192.168.89.176
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   environment:
+  #     CONTAINERS: "1"
+  #     EVENTS: "1"
+  #     INFO: "1"
+  #     NETWORKS: "1"
+  #     PING: "1"
+  #     POST: "1"
+  #     SERVICES: "0"
+  #     TASKS: "0"

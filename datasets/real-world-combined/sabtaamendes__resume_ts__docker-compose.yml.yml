@@ -1,0 +1,48 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile  
+    container_name: appresume
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/usr/src/app
+    environment:
+      POSTGRES_PASSWORD: '2020'
+      POSTGRES_USER: 'postgres'
+      POSTGRES_DB: 'resume_submission_development'
+      POSTGRES_PORT: '5432'
+      POSTGRES_HOST_AUTH_METHOD: 'trust'
+      DATABASE_URL: 'postgres://postgres:2020@db:5432/resume_submission_development'
+    networks:
+      - app-network
+    depends_on:
+      - db
+    entrypoint: ["sh", "-c", "npx prisma generate && npx prisma migrate dev && npx prisma migrate deploy && npx prisma db seed && npm run build && npm start"]
+  db:
+    image: postgres
+    container_name: postgres
+    restart: always
+    tty: true
+    ports:
+      - "5433:5432" 
+    volumes:
+      - postgres_data:/var/lib/postgresql/data 
+    environment:
+      POSTGRES_PASSWORD: '2020'
+      POSTGRES_USER: 'postgres'
+      POSTGRES_DB: 'resume_submission_development'
+      POSTGRES_PORT: '5432' 
+      POSTGRES_HOST_AUTH_METHOD: 'trust'
+      DATABASE_URL: 'postgres://postgres:2020@db:5432/resume_submission_development'
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

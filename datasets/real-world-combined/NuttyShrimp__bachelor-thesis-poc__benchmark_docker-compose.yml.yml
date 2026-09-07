@@ -1,0 +1,262 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=24w"
+      - "--web.enable-admin-api"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=native-histograms"
+    user: "1000:1000"
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus/config:/etc/prometheus
+      - ./prometheus/data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    user: '1000:1000'
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./grafana/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml
+      - ./grafana/datasource.yaml:/etc/grafana/provisioning/datasources/main.yaml
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-storage:/var/lib/grafana
+    depends_on:
+      - cadvisor
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    command: 
+    - cadvisor
+    - --docker_only=true
+    - --enable_metric=cpu,memory,shed,network,referenced_memory
+    # - --housekeeping_interval=100ms        # refresh rate
+    #- --max_housekeeping_interval=150ms    # max jitter allowed
+    #- --allow_dynamic_housekeeping=false   # disable adaptive throttling
+    ports:
+    - 9080:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+
+  swift:
+    labels:
+      - "monitoring=benchmark"
+    depends_on:
+      - cadvisor
+    build:
+      context: ../swift
+      args:
+        CACHE_ID: "swift-standard"
+      tags:
+        - bap/swift:latest
+    shm_size: '4gb'
+    ports:
+      - '8080:8080'
+    privileged: true
+    volumes:
+      - ../data:/data
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    memswap_limit: 8G
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 8G
+    ulimits:
+      nproc: 125000
+      nofile:
+        soft: 250000
+        hard: 520000
+
+  swift-reerjson:
+    labels:
+      - "monitoring=benchmark"
+    depends_on:
+      - cadvisor
+    image: ghcr.io/nuttyshrimp/bap-swift-reerjson:main
+    # build:
+    #   context: ../swift
+    #   args:
+    #     SWIFT_BUILD_FLAGS: "--traits YYJSON"
+    #     CACHE_ID: "swift-yyjson"
+    #   tags:
+    #     - bap/swift-yyjson:latest
+    ports:
+      - '8082:8080'
+    privileged: true
+    volumes:
+      - ../data:/data
+    shm_size: '4gb'
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    memswap_limit: 8G
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 8G
+    ulimits:
+      nproc: 125000
+      nofile:
+        soft: 250000
+        hard: 520000
+
+  swift-yyjson:
+    container_name: srv1-swift-yyjson-1
+    labels:
+      - "monitoring=benchmark"
+    depends_on:
+      - cadvisor
+    build:
+      context: ../swift
+      args:
+        SWIFT_BUILD_FLAGS: "--traits YYJSON"
+        CACHE_ID: "swift-yyjson"
+      tags:
+        - bap/swift-yyjson:latest
+    ports:
+      - '8083:8080'
+    privileged: true
+    volumes:
+      - ../data:/data
+    shm_size: '4gb'
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    memswap_limit: 8G
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 8G
+    ulimits:
+      nproc: 125000
+      nofile:
+        soft: 250000
+        hard: 520000
+
+  php-fpm:
+    labels:
+      - "monitoring=benchmark"
+    container_name: srv1-php-fpm-1
+    depends_on:
+      - cadvisor
+    build:
+      context: ../php
+      target: app
+      tags:
+        - bap/php-fpm:latest
+    shm_size: '4gb'
+    expose:
+      - '9000'
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: base64:6p01NdMHOMdQPhQWf4PwKm4YQ12b6NWvR4N4ctA4fuY=
+      APP_URL: http://localhost:8000
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    memswap_limit: 8G
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 8G
+    ulimits:
+      nproc: 62500
+      nofile:
+        soft: 250000
+        hard: 520000
+    volumes:
+      - ../data:/var/www/data:ro
+
+  php-nginx:
+    container_name: srv1-php-nginx-1
+    labels:
+      - "monitoring=benchmark"
+    build:
+      context: ../php
+      target: web
+      tags:
+        - bap/php-nginx:latest
+    ports:
+      - '8000:80'
+    depends_on:
+      - php-fpm
+      - cadvisor
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    ulimits:
+      nproc: 62500
+      nofile:
+        soft: 250000
+        hard: 520000
+
+  php-octane:
+    labels:
+      - "monitoring=benchmark"
+    depends_on:
+      - cadvisor
+    build:
+      context: ../php
+      dockerfile: Dockerfile.octane
+      target: octane
+      tags:
+        - bap/php-octane:latest
+    shm_size: '4gb'
+    ports:
+      - "8001:8000"
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: base64:6p01NdMHOMdQPhQWf4PwKm4YQ12b6NWvR4N4ctA4fuY=
+      APP_URL: http://localhost:8001
+      OCTANE_SERVER: frankenphp
+      OCTANE_WORKERS: 4
+    volumes:
+      - ../data:/var/www/data:ro
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_tw_reuse: 1
+      net.ipv4.tcp_timestamps: 1
+    memswap_limit: 8G
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 8G
+    ulimits:
+      nproc: 125000
+      nofile:
+        soft: 250000
+        hard: 520000
+
+volumes:
+  grafana-storage: {}

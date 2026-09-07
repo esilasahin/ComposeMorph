@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  catalog-server:
+    image: catalog-service
+    build:
+      context: .
+      target: production
+    volumes:
+      - ./src/catalog-service:/app/src/catalog-service:ro
+      - ./src/nginx:/app/src/nginx:ro
+      - ./src/catalog-service/database.db:/app/database.db:rw
+    environment:
+      - NODE_ENV=production
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 2
+        delay: 10s
+      endpoint_mode: dnsrr
+
+  order-server:
+    image: order-service
+    build:
+      context: .
+      target: production1
+    volumes:
+      - ./src/order-service:/app/src/order-service:ro
+      - ./src/nginx:/app/src/nginx:ro
+    environment:
+      - NODE_ENV=production
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 2
+        delay: 10s
+      endpoint_mode: dnsrr
+
+  client:
+    image: client-service
+    build:
+      context: .
+    volumes:
+      - ./src/client-service:/app/src/client-service:ro
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 2
+        delay: 10s
+      endpoint_mode: dnsrr
+
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - '8083:80'
+    volumes:
+      - ./src/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - catalog-server
+      - order-server
+      - client
+
+  redis:
+    image: redis

@@ -1,0 +1,50 @@
+services:
+  claude-code:
+    image: claudesandbox
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-code-sandbox
+    hostname: claude-sandbox
+
+    # Interactive mode for CLI usage
+    stdin_open: true
+    tty: true
+
+    # Volume mappings
+    volumes:
+      # Mount your codebase here - only the workspace persists
+      - ./workspace:/workspace
+
+    # Environment variables
+    environment:
+      # Required: Claude OAuth token (from `claude login` on host machine)
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      # Optional: Git configuration
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-Claude User}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-claude@localhost}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-Claude User}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-claude@localhost}
+      # Terminal settings
+      - TERM=xterm-256color
+
+    # Security settings for sandboxing
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+    # Network isolation (optional - uncomment to fully isolate)
+    # network_mode: none
+
+    # Restart policy
+    restart: "no"
+

@@ -1,0 +1,654 @@
+# ==========================================
+# OpenNVR — camera-agent overlay
+# ==========================================
+#
+# The camera-agent in two ways to run, same app:
+#
+#   * camera-agent        VOICE — ask out loud, hear the answer spoken back.
+#                         Pipecat + Silero VAD + Whisper STT + Ollama LLM +
+#                         Piper TTS + YOLOv8/BLIP vision. The flagship.
+#   * camera-agent-chat   CHAT — type your question, read the answer. Same
+#                         tools and scene description (YOLOv8 + BLIP), no
+#                         microphone/speaker, so it's lighter (no Whisper/Piper).
+#
+# Both run a small local LLM by default. To use a cloud / bring-your-own brain
+# instead (OpenAI-compatible), see examples/camera-agent/config.cloud.yml.
+#
+# Quickstart (from the repo root):
+#
+#     examples/camera-agent/quickstart.sh          # voice (default)
+#     examples/camera-agent/quickstart.sh --chat   # text chat
+#     examples/camera-agent/quickstart.sh --down   # stop
+#
+# Or drive Compose directly:
+#
+#     docker compose -f docker-compose.yml \
+#                    -f docker-compose.camera-agent.yml \
+#                    --profile camera-agent up -d      # or --profile camera-agent-chat
+#
+# The Ollama model is pulled automatically on first ``up``. Open
+# https://localhost:9100/demo.
+#
+# ── A note on packaging maturity ───────────────────────────────
+#
+# v0.1 ships the camera-agent service ``build:``-from-source. The speech and
+# vision adapters are already published as per-adapter GHCR images, matching
+# standard stack's pull-first posture. The LLM path talks directly to the local Ollama
+# service until a dedicated ghcr.io/open-nvr/ollama-adapter image is published.
+# ==========================================
+
+# Bounded per-container logs (see docs/OBSERVABILITY.md "Logs"): every
+# service keeps a rolling ~30MB of its own history (3 x 10MB json files), so
+# `docker logs --since 1h <name>` always has the recent story after an
+# incident, and a chatty container can never fill the disk. Opt-in central
+# viewer: `COMPOSE_PROFILES=logs` adds a localhost-only Dozzle at :9999.
+x-default-logging: &svc-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ──────────────────────────────────────────────────────────────
+  # Whisper STT — VOICE only. Pulled from GHCR. The image eagerly loads the
+  # selected model on boot; first run may download faster-whisper weights into
+  # the persisted cache, then later boots reuse them.
+  # ──────────────────────────────────────────────────────────────
+  whisper-adapter:
+    profiles: [camera-agent]
+    image: ghcr.io/open-nvr/whisper-adapter:${ADAPTER_TAG:-latest}
+    container_name: opennvr_whisper_adapter
+    logging: *svc-logs
+    restart: unless-stopped
+    environment:
+      - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+      # English-only Whisper: faster on CPU and avoids the multilingual
+      # model hallucinating foreign-language tokens on noisy/quiet audio.
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base.en}
+    volumes:
+      - opennvr_whisper_models:/app/model_weights/whisper
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9003/health', timeout=2).status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 300s
+      retries: 20
+
+  # ──────────────────────────────────────────────────────────────
+  # Piper TTS — VOICE only. Pulled from GHCR. The default voice files live in
+  # the sibling ai-adapter checkout and are mounted where the current
+  # PiperService resolves MODEL_WEIGHTS_DIR/piper.
+  # ──────────────────────────────────────────────────────────────
+  # One-shot: fetch the Piper voice into a named volume on first up.
+  # The piper image ships NO voice (voices are large and interchangeable),
+  # and the old bind mount (../ai-adapter/model_weights/piper) silently
+  # expected the operator to have the ai-adapter repo checked out as a
+  # sibling AND to have manually downloaded the voice — nobody is told to,
+  # so on a stock install the adapter booted healthy and then 503'd every
+  # synthesis forever ("voice replies unavailable"). Same init pattern as
+  # yolov8-weights-init: idempotent (skips when the files are present and
+  # non-empty), so restarts cost nothing. Needs internet on FIRST up only
+  # (huggingface.co, like the Ollama model pull); air-gapped installs
+  # pre-place the two files in the opennvr_piper_voices volume instead.
+  piper-voices-init:
+    profiles: [camera-agent]
+    image: curlimages/curl:8.10.1
+    container_name: opennvr_piper_voices_init
+    logging: *svc-logs
+    restart: "no"
+    # The curl image runs as a non-root user, but a fresh named volume is
+    # root-owned — without this the very first download fails on a
+    # permission error.
+    user: "0:0"
+    # BEST-EFFORT by design: this init must ALWAYS exit 0. The adapter
+    # (and the whole voice profile behind it) depends_on this completing —
+    # if a download failure propagated, a machine without internet on
+    # first up would lose the entire voice stack instead of just the
+    # voice. On failure the adapter boots voiceless-but-healthy (exactly
+    # the pre-init behavior, with a clear log) and the next
+    # ``docker compose up`` retries the download.
+    # List-form command (see yolov8-weights-init's NOTE): a string command
+    # gets word-split and only the first token runs.
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        VOICE=en_US-libritts-high
+        BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high
+        cd /voices || exit 0
+        for f in "$$VOICE.onnx" "$$VOICE.onnx.json"; do
+          if [ -s "$$f" ]; then
+            echo "$$f already present ($$(wc -c < "$$f") bytes); skipping."
+            continue
+          fi
+          echo "Downloading $$f ..."
+          if curl -fSL --retry 3 -o "$$f.part" "$$BASE/$$f"; then
+            mv "$$f.part" "$$f"
+            echo "Wrote $$(wc -c < "$$f") bytes to /voices/$$f."
+          else
+            rm -f "$$f.part"
+            echo "WARNING: could not download $$f (no internet?). Voice replies"
+            echo "stay text-only until it succeeds — re-run 'docker compose up'"
+            echo "with internet, or place the file in the opennvr_piper_voices"
+            echo "volume manually."
+          fi
+        done
+        exit 0
+    volumes:
+      - opennvr_piper_voices:/voices
+
+  piper-adapter:
+    profiles: [camera-agent]
+    image: ghcr.io/open-nvr/piper-adapter:${ADAPTER_TAG:-latest}
+    container_name: opennvr_piper_adapter
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      piper-voices-init:
+        condition: service_completed_successfully
+    environment:
+      - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+    volumes:
+      # The adapter resolves MODEL_WEIGHTS_DIR/piper -> /app/model_weights/piper.
+      # Custom/extra voices: drop .onnx + .onnx.json pairs into the
+      # opennvr_piper_voices volume (or override this mount with a bind).
+      - opennvr_piper_voices:/app/model_weights/piper:ro
+      - opennvr_piper_audio:/app/audio
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9001/health', timeout=2).status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
+  # ──────────────────────────────────────────────────────────────
+  # Selectable caption/VQA adapter — VOICE + CHAT. CAPTION_ADAPTER chooses
+  # exactly one GHCR image: ``blip-adapter`` or ``moondream-adapter``.
+  # Both images are normalized to port 9006 so downstream wiring stays fixed.
+  # ──────────────────────────────────────────────────────────────
+  caption-adapter:
+    profiles: [camera-agent, camera-agent-chat]
+    # CAPTION_ADAPTER_TAG lets the caption image ride a different tag than
+    # the pinned ADAPTER_TAG. It existed because the default (ollamavlm)
+    # shipped only after 0.1.3; adapter releases from 0.1.4 on publish it,
+    # so .env.example now leaves this BLANK and every adapter rides one
+    # pin. Still here for pinning ADAPTER_TAG to something older than
+    # 0.1.4. Falls back to ADAPTER_TAG when unset/empty.
+    image: ghcr.io/open-nvr/${CAPTION_ADAPTER:-moondream}-adapter:${CAPTION_ADAPTER_TAG:-${ADAPTER_TAG:-latest}}
+    container_name: opennvr_caption_adapter
+    logging: *svc-logs
+    restart: unless-stopped
+    command: ["uvicorn", "adapters.${CAPTION_ADAPTER:-moondream}.main:app", "--host", "0.0.0.0", "--port", "9006"]
+    environment:
+      - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+      # Consumed only by CAPTION_ADAPTER=ollamavlm (the Ollama-proxy VLM;
+      # ships in adapter releases from 0.1.4 on); inert for moondream/blip.
+      # Reuses OLLAMA_EXTERNAL_URL so the LLM and the VLM share one
+      # runtime: host Ollama when set (GPU on macOS/Windows), the bundled
+      # ollama container otherwise.
+      - OPENNVR_OLLAMA_VLM_URL=${OLLAMA_EXTERNAL_URL:-http://ollama:11434}
+      - OPENNVR_OLLAMA_VLM_MODEL=${OLLAMA_VLM_MODEL:-moondream}
+    extra_hosts:
+      # So host.docker.internal also resolves on Linux Docker Engine when
+      # OLLAMA_EXTERNAL_URL points at the host (Docker Desktop has it
+      # built in). Harmless otherwise.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - opennvr_caption_cache:/root/.cache/huggingface
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9006/health', timeout=2).status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 20
+
+  # ──────────────────────────────────────────────────────────────
+  # Caption-adapter auto-registration (test-report S-5) — VOICE + CHAT. On a
+  # clean install the caption adapter was NOT registered with KAI-C, so
+  # describe_camera silently fell back to the detector. This one-shot registers
+  # the adapter selected by CAPTION_ADAPTER — and then GRANTS its declared
+  # permissions (§8/§11): an adapter that declares scope (ollamavlm declares
+  # egress to the operator's own Ollama) otherwise sits pending_approval and
+  # 403s every inference on a fresh install, with the reason visible only in
+  # the audit trail. Running this profile IS the operator's install-time
+  # consent; the grant is issued with the operator's INTERNAL_API_KEY and
+  # lands in the audit log with actor=install, exactly as governance
+  # intends. Post-install scope changes still require a fresh grant: KAI-C
+  # re-pends an adapter that re-declares more scope than was approved.
+  # ──────────────────────────────────────────────────────────────
+  caption-adapter-register:
+    profiles: [camera-agent, camera-agent-chat]
+    image: alpine:3.20
+    container_name: opennvr_caption_register
+    logging: *svc-logs
+    restart: "no"
+    depends_on:
+      opennvr-core:
+        condition: service_healthy
+      caption-adapter:
+        condition: service_healthy
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - CAPTION_ADAPTER=${CAPTION_ADAPTER:-moondream}
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        name="$${CAPTION_ADAPTER}"
+        url="http://caption-adapter:9006"
+        echo "Auto-registering caption adapter '$$name' -> $$url with KAI-C…"
+        i=0
+        while [ $$i -lt 30 ]; do
+          if wget -q -O- \
+               --header="Content-Type: application/json" \
+               --header="X-Internal-Api-Key: $${INTERNAL_API_KEY}" \
+               --post-data="{\"name\":\"$$name\",\"url\":\"$$url\"}" \
+               http://opennvr-core:8100/api/v1/adapters/register >/dev/null 2>&1; then
+            echo "Registered caption adapter '$$name'."
+            # Grant declared permissions (install-time operator consent —
+            # see the service comment). Best-effort: an adapter with no
+            # declared scope is already approved and this is a no-op.
+            if wget -q -O-                  --header="X-Internal-Api-Key: $${INTERNAL_API_KEY}"                  --header="X-Actor: install"                  --post-data=""                  "http://opennvr-core:8100/api/v1/adapters/$$name/permissions/approve-all" >/dev/null 2>&1; then
+              echo "Approved '$$name' declared permissions (install-time grant, audited)."
+            else
+              echo "WARN: could not approve '$$name' permissions — if inference 403s, grant them via the AI models page." >&2
+            fi
+            exit 0
+          fi
+          i=$$((i+1)); echo "register attempt $$i/30 failed (adapter warming up?); retry in 5s"; sleep 5
+        done
+        echo "WARN: could not register '$$name' after retries — describe_camera will fall back to the detector." >&2
+        exit 0
+    networks:
+      - opennvr_internal
+
+  # Register the voice adapters with KAI-C too. The camera agent calls
+  # whisper/piper DIRECTLY (not through KAI-C), so this registration is
+  # purely for OBSERVABILITY: registered adapters get the 60 s health +
+  # /metrics poll, show on the AI Adapters page (up/down, p95, domain
+  # series like audio realtime-factor), and count in kaic_adapter_up —
+  # a silently-503ing piper becomes a red row instead of a mystery.
+  voice-adapters-register:
+    profiles: [camera-agent]
+    image: alpine:3.20
+    container_name: opennvr_voice_register
+    logging: *svc-logs
+    restart: "no"
+    depends_on:
+      opennvr-core:
+        condition: service_healthy
+      whisper-adapter:
+        condition: service_healthy
+      piper-adapter:
+        condition: service_healthy
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        register() {
+          name="$$1"; url="$$2"; i=0
+          while [ $$i -lt 30 ]; do
+            if wget -q -O- \
+                 --header="Content-Type: application/json" \
+                 --header="X-Internal-Api-Key: $${INTERNAL_API_KEY}" \
+                 --post-data="{\"name\":\"$$name\",\"url\":\"$$url\"}" \
+                 http://opennvr-core:8100/api/v1/adapters/register >/dev/null 2>&1; then
+              echo "Registered '$$name' -> $$url with KAI-C."; return 0
+            fi
+            i=$$((i+1)); echo "register '$$name' attempt $$i/30 failed; retry in 5s"; sleep 5
+          done
+          echo "WARN: could not register '$$name' — it won't appear on the AI health panel." >&2
+          return 0
+        }
+        register whisper http://whisper-adapter:9003
+        register piper http://piper-adapter:9001
+    networks:
+      - opennvr_internal
+
+  # ──────────────────────────────────────────────────────────────
+  # Ollama — local LLM runtime (VOICE + CHAT). Official upstream image: stable,
+  # well-maintained, identical to what developers run on their laptops today.
+  # ──────────────────────────────────────────────────────────────
+  ollama:
+    profiles: [camera-agent, camera-agent-chat]
+    image: ollama/ollama:0.21.2
+    container_name: opennvr_ollama
+    logging: *svc-logs
+    restart: unless-stopped
+    environment:
+      # Keep the model resident in RAM indefinitely. Without this Ollama
+      # unloads after 5 min idle, so the next turn pays a cold reload +
+      # full prompt prefill and can blow past the request timeout. Warm,
+      # turns return in seconds instead of ~a minute. On a VERY RAM-limited
+      # box, set OLLAMA_KEEP_ALIVE=5m in .env to free the model's RAM when
+      # idle (at the cost of a cold reload on the next turn).
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}
+      # Limited-hardware guards: load one model, serve one request at a time so
+      # a weak CPU box isn't oversubscribed. Raise on bigger machines.
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_PARALLEL=1
+    volumes:
+      - opennvr_ollama_models:/root/.ollama
+    networks:
+      - opennvr_internal
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  # ──────────────────────────────────────────────────────────────
+  # Ollama model pull — one-shot (VOICE + CHAT). Runs AUTOMATICALLY on ``up``
+  # because the agent depends_on it (service_completed_successfully), so the
+  # model is present before the agent starts. Pulls OLLAMA_MODEL (the LLM
+  # brain) and, when CAPTION_ADAPTER=ollamavlm, OLLAMA_VLM_MODEL (the eyes)
+  # — previously only the LLM was pre-pulled, so the FIRST describe question
+  # cold-pulled the VLM through the adapter: fine-ish for moondream (1.7GB),
+  # but a picked gemma3:4b / qwen2.5vl meant minutes of 503s that read as
+  # "the vision model doesn't work". The VLM pull is best-effort: a typo'd
+  # model name must not take down the whole agent profile — the adapter's
+  # auto-pull remains the fallback and the failure is named in the log.
+  # ──────────────────────────────────────────────────────────────
+  ollama-model-pull:
+    profiles: [camera-agent, camera-agent-chat]
+    image: ollama/ollama:0.21.2
+    container_name: opennvr_ollama_pull
+    logging: *svc-logs
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh"]
+    command:
+      - -c
+      - |
+        set -e
+        MODEL="$${OLLAMA_MODEL:-qwen2.5:1.5b}"
+        echo "Pulling Ollama model: $$MODEL"
+        OLLAMA_HOST=http://ollama:11434 ollama pull "$$MODEL"
+        echo "LLM model ready."
+        if [ "$${CAPTION_ADAPTER}" = "ollamavlm" ] && [ -n "$${OLLAMA_VLM_MODEL}" ]; then
+          echo "Pulling vision model: $${OLLAMA_VLM_MODEL}"
+          if OLLAMA_HOST=http://ollama:11434 ollama pull "$${OLLAMA_VLM_MODEL}"; then
+            echo "Vision model ready."
+          else
+            echo "WARN: could not pull vision model '$${OLLAMA_VLM_MODEL}' —" >&2
+            echo "describe answers stay degraded until the adapter's auto-pull succeeds" >&2
+            echo "or you pull it manually (ollama pull $${OLLAMA_VLM_MODEL})." >&2
+          fi
+        fi
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      - OLLAMA_VLM_MODEL=${OLLAMA_VLM_MODEL:-moondream}
+      - CAPTION_ADAPTER=${CAPTION_ADAPTER:-moondream}
+    volumes:
+      - opennvr_ollama_models:/root/.ollama
+    networks:
+      - opennvr_internal
+
+  # ──────────────────────────────────────────────────────────────
+  # VOICE — the hands-free agent. Built from local source for v0.1.
+  # config.yml is generated from config.docker.yml by the init container so
+  # secrets come from .env, not the repo.
+  # ──────────────────────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────────
+  # Self-signed TLS pair for the agent's LAN-exposed listener — the exact
+  # mediamtx-certs-init pattern. Shared by the voice and chat variants
+  # (both profiles, one cert dir; they never run simultaneously on 9100).
+  # ──────────────────────────────────────────────────────────────
+  camera-agent-certs-init:
+    profiles: [camera-agent, camera-agent-chat]
+    image: alpine/openssl:3.3.2
+    entrypoint: []
+    container_name: opennvr_camera_agent_certs_init
+    logging: *svc-logs
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -f /certs/server.crt ] && [ -f /certs/server.key ]; then
+          echo "camera-agent certs already present; skipping."
+          exit 0
+        fi
+        umask 077
+        SAN="DNS:localhost,DNS:camera-agent,DNS:opennvr.local,IP:127.0.0.1,IP:::1"
+        if [ -n "$${OPENNVR_HOST_IP}" ]; then
+          SAN="$${SAN},IP:$${OPENNVR_HOST_IP}"
+        fi
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+          -keyout /certs/server.key -out /certs/server.crt \
+          -subj "/CN=opennvr-camera-agent" \
+          -addext "subjectAltName=$${SAN}" \
+          -addext "basicConstraints=critical,CA:FALSE" \
+          -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+          -addext "extendedKeyUsage=serverAuth"
+        chmod 0644 /certs/server.crt
+        echo "Wrote /certs/server.{crt,key} with SAN=$${SAN}"
+    environment:
+      - OPENNVR_HOST_IP=${OPENNVR_HOST_IP:-}
+    volumes:
+      - ./agent-certs/camera-agent:/certs
+
+  camera-agent-config-init:
+    profiles: [camera-agent]
+    image: alpine:3.20
+    container_name: opennvr_camera_agent_config_init
+    logging: *svc-logs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        # busybox sed substitutes only the named variables below, leaving other
+        # ``$`` sigils in YAML multiline strings untouched (no envsubst / apk fetch,
+        # which some operator ISPs filter).
+        sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
+        ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
+        lhost=$$(sed_esc "$${CAMERA_AGENT_LISTEN_HOST}")
+        omodel=$$(sed_esc "$${OLLAMA_MODEL}")
+        ourl=$$(sed_esc "$${OLLAMA_URL}")
+        cadapter=$$(sed_esc "$${CAPTION_ADAPTER}")
+        ouiurl=$$(sed_esc "$${OPENNVR_UI_URL}")
+        sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
+            -e "s/[$$][{]CAMERA_AGENT_LISTEN_HOST[}]/$$lhost/g" \
+            -e "s/[$$][{]OLLAMA_MODEL[}]/$$omodel/g" \
+            -e "s/[$$][{]OLLAMA_URL[}]/$$ourl/g" \
+            -e "s/[$$][{]CAPTION_ADAPTER[}]/$$cadapter/g" \
+            -e "s/[$$][{]OPENNVR_UI_URL[}]/$$ouiurl/g" \
+            < /template/config.docker.yml > /generated/config.yml
+        echo "Wrote /generated/config.yml (voice) from template."
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - CAMERA_AGENT_LISTEN_HOST=0.0.0.0
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      # Where the agent reaches the LLM runtime. Default: the bundled
+      # ollama container. Set OLLAMA_EXTERNAL_URL in .env (e.g.
+      # http://host.docker.internal:11434 for native Ollama on the host
+      # — the Metal/GPU path on macOS/Windows) and start with the
+      # docker-compose.camera-agent.external-llm.yml overlay to skip
+      # the bundled container entirely.
+      - OLLAMA_URL=${OLLAMA_EXTERNAL_URL:-http://ollama:11434}
+      - CAPTION_ADAPTER=${CAPTION_ADAPTER:-moondream}
+      # Host origin the operator's browser reaches OpenNVR at (opennvr-core is
+      # published on 127.0.0.1:8000). Drives the skills-panel "Enable →" /
+      # "install the <App> app" deep-links. Override for LAN/remote installs,
+      # e.g. OPENNVR_UI_URL=https://nvr.example in .env.
+      - OPENNVR_UI_URL=${OPENNVR_UI_URL:-http://localhost:8000}
+    volumes:
+      - ./examples/camera-agent:/template:ro
+      - opennvr_camera_agent_config:/generated
+
+  camera-agent:
+    profiles: [camera-agent]
+    # Same repo + release cadence as opennvr-core, so it shares CORE_TAG.
+    image: ghcr.io/open-nvr/camera-agent:${CORE_TAG:-latest}
+    container_name: opennvr_camera_agent
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      camera-agent-config-init:
+        condition: service_completed_successfully
+      camera-agent-certs-init:
+        condition: service_completed_successfully
+      whisper-adapter:
+        condition: service_healthy
+      piper-adapter:
+        condition: service_healthy
+      caption-adapter:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
+      opennvr-core:
+        condition: service_healthy
+    ports:
+      # LAN edge (https) — bind host follows nginx; auth: OpenNVR login +
+      # device firewall (auth_mode: opennvr in config.docker.yml).
+      - "${NGINX_BIND_HOST:-0.0.0.0}:9100:9100"
+    environment:
+      # Alarm / watch / report time windows are times of DAY ("after
+      # 12:10 pm") compared against THIS container's clock. Without TZ the
+      # container runs UTC and every spoken window fires hours off — an
+      # "after 12:10 pm" alarm on an IST site stayed dormant until
+      # 12:10 UTC (= 5:40 pm local). Must match the mediamtx/core TZ.
+      - TZ=${TZ:-UTC}
+    volumes:
+      - opennvr_camera_agent_config:/app/config:ro
+      - ./agent-certs/camera-agent:/certs:ro
+      # Read-only view of the footage-search index → enables the
+      # search_footage voice tool ("did a red truck come by earlier?").
+      # Same named volume the apps overlay's footage-search service
+      # writes (compose runs from the same project, so the names meet).
+      # Without the apps overlay it's just an empty dir and the tool
+      # reports cleanly that the index hasn't been built.
+      - opennvr_footage_search_data:/footage:ro
+    command:
+      - --config
+      - /app/config/config.yml
+    networks:
+      - opennvr_internal
+
+  # ──────────────────────────────────────────────────────────────
+  # CHAT — the same agent in text mode (POST /ask): YOLOv8 + caption/VQA +
+  # small LLM, NO Whisper/Piper. Lighter; type instead of speak. config.yml is
+  # generated from config.docker.chat.yml by the init container below.
+  # ──────────────────────────────────────────────────────────────
+  camera-agent-config-init-chat:
+    profiles: [camera-agent-chat]
+    image: alpine:3.20
+    container_name: opennvr_camera_agent_config_init_chat
+    logging: *svc-logs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
+        ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
+        lhost=$$(sed_esc "$${CAMERA_AGENT_LISTEN_HOST}")
+        omodel=$$(sed_esc "$${OLLAMA_MODEL}")
+        ourl=$$(sed_esc "$${OLLAMA_URL}")
+        cadapter=$$(sed_esc "$${CAPTION_ADAPTER}")
+        ouiurl=$$(sed_esc "$${OPENNVR_UI_URL}")
+        sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
+            -e "s/[$$][{]CAMERA_AGENT_LISTEN_HOST[}]/$$lhost/g" \
+            -e "s/[$$][{]OLLAMA_MODEL[}]/$$omodel/g" \
+            -e "s/[$$][{]OLLAMA_URL[}]/$$ourl/g" \
+            -e "s/[$$][{]CAPTION_ADAPTER[}]/$$cadapter/g" \
+            -e "s/[$$][{]OPENNVR_UI_URL[}]/$$ouiurl/g" \
+            < /template/config.docker.chat.yml > /generated/config.yml
+        echo "Wrote /generated/config.yml (chat) from template."
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - CAMERA_AGENT_LISTEN_HOST=0.0.0.0
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      # See the voice config-init: bundled ollama by default, or the
+      # operator's external runtime via OLLAMA_EXTERNAL_URL in .env.
+      - OLLAMA_URL=${OLLAMA_EXTERNAL_URL:-http://ollama:11434}
+      - CAPTION_ADAPTER=${CAPTION_ADAPTER:-moondream}
+      # Host origin the operator's browser reaches OpenNVR at (opennvr-core is
+      # published on 127.0.0.1:8000). Drives the skills-panel "Enable →" /
+      # "install the <App> app" deep-links. Override for LAN/remote installs,
+      # e.g. OPENNVR_UI_URL=https://nvr.example in .env.
+      - OPENNVR_UI_URL=${OPENNVR_UI_URL:-http://localhost:8000}
+    volumes:
+      - ./examples/camera-agent:/template:ro
+      - opennvr_camera_agent_config_chat:/generated
+
+  camera-agent-chat:
+    profiles: [camera-agent-chat]
+    build:
+      context: .
+      dockerfile: examples/camera-agent/Dockerfile
+    image: opennvr/camera-agent:local-build
+    container_name: opennvr_camera_agent_chat
+    logging: *svc-logs
+    restart: unless-stopped
+    depends_on:
+      camera-agent-config-init-chat:
+        condition: service_completed_successfully
+      camera-agent-certs-init:
+        condition: service_completed_successfully
+      # Wait for the selected caption/VQA adapter to be healthy and
+      # registered before the first turn (else describe_camera falls back to the
+      # detector until the selected adapter comes up).
+      caption-adapter:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
+      opennvr-core:
+        condition: service_healthy
+    ports:
+      # LAN edge (https) — see the voice variant's comment.
+      - "${NGINX_BIND_HOST:-0.0.0.0}:9100:9100"
+    environment:
+      # Same rule as the voice agent: time windows tick in the site's zone.
+      - TZ=${TZ:-UTC}
+    volumes:
+      - opennvr_camera_agent_config_chat:/app/config:ro
+      - ./agent-certs/camera-agent:/certs:ro
+      # Same read-only footage-search index view as the voice agent.
+      - opennvr_footage_search_data:/footage:ro
+    command:
+      - --config
+      - /app/config/config.yml
+    networks:
+      - opennvr_internal
+
+volumes:
+  # footage-search's SQLite index. Declared here as well as in
+  # docker-compose.apps.yml so this overlay works standalone: same name +
+  # same compose project → the SAME volume, so when the apps overlay runs
+  # the footage-search indexer, the agent's search_footage tool reads what
+  # it writes. Without the apps overlay it stays an empty dir (harmless).
+  opennvr_footage_search_data:
+  # Ollama model store — persisted so the LLM survives ``compose down``.
+  opennvr_ollama_models:
+  # Faster-whisper model cache for the GHCR whisper adapter.
+  opennvr_whisper_models:
+  # Runtime cache for the selected caption/VQA adapter.
+  opennvr_caption_cache:
+  # Piper writes generated WAVs here before optionally returning inline
+  # base64 audio to the camera-agent.
+  # Piper voice files, fetched once by piper-voices-init.
+  opennvr_piper_voices:
+  opennvr_piper_audio:
+  # Generated voice config.yml (mounted read-only by the camera-agent).
+  opennvr_camera_agent_config:
+  # Generated chat config.yml for the camera-agent-chat profile.
+  opennvr_camera_agent_config_chat:

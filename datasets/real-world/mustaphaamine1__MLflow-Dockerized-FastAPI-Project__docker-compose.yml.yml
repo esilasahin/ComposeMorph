@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  fastapi:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - /C/Users/viet/Desktop/env/mlruns:/app/mlruns  # Mount the local mlruns directory into the container

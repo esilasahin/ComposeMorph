@@ -1,0 +1,18 @@
+services:
+  client:
+    build:
+      context: ./client
+    networks:
+      - app-network
+    depends_on:
+      - worker
+  
+  worker:
+    build:
+      context: ./worker
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge    

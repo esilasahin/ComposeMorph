@@ -1,0 +1,34 @@
+version: '3'
+services:
+  audiobookserver-web:
+    image: lowet84/audiobookserver-web
+    restart: always
+    volumes:
+      - /mnt/filer/Audiobooks:/data
+      - /mnt/filer/Settings/audiobookserver:/out/Data
+    environment:
+      - DATABASE=rethinkdb
+    labels:
+      - traefik.enable=true
+      - traefik.backend=audiobookserver-web
+      - traefik.frontend.passHostHeader=true
+      - traefik.port=5001
+      - traefik.frontend.rule=Host:audiobookserver.local
+    networks:
+      - homeserver2
+  
+  audiobookserver-api:
+    image: lowet84/audiobookserver-api
+    restart: always
+    volumes:
+      - /mnt/filer/Audiobooks:/data
+      - /mnt/filer/Settings/audiobookserver:/out/Data
+    environment:
+      - DATABASE=rethinkdb
+    networks:
+      - homeserver2
+
+networks:
+  homeserver2:
+    external: true
+        

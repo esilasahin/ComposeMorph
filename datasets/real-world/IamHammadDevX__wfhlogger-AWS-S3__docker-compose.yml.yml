@@ -1,0 +1,13 @@
+services:
+  wfhlogger-new:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wfhlogger-new
+    restart: unless-stopped
+    ports:
+      - "4002:4000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./.env:/app/.env:ro

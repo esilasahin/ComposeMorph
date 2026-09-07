@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./api/.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mongodb://admin:password@db:27017/video_downloader?authSource=admin
+    depends_on:
+      - db
+  db:
+    image: mongo
+    ports:
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: video_downloader
+    volumes:
+      - db_data:/data/db
+volumes:
+  db_data:

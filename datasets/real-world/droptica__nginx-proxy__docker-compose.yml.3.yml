@@ -1,0 +1,26 @@
+# This docker-compose.yml file is compatible with version 3 of docker-compose.
+
+version: '3.5'
+services:
+  nginx:
+    image: jwilder/nginx-proxy:0.6.0
+    container_name: nginx-proxy
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs
+      - ./nginx/vhost.d:/etc/nginx/vhost.d
+      - ./nginx/html:/usr/share/nginx/html
+      - ./nginx/conf.d/client_max_body_size.conf:/etc/nginx/conf.d/client_max_body_size.conf:ro
+      - ./nginx/conf.d/proxy.conf:/etc/nginx/conf.d/proxy.conf:ro
+      - ./nginx/conf.d/auth.conf:/etc/nginx/conf.d/auth.conf:ro
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    networks:
+      - nginx-proxy
+
+# Define static network which is needed to be used by all services
+networks:
+  nginx-proxy:
+    name: nginx-proxy

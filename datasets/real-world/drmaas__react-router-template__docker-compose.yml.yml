@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16  # Use PostgreSQL with pgvector extension. https://github.com/pgvector/pgvector
+    container_name: postgres-db
+    restart: always
+    environment:
+      POSTGRES_USER: dan  # Replace with your PostgreSQL username
+      POSTGRES_PASSWORD: dan  # Replace with your PostgreSQL passworddocker container ls -qa
+      POSTGRES_DB: api
+    ports:
+      - "5432:5432"  # Map PostgreSQL's default port to the host
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Mount a volume for persistent storage
+
+volumes:
+  postgres_data:
+    driver: local  # Use local driver for volume storage

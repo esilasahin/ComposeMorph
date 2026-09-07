@@ -1,0 +1,31 @@
+services:
+  api:
+    build: .
+    container_name: papibank-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.example
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    container_name: papibank-db
+    environment:
+      POSTGRES_DB: papibank
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - papibank_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d papibank"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  papibank_db_data:

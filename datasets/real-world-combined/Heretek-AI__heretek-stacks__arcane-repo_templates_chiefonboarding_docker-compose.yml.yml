@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  chiefonboarding:
+    image: docker.io/chiefonboarding/chiefonboarding:latest
+    container_name: chiefonboarding
+    hostname: chiefonboarding
+    ports:
+      - "${CHIEFONBOARDING_PORT:-8080}:8080"
+    volumes:
+      - chiefonboarding_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  chiefonboarding_data:
+    name: chiefonboarding_data

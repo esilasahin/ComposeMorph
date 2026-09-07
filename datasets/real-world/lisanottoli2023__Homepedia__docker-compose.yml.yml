@@ -1,0 +1,317 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# HomePedia — Unified Docker Compose
+# ═══════════════════════════════════════════════════════════════════════════════
+# Orchestrates all services:
+#   - PostgreSQL + PostGIS (personne1/data infrastructure)
+#   - MongoDB (sentiment analysis storage)
+#   - Python ETL Worker (data collection & loading)
+#   - PySpark (data aggregation pipeline)
+#
+# Usage:
+#   docker compose up -d                          # Start all services
+#   docker compose up -d postgres mongodb pyspark # Start specific services
+#   docker compose logs -f python                 # Follow logs for python service
+
+services:
+
+  # ═════════════════════════════════════════════════════════════════
+  # Frontend (NextJS)
+  # ═════════════════════════════════════════════════════════════════
+  frontend:
+    container_name: homepedia_frontend
+    build:
+      context: apps/frontend
+      dockerfile: Dockerfile.development
+    ports:
+      - 3000:3000
+    volumes:
+      - ./apps/frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - homepedia_net
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ═════════════════════════════════════════════════════════════════
+  # PostgreSQL + PostGIS
+  # ═════════════════════════════════════════════════════════════════
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: homepedia_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./apps/CollectData/init-db:/docker-entrypoint-initdb.d
+    networks:
+      - homepedia_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═════════════════════════════════════════════════════════════════
+  # pgAdmin — PostgreSQL Web UI
+  # ═════════════════════════════════════════════════════════════════
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: homepedia_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGPASSFILE: /pgpass
+    ports:
+      - "5050:80"
+    user: root
+    entrypoint: >
+      /bin/sh -c "
+        cp /pgpass_src /pgpass &&
+        chmod 600 /pgpass &&
+        chown 5050:5050 /pgpass &&
+        exec /entrypoint.sh
+      "
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./apps/CollectData/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./apps/CollectData/pgadmin/pgpass:/pgpass_src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - homepedia_net
+
+  # ═════════════════════════════════════════════════════════════════
+  # MongoDB — Document Store
+  # ═════════════════════════════════════════════════════════════════
+  mongodb:
+    image: mongo:7.0
+    container_name: homepedia_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./apps/CollectData/mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - homepedia_net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ═════════════════════════════════════════════════════════════════
+  # Mongo Express — MongoDB Web UI
+  # ═════════════════════════════════════════════════════════════════
+  mongo-express:
+    image: mongo-express:latest
+    container_name: homepedia_mongo_express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD}
+      ME_CONFIG_MONGODB_URL:           mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME:    ${MONGOEXPRESS_USER}
+      ME_CONFIG_BASICAUTH_PASSWORD:    ${MONGOEXPRESS_PASSWORD}
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - homepedia_net
+
+  # ═════════════════════════════════════════════════════════════════
+  # Python ETL Worker — Data Collection & Loading (CollectData)
+  # ═════════════════════════════════════════════════════════════════
+  python:
+    build:
+      context: ./apps/CollectData
+      dockerfile: Dockerfile.python
+    container_name: homepedia_python
+    restart: "no"
+    env_file: .env
+    environment:
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     5432
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONGO_HOST:        mongodb
+      MONGO_PORT:        27017
+      MONGO_DB:          ${MONGO_DB}
+      MONGO_USER:        ${MONGO_USER}
+      MONGO_PASSWORD:    ${MONGO_PASSWORD}
+    volumes:
+      - ./apps/CollectData/scripts:/app/scripts
+      - ./apps/CollectData/data:/app/data
+      - ./apps/CollectData/init-db:/app/init-db
+      - ./apps/analysis:/analysis
+    working_dir: /app
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - homepedia_net
+
+  # ═════════════════════════════════════════════════════════════════
+  # Analysis / NLP — Sentiment Analysis (apps/analysis)
+  # ═════════════════════════════════════════════════════════════════
+  # Python 3.11 required — 3.12+ breaks scipy 1.13.*
+  # Runs the BERT sentiment pipeline on avis_villes → sentiments_agregats
+  #
+  # One-shot usage (recommended):
+  #   docker compose run --rm analysis python -m api.runner sentiment
+  #   docker compose run --rm analysis python -m api.runner wordcloud
+  #
+  # Interactive usage (container must be running):
+  #   docker compose exec analysis python -m api.runner sentiment --city 06088
+  # ═════════════════════════════════════════════════════════════════
+  analysis:
+    build:
+      context: ./apps/analysis
+      dockerfile: Dockerfile
+    container_name: homepedia_analysis
+    restart: "no"
+    env_file: .env
+    environment:
+      USE_MOCK_DATA:    "0"
+      POSTGRES_HOST:    postgres
+      POSTGRES_PORT:    "5432"
+      POSTGRES_DB:      ${POSTGRES_DB}
+      POSTGRES_USER:    ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONGO_URI:        mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGO_DB:         ${MONGO_DB}
+      HF_HOME:          /analysis/sentiment/model_cache
+    volumes:
+      - ./apps/analysis:/analysis                              # live code — no rebuild needed
+      - analysis_model_cache:/analysis/sentiment/model_cache  # BERT model persists across rebuilds
+    working_dir: /analysis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - homepedia_net
+
+  # ═════════════════════════════════════════════════════════════════
+  # PostgreSQL Health Check (for ProcessDataService)
+  # ═════════════════════════════════════════════════════════════════
+  postgres_check:
+    image: busybox:1.36
+    container_name: homepedia_postgres_check
+    networks:
+      - homepedia_net
+    depends_on:
+      - postgres
+    entrypoint: >
+      sh -c "
+      echo 'Waiting for PostgreSQL...'
+      while ! nc -z postgres 5432; do
+        sleep 1
+      done
+      echo 'PostgreSQL is ready!'
+      "
+
+  # ═════════════════════════════════════════════════════════════════
+  # PySpark — Local Fallback (ProcessDataService)
+  # ─────────────────────────────────────────────────────────────────
+  # PRIMARY execution is Databricks (apps/databricks/notebooks/).
+  # This service remains available for local development / CI only.
+  # Run the Databricks notebooks for production-grade cluster execution.
+  # ═════════════════════════════════════════════════════════════════
+  pyspark:
+    build:
+      context: ./apps/ProcessDataService
+      dockerfile: Dockerfile
+    image: homepedia_pyspark:latest
+    container_name: homepedia_pyspark
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPARK_MODE: master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+      SPARK_USER: spark
+
+      # PostgreSQL Connection
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # Spark Configuration
+      SPARK_MASTER_HOST: pyspark
+      SPARK_MASTER_PORT: 7077
+      SPARK_MASTER_WEBUI_PORT: 8080
+
+    ports:
+      - "8080:8080"    # Spark Master Web UI
+      - "4040:4040"    # Spark Driver Web UI (during job execution)
+      - "7077:7077"    # Spark Master Port
+      - "7002:7002"    # Spark Master Port (alternative)
+
+    volumes:
+      - ./apps/ProcessDataService/scripts:/app/scripts
+      - ./apps/ProcessDataService/config:/app/config
+      - ./apps/ProcessDataService/sql:/app/sql
+      - ./apps/ProcessDataService/logs:/app/logs
+      - pyspark_data:/app/data
+
+    networks:
+      - homepedia_net
+
+    depends_on:
+      - postgres_check
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOLUMES — Persistent Data Storage
+# ═══════════════════════════════════════════════════════════════════════════════
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  mongo_data:
+    driver: local
+  pyspark_data:
+    driver: local
+  analysis_model_cache:
+    driver: local  # persists the ~400 MB BERT model across container rebuilds
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORKS — Service Communication
+# ═══════════════════════════════════════════════════════════════════════════════
+networks:
+  homepedia_net:
+    driver: bridge

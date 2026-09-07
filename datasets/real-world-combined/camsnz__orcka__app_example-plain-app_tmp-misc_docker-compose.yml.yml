@@ -1,0 +1,41 @@
+services:
+  web:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+        API_URL: https://api.example.com
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DEBUG=false
+      - PORT=3000
+    ports:
+      - "3000:3000"
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: ./worker
+    depends_on:
+      - db
+      - redis
+    environment:
+      WORKER_CONCURRENCY: "4"
+
+volumes:
+  db_data:

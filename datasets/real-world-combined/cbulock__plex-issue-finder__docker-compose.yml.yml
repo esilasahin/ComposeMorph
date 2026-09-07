@@ -1,0 +1,22 @@
+services:
+  plex-issue-finder:
+    image: ghcr.io/cbulock/plex-issue-finder:latest
+    pull_policy: always
+    container_name: plex-issue-finder
+    ports:
+      - "8756:8756"
+    volumes:
+      - plex-issue-finder-data:/data
+    environment:
+      - NODE_ENV=production
+      # Optional: seed credentials from host env (can also be set in the UI)
+      # - PLEX_URL=${PLEX_URL}
+      # - PLEX_TOKEN=${PLEX_TOKEN}
+      # - RADARR_URL=${RADARR_URL}
+      # - RADARR_API_KEY=${RADARR_API_KEY}
+      # - SONARR_URL=${SONARR_URL}
+      # - SONARR_API_KEY=${SONARR_API_KEY}
+    restart: unless-stopped
+
+volumes:
+  plex-issue-finder-data:

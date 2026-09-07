@@ -1,0 +1,21 @@
+services:
+  next-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nextjs_dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Sincroniza el código del host con el contenedor para la detección instantánea de cambios
+      - .:/app
+      # Evita que el node_modules del host sobrescriba el del contenedor, mejorando la velocidad
+      - /app/node_modules
+      # Evita conflictos con la carpeta de build entre host y contenedor
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      # Las siguientes variables aseguran que la detección de cambios funcione correctamente 
+      # en entornos como Windows (Docker Desktop / WSL2) sin sacrificar demasiado rendimiento.
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true

@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  springboot-app:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: luxuryproducts_backend/Dockerfile.spring
+    ports:
+      - "8080:8080"
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  angular-app:
+    build:
+      context: .
+      dockerfile: luxuryproducts_frontend/Dockerfile.angular
+    ports:
+      - "4200:80"
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres:16
+    restart: always
+    env_file: .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+    ports:
+      - "9999:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U MoneyGrabber"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,44 @@
+services:
+  reverse-proxy:
+    image: traefik:3
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+      - "443:443/udp"
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./acme.json:/acme.json
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/traefik_access.log:/traefik_access.log
+    labels:
+      - "traefik.http.middlewares.secure.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.secure.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.secure.headers.stsPreload=true"
+      - "traefik.http.middlewares.secure.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.secure.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.secure.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.secure.headers.stsPreload=true"
+      - "traefik.http.middlewares.secure.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.secure.headers.frameDeny=true"
+      - "traefik.http.middlewares.secure.headers.sslRedirect=true"
+      - "traefik.http.middlewares.compress.compress=true"
+      - "traefik.http.middlewares.compress.compress.encodings=br,zstd"
+      - "traefik.http.middlewares.compress.compress.defaultEncoding=br"
+      - "traefik.http.middlewares.csp_secure.headers.contentsecuritypolicy=default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'"
+    networks:
+      - sites
+      - jenkins
+      - forgejo
+
+networks:
+  sites:
+    internal: true
+    name: sites
+  jenkins:
+    enable_ipv6: true
+    name: jenkins
+  forgejo:
+    enable_ipv6: true
+    name: forgejo
+

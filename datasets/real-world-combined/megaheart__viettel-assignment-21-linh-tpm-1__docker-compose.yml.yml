@@ -1,0 +1,222 @@
+version: '3.6'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:${CONFLUENT_VERSION}
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+     - "2181:2181"
+    container_name: zookeeper
+    healthcheck:
+      test: nc -z zookeeper 2181 || exit -1
+      start_period: 15s
+      interval: 10s
+      timeout: 10s
+      retries: 10
+  
+  broker01:
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION}
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    container_name: broker01
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT_HOST://broker01:9092,PLAINTEXT://broker01:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_HOST://localhost:9092,PLAINTEXT://broker01:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_JMX_PORT: 9090
+      KAFKA_LOG_DIRS: /var/log/kafka
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 100
+      CONFLUENT_METRICS_ENABLE: 'false'
+    volumes:
+      - ./kafka/config/kafka_init/run_workaround.sh:/tmp/run_workaround.sh
+    ports:
+      - 9092:9092
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test: nc -z broker01 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  
+
+  kc01:
+    image: confluentinc/cp-kafka-connect:${CONFLUENT_VERSION}
+    container_name: kc01
+    ports:
+      - 8083:8083
+    depends_on:
+      broker01:
+        condition: service_healthy
+      # schema-registry:
+      #   condition: service_healthy
+    volumes:
+      - ./kafka/connectors:/home/appuser/connectors
+      - ./kafka/libs:/home/appuser/libs
+      - ./kafka/data_unprocessed:/data/unprocessed
+      - ./kafka/data_error:/data/error
+      - ./kafka/data_processed:/data/processed
+    environment:
+      CLASSPATH: /home/appuser/libs/*
+      CONNECT_BOOTSTRAP_SERVERS: "broker01:9093"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kc01"
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: kafka-connect-vdt
+      CONNECT_CONFIG_STORAGE_TOPIC: _kafka-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _kafka-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _kafka-connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      # CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_PLUGIN_PATH: '/usr/share/java,/usr/share/confluent-hub-components/,/home/appuser/connectors/'
+    mem_limit: ${MEM_LIMIT}
+    command: 
+      - bash
+      - -c
+      - |
+        # Run kafka
+        echo "Launching Kafka Connect worker"
+        /etc/confluent/docker/run &
+        #
+        sleep infinity
+    healthcheck:
+      test: nc -z kc01 8083 || exit -1
+      start_period: 15s
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8069:8080
+    depends_on:
+      broker01:
+        condition: service_healthy
+      kc01:
+        condition: service_healthy
+      # schema-registry:
+      #   condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: vdt-kafka-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker01:9093
+      KAFKA_CLUSTERS_0_METRICS_PORT: 9090
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: kc01
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kc01:8083
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test: nc -z kafka-ui 8080 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - 9870:9870
+      - 9000:9000
+    # volumes:
+    #   - ./hadoop/hadoop_namenode:/hadoop/dfs/name
+    #   - ./hadoop/hadoop_home:/home
+    #   - ./hadoop/submit:/submit
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./hadoop/hadoop.env
+
+  datanode1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode1
+    # volumes:
+    #   - ./hadoop/hadoop_datanode1:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop/hadoop.env
+
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode2
+    # volumes:
+    #   - ./hadoop/hadoop_datanode2:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop/hadoop.env
+
+  spark-notebook:
+    image: jupyter/pyspark-notebook:spark-3.2.1
+    container_name: spark-notebook
+    ports:
+      - 8888:8888
+    volumes:
+      - ./data:/home/jovyan/data
+      - ./spark/jupyter_notebook_config.py:/home/jovyan/.jupyter/jupyter_notebook_config.py
+
+  # datanode3:
+  #   image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+  #   container_name: datanode3
+  #   volumes:
+  #     - ./hadoop/hadoop_datanode3:/hadoop/dfs/data
+  #   environment:
+  #     SERVICE_PRECONDITION: "namenode:9870"
+  #   env_file:
+  #     - ./hadoop/hadoop.env
+
+  # data extraction, transformation and load service
+  nifi:
+      container_name: nifi_container_persistent
+      image: 'apache/nifi:1.14.0'  # latest image as of 2021-11-09.
+      ports:
+          - '8091:8080'
+      environment:
+          - NIFI_WEB_HTTP_PORT=8080
+          - NIFI_CLUSTER_IS_NODE=true
+          - NIFI_CLUSTER_NODE_PROTOCOL_PORT=8082
+          - NIFI_ZK_CONNECT_STRING=zookeeper:2181
+          - NIFI_ELECTION_MAX_WAIT=30 sec
+          - NIFI_SENSITIVE_PROPS_KEY='12345678901234567890A'
+      healthcheck:
+          test: "${DOCKER_HEALTHCHECK_TEST:-curl localhost:8091/nifi/}"
+          interval: "60s"
+          timeout: "3s"
+          start_period: "5s"
+          retries: 5
+      volumes:
+          # - ./nifi/start.sh:/opt/nifi/scripts/start.sh
+          # - ./nifi/database_repository:/opt/nifi/nifi-current/database_repository
+          # - ./nifi/flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+          # - ./nifi/content_repository:/opt/nifi/nifi-current/content_repository
+          # - ./nifi/provenance_repository:/opt/nifi/nifi-current/provenance_repository
+          # - ./nifi/state:/opt/nifi/nifi-current/state
+          # - ./nifi/logs:/opt/nifi/nifi-current/logs
+          # uncomment the next line after copying the /conf directory from the container to your local directory to persist NiFi flows
+          # - ./nifi/conf:/opt/nifi/nifi-current/conf
+          - ./nifi/hdfs_conf:/opt/nifi/nifi-current/hdfs_conf
+
+  

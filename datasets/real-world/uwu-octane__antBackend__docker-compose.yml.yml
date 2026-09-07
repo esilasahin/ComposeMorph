@@ -1,0 +1,217 @@
+services:
+  pg-master:
+    build:
+      context: ./common/db
+      dockerfile: Dockerfile
+    image: pg17ulid-alpine
+    container_name: pg-master
+    ports:
+      - 5433:5432
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=3"
+      - "-c"
+      - "max_replication_slots=3"
+      - "-c"
+      - "hot_standby=on"
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      TZ: Europe/Berlin
+    volumes:
+      - pg-master-data:/var/lib/postgresql/data
+      - ./common/db/master/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "${DB_USER}" -d "${DB_NAME}"']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ant-network
+
+  #replica must have the same database name as master
+  pg-replica:
+    build:
+      context: ./common/db
+      dockerfile: Dockerfile
+    image: pg17ulid-alpine
+    container_name: pg-replica
+    depends_on:
+      pg-master:
+        condition: service_healthy
+    ports:
+      - 5434:5432
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      REPL_HOST: pg-master
+      REPL_PORT: 5432
+      REPL_USER: replicator
+      REPL_PASSWORD: repl_password
+      REPL_SLOT: phys_slot_1
+      TZ: Europe/Berlin
+    volumes:
+      - pg-replica-data:/var/lib/postgresql/data
+      - ./common/db/replica/init/10-replica-bootstrap.sh:/bootstrap.sh:ro
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        echo "=== Starting Replica Container ==="
+        sh /bootstrap.sh
+        echo "=== Starting PostgreSQL as standby ==="
+        exec docker-entrypoint.sh postgres
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "${DB_USER}" -d "${DB_NAME}"']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - ant-network
+
+  consul:
+    image: hashicorp/consul:latest
+    container_name: consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    command:
+      - "agent"
+      - "-dev"
+      - "-ui"
+      - "-client=0.0.0.0"
+      - "-dns-port=8600"
+    volumes:
+      - consul-data:/consul/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -fsS -H ''Accept: application/json'' http://127.0.0.1:8500/v1/status/leader | grep -q ''"''',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - ant-network
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    environment:
+      #KRaft
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller,broker
+      # 监听地址：容器内部用 kafka:9092，宿主机用 localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+
+      # 单节点开发环境的最小配置
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 3
+
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - 9092:9092
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - ant-network
+
+  redis:
+    image: redis:latest
+    container_name: chiikawa-redis
+    ports:
+      - 6379:6379
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis-data:/data
+    networks:
+      - ant-network
+
+  app:
+    image: ghcr.io/uwu-octane/antbackend:master
+    container_name: ant-backend-app
+    ports:
+      - "28256:28256" # Gateway
+      - "7777:7777" # Auth RPC
+      - "7778:7778" # User RPC
+    environment:
+      # Database
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      PG_MASTER_URL: "postgres://${DB_USER}:${DB_PASSWORD}@pg-master:5432/${DB_NAME}?sslmode=disable"
+      PG_REPLICA_URL: "postgres://${DB_USER}:${DB_PASSWORD}@pg-replica:5432/${DB_NAME}?sslmode=disable"
+
+      # Consul
+      CONSUL_HOST: consul:8500
+
+      # Redis
+      REDIS_HOST: chiikawa-redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+
+      # Gateway
+      MODE: ${MODE:-dev}
+      VITE_HOST: ${VITE_HOST:-http://localhost:3000}
+
+      # Telemetry (optional)
+      TELEMETRY_ENDPOINT: ${TELEMETRY_ENDPOINT:-}
+
+      # Kafka (optional)
+      KAFKA_SASL_USERNAME: ${KAFKA_SASL_USERNAME:-}
+      KAFKA_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:-}
+
+      TZ: Europe/Berlin
+    depends_on:
+      consul:
+        condition: service_healthy
+      pg-master:
+        condition: service_healthy
+      pg-replica:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+    networks:
+      - ant-network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -f http://localhost:28256/api/v1/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  pg-master-data:
+  pg-replica-data:
+  consul-data:
+  kafka-data:
+  redis-data:
+    driver: local
+
+networks:
+  ant-network:
+    driver: bridge

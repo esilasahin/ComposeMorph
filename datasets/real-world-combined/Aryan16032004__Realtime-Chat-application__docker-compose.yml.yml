@@ -1,0 +1,36 @@
+name: Realtime-Chat-Application
+
+services:
+  api:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./Backend:/app
+      - /app/node_modules
+    ports:
+      - "5001:5001"
+    networks:
+      - Realtime-Chat-Application
+    env_file: ./Backend/.env
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    networks:
+      - Realtime-Chat-Application
+    command: npm run dev -- --host
+    depends_on:
+      - api
+
+networks:
+  Realtime-Chat-Application:
+    driver: bridge

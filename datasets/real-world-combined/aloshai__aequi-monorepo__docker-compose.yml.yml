@@ -1,0 +1,57 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: aequi-server
+    expose:
+      - "3000"
+    env_file:
+      - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - outbound
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.aequi-api.rule=Host(`${API_DOMAIN:-api.yourdomain.com}`)"
+      - "traefik.http.routers.aequi-api.entrypoints=websecure"
+      - "traefik.http.routers.aequi-api.tls=true"
+      - "traefik.http.services.aequi-api.loadbalancer.server.port=3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        - VITE_API_BASE_URL=${API_URL:-https://api.yourdomain.com}
+    container_name: aequi-web
+    expose:
+      - "80"
+    depends_on:
+      server:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.aequi-web.rule=Host(`${WEB_DOMAIN:-yourdomain.com}`)"
+      - "traefik.http.routers.aequi-web.entrypoints=websecure"
+      - "traefik.http.routers.aequi-web.tls=true"
+      - "traefik.http.services.aequi-web.loadbalancer.server.port=80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  dokploy-network:
+    external: true
+  outbound:
+    driver: bridge

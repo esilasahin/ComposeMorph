@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  wechat-alert:
+    build: .
+    container_name: wechat-alert
+    ports:
+      - "18091:8080"
+    environment:
+      - WECHAT_CORP_ID=your_corp_id
+      - WECHAT_AGENT_ID=your_agent_id
+      - WECHAT_AGENT_SECRET=your_agent_secret
+      - WECHAT_TO_USER=@all
+      - WECHAT_TO_PARTY=
+      - WECHAT_TO_TAG=
+    restart: always

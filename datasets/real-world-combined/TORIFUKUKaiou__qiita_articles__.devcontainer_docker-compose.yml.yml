@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    environment:
+      - QIITA_TOKEN=${QIITA_TOKEN}
+    volumes:
+      - ..:/workspaces/qiita_articles
+    command: sleep infinity

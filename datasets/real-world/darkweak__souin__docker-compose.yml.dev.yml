@@ -1,0 +1,81 @@
+version: '3.4'
+
+x-networks: &networks
+  networks:
+    - your_network
+
+services:
+  souin:
+    build:
+      context: .
+      target: souin
+      args:
+        GO_VERSION: ${GO_VERSION}
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      GOPATH: /app
+    volumes:
+      - ./configuration/configuration.yml:/configuration.yml
+    <<: *networks
+
+  olric:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile-olric
+      target: olric
+    restart: on-failure
+    <<: *networks
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.13
+    ports:
+      - 2379
+      - 2380
+      - 4001
+    environment:
+      ETCD_NAME: etcd0
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379,http://etcd:4001
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379,http://0.0.0.0:4001
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster-1
+      ETCD_INITIAL_CLUSTER: etcd0=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+    <<: *networks
+
+  redis:
+    image: redis:6.2-alpine
+    ports:
+      - 6379:6379
+    command: redis-server
+    <<: *networks
+
+  caddy:
+    build:
+      context: .
+      dockerfile: ./docker/caddy.Dockerfile
+    depends_on:
+      - etcd
+      - redis
+    ports:
+      - 4443:4443
+      - 2019:2019
+    <<: *networks
+
+  traefik:
+    image: traefik:latest
+    command: --providers.docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    <<: *networks
+
+  whoami:
+    image: traefik/whoami
+    labels:
+      - traefik.http.routers.whoami.rule=Host(`domain.com`)
+    <<: *networks
+networks:
+  your_network:
+    external: true

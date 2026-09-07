@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+
+  survey-service:
+    image: survey-service:0.0.1-SNAPSHOT
+    restart: always
+    ports:
+      - "8080:8080"
+    links:
+      - survey-service-database
+
+  survey-service-database:
+    image: postgres:11-alpine
+    restart: on-failure
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db-schema:/docker-entrypoint-initdb.d/
+    environment:
+      POSTGRES_DB: survey-service

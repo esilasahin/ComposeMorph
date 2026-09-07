@@ -1,0 +1,89 @@
+{
+  "total_files": 647,
+  "parseable_files": 647,
+  "parse_failures": 0,
+  "size_bytes": {
+    "min": 59,
+    "max": 117545,
+    "mean": 3777.43,
+    "median": 903,
+    "stdev": 10267.49
+  },
+  "line_count": {
+    "min": 5,
+    "max": 2591,
+    "mean": 115.86,
+    "median": 39,
+    "stdev": 260.69
+  },
+  "service_count": {
+    "min": 1,
+    "max": 56,
+    "mean": 4.38,
+    "median": 2,
+    "stdev": 6.94
+  },
+  "top_level_section_count": {
+    "min": 1,
+    "max": 17,
+    "mean": 2.55,
+    "median": 2,
+    "stdev": 1.18
+  },
+  "extension_field_count": {
+    "min": 0,
+    "max": 14,
+    "mean": 0.1,
+    "median": 0,
+    "stdev": 0.76
+  },
+  "yaml_nesting_depth": {
+    "min": 3,
+    "max": 9,
+    "mean": 4.53,
+    "median": 4,
+    "stdev": 0.84
+  },
+  "environment_short": {
+    "min": 0,
+    "max": 32,
+    "mean": 1.48,
+    "median": 0,
+    "stdev": 4.11
+  },
+  "environment_long": {
+    "min": 0,
+    "max": 53,
+    "mean": 1.49,
+    "median": 0,
+    "stdev": 3.84
+  },
+  "ports_short": {
+    "min": 0,
+    "max": 48,
+    "mean": 2.93,
+    "median": 2,
+    "stdev": 4.35
+  },
+  "ports_long": {
+    "min": 0,
+    "max": 10,
+    "mean": 0.1,
+    "median": 0,
+    "stdev": 0.89
+  },
+  "volumes_short": {
+    "min": 0,
+    "max": 146,
+    "mean": 5.68,
+    "median": 2,
+    "stdev": 14.39
+  },
+  "volumes_long": {
+    "min": 0,
+    "max": 16,
+    "mean": 0.18,
+    "median": 0,
+    "stdev": 1.5
+  }
+}

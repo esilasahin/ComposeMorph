@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  ignc-dev-site:
+    build:
+      context: .
+      platforms:
+        - linux/arm64
+    image: igncdev/site:arm64
+    container_name: ignc-dev-site
+    ports:
+      - "80:8080"    # HTTP port 
+      - "443:8081"   # HTTPS port
+    volumes:
+      - /home/pi/Certs:/app/certs:ro  # Mount certificate directory as read-only
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080;https://+:8081
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=./certs/cloudflare-origin.pem
+      - ASPNETCORE_Kestrel__Certificates__Default__KeyPath=./certs/cloudflare-origin.key
+    restart: unless-stopped
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8081/health", "||", "exit", "1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
