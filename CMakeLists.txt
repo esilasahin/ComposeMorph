@@ -43,3 +43,7 @@ target_link_libraries(unit_tests PRIVATE composemorph GTest::GTest GTest::Main)
 
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
+
+# Deney 1 (Identity Round-Trip) için benchmark aracı
+add_executable(roundtrip_tool benchmarks/roundtrip/roundtrip_tool.cpp)
+target_link_libraries(roundtrip_tool PRIVATE composemorph)
