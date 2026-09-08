@@ -47,3 +47,7 @@ gtest_discover_tests(unit_tests)
 # Deney 1 (Identity Round-Trip) için benchmark aracı
 add_executable(roundtrip_tool benchmarks/roundtrip/roundtrip_tool.cpp)
 target_link_libraries(roundtrip_tool PRIVATE composemorph)
+
+# Deney 2 (Targeted Modification / Change Locality) için benchmark aracı
+add_executable(modify_tool benchmarks/modification/modify_tool.cpp)
+target_link_libraries(modify_tool PRIVATE composemorph)

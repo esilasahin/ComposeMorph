@@ -1,1 +1,4 @@
 build/
+results/raw/roundtrip/*/
+results/raw/modification/*/
+__pycache__/

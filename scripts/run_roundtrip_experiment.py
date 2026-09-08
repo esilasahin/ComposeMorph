@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import difflib
 import shutil
 import statistics
 import subprocess
@@ -33,39 +32,14 @@ import time
 import yaml
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from diffmetrics import changed_line_count, line_levenshtein  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 EXIT_LOAD_FAILED = 10
 EXIT_SAVE_FAILED = 11
 EXIT_REPARSE_FAILED = 12
-
-
-def line_levenshtein(a_lines: list[str], b_lines: list[str]) -> int:
-    """Edit distance over lines (insert/delete/substitute), two-row DP."""
-    n, m = len(a_lines), len(b_lines)
-    if n == 0:
-        return m
-    if m == 0:
-        return n
-    prev = list(range(m + 1))
-    curr = [0] * (m + 1)
-    for i in range(1, n + 1):
-        curr[0] = i
-        ai = a_lines[i - 1]
-        for j in range(1, m + 1):
-            cost = 0 if ai == b_lines[j - 1] else 1
-            curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
-        prev, curr = curr, prev
-    return prev[m]
-
-
-def changed_line_count(a_lines: list[str], b_lines: list[str]) -> int:
-    sm = difflib.SequenceMatcher(a=a_lines, b=b_lines, autojunk=False)
-    changed = 0
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag != "equal":
-            changed += max(i2 - i1, j2 - j1)
-    return changed
 
 
 def docker_daemon_available() -> bool:
