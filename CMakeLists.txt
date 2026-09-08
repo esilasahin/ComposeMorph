@@ -51,3 +51,11 @@ target_link_libraries(roundtrip_tool PRIVATE composemorph)
 # Deney 2 (Targeted Modification / Change Locality) için benchmark aracı
 add_executable(modify_tool benchmarks/modification/modify_tool.cpp)
 target_link_libraries(modify_tool PRIVATE composemorph)
+
+# Deney 6 (Karşılaştırmalı Benchmark) için çıplak yaml-cpp temel çizgileri.
+# Not: composemorph'a değil, doğrudan yaml-cpp'ye bağlanır.
+add_executable(yamlcpp_careful_tool benchmarks/comparison/yamlcpp_careful_tool.cpp)
+target_link_libraries(yamlcpp_careful_tool PRIVATE yaml-cpp)
+
+add_executable(yamlcpp_naive_tool benchmarks/comparison/yamlcpp_naive_tool.cpp)
+target_link_libraries(yamlcpp_naive_tool PRIVATE yaml-cpp)
