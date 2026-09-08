@@ -59,3 +59,7 @@ target_link_libraries(yamlcpp_careful_tool PRIVATE yaml-cpp)
 
 add_executable(yamlcpp_naive_tool benchmarks/comparison/yamlcpp_naive_tool.cpp)
 target_link_libraries(yamlcpp_naive_tool PRIVATE yaml-cpp)
+
+# Deney 7 (Performance Benchmark) için ölçüm aracı
+add_executable(perf_tool benchmarks/performance/perf_tool.cpp)
+target_link_libraries(perf_tool PRIVATE composemorph)
