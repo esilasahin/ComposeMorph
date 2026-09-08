@@ -1,0 +1,32 @@
+version: "3.9"
+
+x-company-security:
+  hsm: enabled
+
+x-default-logging:
+  driver: json-file
+
+unknown_top_level_section:
+  note: not yet part of the compose spec
+  value: 42
+
+services:
+  app:
+    image: company/app:1.0
+    restart: always
+    environment:
+      APP_ENV: production
+    ports:
+      - "8080:8080"
+    x-service-meta:
+      owner: team-a
+      tier: 3
+    future_compose_property:
+      enabled: true
+      mode: experimental
+      nested:
+        level: 2
+        items:
+          - a
+          - b
+          - c

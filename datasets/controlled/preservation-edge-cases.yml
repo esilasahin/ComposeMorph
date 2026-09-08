@@ -1,0 +1,31 @@
+version: "3.9"
+
+x-null-extension:
+
+x-scalar-extension: "just-a-string"
+
+x-list-extension:
+  - a: 1
+  - b: 2
+
+unknown_list_section:
+  - 1
+  - 2
+  - 3
+
+services:
+  app:
+    image: company/edge-case:1.0
+    deploy:
+      replicas: 2
+      future_scaling_hint: aggressive
+      resources:
+        limits:
+          cpus: "1.5"
+    x-nested-service-block:
+      inner:
+        x-double-nested: true
+        values:
+          - 1
+          - 2
+          - 3
