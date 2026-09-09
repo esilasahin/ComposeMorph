@@ -3,4 +3,6 @@ results/raw/roundtrip/*/
 results/raw/modification/*/
 results/raw/preservation/*/
 results/raw/comparison/*/
+results/raw/validation/*/
+results/raw/quote-analysis/*/
 __pycache__/
