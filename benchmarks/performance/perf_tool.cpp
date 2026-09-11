@@ -5,10 +5,12 @@
 // fresh process per measurement, as the other benchmarks/ tools do) so
 // process-launch overhead doesn't dominate the small/medium-file numbers.
 #include "compose/ComposeFile.hpp"
+#include "ScalarQuoting.hpp"
 #include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -75,7 +77,31 @@ int main(int argc, char** argv) {
 
     const std::string tmpOut = input + ".perf-tmp.yml";
 
-    std::cout << "iteration,load_ms,modify_ms,save_ms,total_ms" << std::endl;
+    // Serializer-only comparison on one loaded tree, in memory: yaml-cpp's own
+    // emitter (what ComposeFile::save used before the quote-preserving
+    // serializer) vs. compose::detail::emitPreservingQuotes. The order
+    // alternates per iteration so warm-up and drift hit both equally.
+    YAML::Node tree;
+    try {
+        tree = YAML::LoadFile(input);
+    } catch (const std::exception& e) {
+        std::cerr << "LOAD_FAILED: " << e.what() << std::endl;
+        return 10;
+    }
+    auto timeYamlCpp = [&] {
+        auto a = Clock::now();
+        std::ostringstream s;
+        s << tree;
+        return msSince(a, Clock::now());
+    };
+    auto timePreserving = [&] {
+        auto a = Clock::now();
+        std::ostringstream s;
+        compose::detail::emitPreservingQuotes(s, tree);
+        return msSince(a, Clock::now());
+    };
+
+    std::cout << "iteration,load_ms,modify_ms,save_ms,total_ms,emit_yamlcpp_ms,emit_preserving_ms" << std::endl;
     for (int i = 0; i < iterations; ++i) {
         auto t0 = Clock::now();
         compose::ComposeFile file;
@@ -100,8 +126,17 @@ int main(int argc, char** argv) {
             return 12;
         }
         auto t3 = Clock::now();
+        double emitYamlCpp = 0, emitPreserving = 0;
+        if (i % 2 == 0) {
+            emitYamlCpp = timeYamlCpp();
+            emitPreserving = timePreserving();
+        } else {
+            emitPreserving = timePreserving();
+            emitYamlCpp = timeYamlCpp();
+        }
         std::cout << i << "," << msSince(t0, t1) << "," << msSince(t1, t2) << ","
-                  << msSince(t2, t3) << "," << msSince(t0, t3) << std::endl;
+                  << msSince(t2, t3) << "," << msSince(t0, t3) << ","
+                  << emitYamlCpp << "," << emitPreserving << std::endl;
     }
 
     std::remove(tmpOut.c_str());

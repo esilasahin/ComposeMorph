@@ -1,78 +1,76 @@
-# Quote-Normalization Deep Dive (follow-up to Experiment 5)
+# Quoted-Scalar Type Stability (follow-up to Experiment 5)
 
 ## 1. Canonical scalar-shape reference table
 
-Fixture's top-level `version: "3.9"` came back as: **float** (corrupted: True).
+- yaml-cpp baseline (before fix): quoted top-level `version: "3.9"` came back as **float**
+- ComposeMorph: quoted top-level `version: "3.9"` came back as **str**
 
-| Shape | Quoted value | Pattern | In `environment:` value | In `command:` list | In generic (`x-*`) map |
-|---|---|---|---|---|---|
-| integer_zero | '0' | integer-like | int | int | int |
-| integer_positive | '8080' | integer-like | int | int | int |
-| integer_leading_zero | '007' | integer-like | int | int | int |
-| integer_negative | '-1' | integer-like | int | int | int |
-| float_simple | '2.0' | float-like | float | float | float |
-| float_version_like | '3.8' | float-like | float | float | float |
-| float_scientific | '1.5e10' | float-like | str | str | str |
-| semver_two_dots | '1.0.0' | plain-text (safe) | str | str | str |
-| bool_true_lower | 'true' | bool-word | bool | bool | bool |
-| bool_false_lower | 'false' | bool-word | bool | bool | bool |
-| bool_yes | 'yes' | bool-word | bool | bool | bool |
-| bool_on | 'on' | bool-word | bool | bool | bool |
-| bool_y | 'y' | bool-word | str | str | str |
-| null_word | 'null' | null-word | str | str | str |
-| null_tilde | '~' | null-word | str | str | str |
-| empty_string | '' | null-word | str | str | str |
-| sexagesimal | '1:30' | sexagesimal | int | int | int |
-| special_float_inf | '.inf' | special-float | float | float | float |
-| special_float_nan | '.nan' | special-float | float | float | float |
-| hex_like | '0x1A' | octal-or-hex-like | int | int | int |
-| octal_like | '0o17' | octal-or-hex-like | str | str | str |
-| timestamp_date | '2024-01-01' | timestamp-like | date | date | date |
-| timestamp_datetime | '2024-01-01T00:00:00Z' | timestamp-like | datetime | datetime | datetime |
-| plain_text | 'hello-world' | plain-text (safe) | str | str | str |
-| plain_text_with_dash | 'my-service' | plain-text (safe) | str | str | str |
+Each cell gives the resolved type after the round-trip in an `environment:` value / a `command:` element / an `x-*` map. `str` everywhere means the quotes held.
 
-`str` = quote effectively preserved (safe). Anything else (`int`, `float`, `bool`, `NoneType`) means the round-trip silently changed the value's type.
+| Shape | Quoted value | Pattern | yaml-cpp baseline (before fix) | ComposeMorph |
+|---|---|---|---|---|
+| integer_zero | '0' | integer-like | int / int / int | str / str / str |
+| integer_positive | '8080' | integer-like | int / int / int | str / str / str |
+| integer_leading_zero | '007' | integer-like | int / int / int | str / str / str |
+| integer_negative | '-1' | integer-like | int / int / int | str / str / str |
+| float_simple | '2.0' | float-like | float / float / float | str / str / str |
+| float_version_like | '3.8' | float-like | float / float / float | str / str / str |
+| float_scientific | '1.5e10' | float-like | str / str / str | str / str / str |
+| semver_two_dots | '1.0.0' | plain-text (safe) | str / str / str | str / str / str |
+| bool_true_lower | 'true' | bool-word | bool / bool / bool | str / str / str |
+| bool_false_lower | 'false' | bool-word | bool / bool / bool | str / str / str |
+| bool_yes | 'yes' | bool-word | bool / bool / bool | str / str / str |
+| bool_on | 'on' | bool-word | bool / bool / bool | str / str / str |
+| bool_y | 'y' | bool-word | str / str / str | str / str / str |
+| null_word | 'null' | null-word | str / str / str | str / str / str |
+| null_tilde | '~' | null-word | str / str / str | str / str / str |
+| empty_string | '' | null-word | str / str / str | str / str / str |
+| sexagesimal | '1:30' | sexagesimal | int / int / int | str / str / str |
+| special_float_inf | '.inf' | special-float | float / float / float | str / str / str |
+| special_float_nan | '.nan' | special-float | float / float / float | str / str / str |
+| hex_like | '0x1A' | octal-or-hex-like | int / int / int | str / str / str |
+| octal_like | '0o17' | octal-or-hex-like | str / str / str | str / str / str |
+| timestamp_date | '2024-01-01' | timestamp-like | date / date / date | str / str / str |
+| timestamp_datetime | '2024-01-01T00:00:00Z' | timestamp-like | datetime / datetime / datetime | str / str / str |
+| plain_text | 'hello-world' | plain-text (safe) | str / str / str | str / str / str |
+| plain_text_with_dash | 'my-service' | plain-text (safe) | str / str / str | str / str / str |
 
-## 2. Dataset B corpus scan: real quoted-scalar occurrences
+## 2. Dataset A (controlled corpus) corpus scan: real quoted-scalar occurrences
 
-Total quoted-scalar occurrences found and checked: **62**
+- Quoted-scalar occurrences checked: **62** in **18** files
+- yaml-cpp baseline (before fix): **22** occurrences changed type, in **9** files (50.0% of files with quoted scalars)
+- ComposeMorph: **0** occurrences changed type, in **0** files (0.0% of files with quoted scalars)
 
-- Files with at least one explicitly-quoted scalar: **18**
-- Of those, files where at least one quoted scalar was corrupted by the round-trip: **9** (50.0%)
+"Corrupted" = the value at the same path no longer resolves to `str` under PyYAML (YAML 1.1 resolution rules). "Files docker-invalid" joins Experiment 5's `docker compose config` result for that editor's output of the same file; go-yaml, Compose's parser, resolves some shapes differently (e.g. no sexagesimal ints), so not every PyYAML-level type change is rejected by Docker.
 
 ### By YAML scalar pattern
 
-"Corrupted" = type changed under PyYAML's YAML-1.1-family resolver (same core schema family as yaml-cpp's), used here as an instrument since `yaml.safe_load` alone discards quote style. "Docker-confirmed invalid" cross-references Experiment 5's actual `docker compose config` run on the same files -- go-yaml (Compose's parser) resolves scalars slightly differently (e.g. it has no sexagesimal-int support), so not every PyYAML-detected type change is something Docker itself rejects.
-
-| Pattern | Occurrences | Corrupted (PyYAML) | Rate | Files docker-confirmed invalid* |
-|---|---|---|---|---|
-| null-word | 2 | 0 | 0.0% | n/a |
-| bool-word | 4 | 4 | 100.0% | 1/2 files |
-| sexagesimal | 2 | 0 | 0.0% | n/a |
-| integer-like | 9 | 9 | 100.0% | 1/5 files |
-| float-like | 9 | 9 | 100.0% | 1/2 files |
-| plain-text (safe) | 36 | 0 | 0.0% | n/a |
-
-\* Denominator is distinct *files* with a corrupted occurrence of that pattern whose docker-validity is known from Experiment 5's run (not occurrences, since validity is per-file); a file can appear under multiple patterns.
+| Pattern | Occurrences | yaml-cpp baseline (before fix): corrupted | yaml-cpp baseline (before fix): files docker-invalid* | ComposeMorph: corrupted | ComposeMorph: files docker-invalid* |
+|---|---|---|---|---|---|
+| null-word | 2 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
+| bool-word | 4 | 4 (100.0%) | 1/2 | 0 (0.0%) | n/a |
+| sexagesimal | 2 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
+| integer-like | 9 | 9 (100.0%) | 1/5 | 0 (0.0%) | n/a |
+| float-like | 9 | 9 (100.0%) | 1/2 | 0 (0.0%) | n/a |
+| plain-text (safe) | 36 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
 
 ### By Compose field location
 
-| Field | Occurrences | Corrupted (PyYAML) | Rate | Files docker-confirmed invalid* |
-|---|---|---|---|---|
-| environment value | 14 | 8 | 57.1% | 1/2 files |
-| other/unclassified | 13 | 3 | 23.1% | 0/2 files |
-| ports element | 8 | 2 | 25.0% | 0/1 files |
-| healthcheck | 8 | 0 | 0.0% | n/a |
-| labels value | 5 | 0 | 0.0% | n/a |
-| version | 4 | 4 | 100.0% | 1/1 files |
-| deploy resources (cpus/memory/replicas) | 4 | 4 | 100.0% | 0/1 files |
-| command/entrypoint element | 4 | 1 | 25.0% | 1/1 files |
-| build args/context | 2 | 0 | 0.0% | n/a |
+| Field | Occurrences | yaml-cpp baseline (before fix): corrupted | yaml-cpp baseline (before fix): files docker-invalid* | ComposeMorph: corrupted | ComposeMorph: files docker-invalid* |
+|---|---|---|---|---|---|
+| environment value | 14 | 8 (57.1%) | 1/2 | 0 (0.0%) | n/a |
+| other/unclassified | 13 | 3 (23.1%) | 0/2 | 0 (0.0%) | n/a |
+| healthcheck | 8 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
+| ports element | 8 | 2 (25.0%) | 0/1 | 0 (0.0%) | n/a |
+| labels value | 5 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
+| version | 4 | 4 (100.0%) | 1/1 | 0 (0.0%) | n/a |
+| deploy resources (cpus/memory/replicas) | 4 | 4 (100.0%) | 0/1 | 0 (0.0%) | n/a |
+| command/entrypoint element | 4 | 1 (25.0%) | 1/1 | 0 (0.0%) | n/a |
+| build args/context | 2 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
 
-**Environment/label values are the most *frequently* corrupted by occurrence count, but this table's last column is what tells you whether that corruption is something `docker compose config` actually rejects** -- the Compose schema treats most `environment:`/`labels:` values as permissively-typed, so a `"true"` becoming `true` there often round-trips back to a config Docker still accepts, whereas the same shape in `version:` or a `command:` element is fatal. Either way, ComposeMorph is silently changing a value the user explicitly wrote as a string -- an application reading that environment variable expecting text (e.g. via a strict-typed config loader) would still see different content if it introspects the file directly rather than the merged container environment.
+\* Distinct files with a corrupted occurrence in that group whose docker validity is known from Experiment 5 (validity is per file, not per occurrence).
 
-### Sample of corrupted occurrences (22 total)
+### yaml-cpp baseline (before fix): sample of corrupted occurrences (22 total)
 
 | File | Path | Original (quoted) | Became |
 |---|---|---|---|
@@ -98,10 +96,6 @@ Total quoted-scalar occurrences found and checked: **62**
 | `preservation-edge-cases.yml` | `version` | `'3.9'` | float |
 | ... | 2 more | | (see raw CSV) |
 
-### Corrupted occurrences per affected file
+## Mechanism
 
-mean=2.44, median=2, max=6 (n=9 files)
-
-## Takeaway
-
-The corruption is fully explained by scalar *shape*, not by which Compose field it happens to sit in: any explicitly-quoted value that reads as an integer, float, YAML 1.1 boolean word, or null word loses its quotes on save and is reinterpreted with the new type -- in a generic map, in an `environment:` value, or in a `command:` list element alike. `version:` is simply the single field where this shape (`"N.N"`, matching `float-like`) happens to appear in nearly every real Compose file, which is why it dominates Experiment 5's failure count. Plain-text quoted values (`plain-text (safe)`) are unaffected. This is a property of yaml-cpp's default emitter -- which does not track each scalar's original quote style, only whether quoting is syntactically *required* -- not something specific to ComposeMorph's own code.
+yaml-cpp's parser marks every quoted scalar with the non-specific tag `!` (plain scalars get `?`), but its emitter ignores that tag: `IsValidPlainScalar` in yaml-cpp 0.8.0's `src/emitterutils.cpp` writes a string without quotes unless it is null-like (`IsNullString`) or syntactically unsafe. That is why only the null-word shapes keep their quotes in the baseline column. ComposeMorph's serializer writes every `!`-tagged scalar double-quoted and leaves `?`-tagged (plain) scalars plain; see `src/ScalarQuoting.cpp`.

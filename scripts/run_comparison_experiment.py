@@ -17,9 +17,9 @@ file:
 Four things are measured on the same file/service samples used by
 Experiment 2/3/4 for consistency:
 
-  1. Identity round-trip textual preservation (composemorph vs.
-     yaml-cpp-careful) -- expected near-identical, since ComposeMorph adds
-     no format-preservation layer over yaml-cpp.
+  1. Identity round-trip (composemorph vs. yaml-cpp-careful): byte
+     identity between the two outputs, whether differences are confined to
+     quoting, and whether each output loads to the same data as the input.
   2. Change-locality (textual diff size) for a single-property edit,
      across all three tools.
   3. Collateral information loss: do a service's *other*, unrelated
@@ -185,15 +185,31 @@ def run_roundtrip_comparison(dataset_dir: Path, composemorph_roundtrip: Path, ya
 
         if cm_proc.returncode != 0 or not ok:
             continue
-        cm_lines = cm_out.read_text(errors="replace").splitlines()
-        yc_lines = yc_out.read_text(errors="replace").splitlines()
+        cm_text = cm_out.read_text(errors="replace")
+        yc_text = yc_out.read_text(errors="replace")
+        cm_lines, yc_lines = cm_text.splitlines(), yc_text.splitlines()
         rows.append({
             "file": path.name,
             "composemorph_changed_lines": changed_line_count(a_lines, cm_lines),
             "yamlcpp_careful_changed_lines": changed_line_count(a_lines, yc_lines),
-            "byte_identical_to_each_other": cm_out.read_text(errors="replace") == yc_out.read_text(errors="replace"),
+            "byte_identical_to_each_other": cm_text == yc_text,
+            "differ_only_in_quoting": cm_text != yc_text and len(cm_lines) == len(yc_lines) and all(
+                strip_quoting(x) == strip_quoting(y) for x, y in zip(cm_lines, yc_lines)),
+            "composemorph_semantic_match": loads_equal(cm_text, doc),
+            "yamlcpp_careful_semantic_match": loads_equal(yc_text, doc),
         })
     return rows
+
+
+def strip_quoting(line: str) -> str:
+    return line.replace('"', "").replace("'", "").replace("\\", "")
+
+
+def loads_equal(text: str, original: Any) -> bool:
+    try:
+        return yaml.safe_load(text) == original
+    except Exception:
+        return False
 
 
 def run_marker_comparison(dataset_dir: Path, tools: dict[str, Path], seed_dir: Path, out_dir: Path,
@@ -251,21 +267,31 @@ def summarize(mod_rows: list[dict], rt_rows: list[dict], marker_rows: list[dict]
     # --- Round-trip equivalence ---
     lines.append("## 1. Identity round-trip: ComposeMorph vs. careful raw yaml-cpp\n")
     lines.append(f"Files compared: **{len(rt_rows)}**\n")
+    n_rt = len(rt_rows)
+    identical = sum(1 for r in rt_rows if r["byte_identical_to_each_other"])
+    quote_only = sum(1 for r in rt_rows if r["differ_only_in_quoting"])
+    other = n_rt - identical - quote_only
+    cm_sem = sum(1 for r in rt_rows if r["composemorph_semantic_match"])
+    yc_sem = sum(1 for r in rt_rows if r["yamlcpp_careful_semantic_match"])
     if rt_rows:
-        identical = sum(1 for r in rt_rows if r["byte_identical_to_each_other"])
         cm_vals = [r["composemorph_changed_lines"] for r in rt_rows]
         yc_vals = [r["yamlcpp_careful_changed_lines"] for r in rt_rows]
-        lines.append(
-            f"- Byte-identical output between the two tools: **{identical}/{len(rt_rows)}** "
-            f"({100*identical/len(rt_rows):.2f}%)"
-        )
-        lines.append(f"- ComposeMorph mean changed lines vs. input: {statistics.mean(cm_vals):.2f}")
-        lines.append(f"- yaml-cpp (careful) mean changed lines vs. input: {statistics.mean(yc_vals):.2f}")
-        lines.append(
-            "- **Interpretation:** ComposeMorph's round-trip preservation (or lack of it, per "
-            "Experiment 1) is inherited entirely from yaml-cpp -- it is not a distinguishing "
-            "feature of this library.\n"
-        )
+        lines.append(f"- Byte-identical output between the two tools: **{identical}/{n_rt}** "
+                     f"({100*identical/n_rt:.2f}%)")
+        lines.append(f"- Outputs that differ only in quote characters/escapes: **{quote_only}/{n_rt}**")
+        lines.append(f"- Outputs that differ in anything else: **{other}/{n_rt}**")
+        lines.append(f"- Output loads (PyYAML) to exactly the same data as the input: ComposeMorph "
+                     f"**{cm_sem}/{n_rt}**, yaml-cpp (careful) **{yc_sem}/{n_rt}**")
+        lines.append(f"- Mean changed lines vs. input: ComposeMorph {statistics.mean(cm_vals):.2f}, "
+                     f"yaml-cpp (careful) {statistics.mean(yc_vals):.2f}")
+        if identical == n_rt:
+            lines.append("- **Interpretation:** the two tools produce the same bytes, so ComposeMorph's "
+                         "round-trip behavior is inherited from yaml-cpp here.\n")
+        else:
+            lines.append(f"- **Interpretation:** where the outputs differ, they differ only in quoting in "
+                         f"{quote_only} of {n_rt - identical} files. ComposeMorph keeps "
+                         f"the quotes that yaml-cpp's emitter drops, which is what lifts semantic identity "
+                         f"with the input from {yc_sem}/{n_rt} to {cm_sem}/{n_rt}.\n")
 
     # --- Change locality + collateral loss ---
     lines.append("## 2. Targeted modification: change locality and collateral loss\n")
@@ -350,16 +376,20 @@ def summarize(mod_rows: list[dict], rt_rows: list[dict], marker_rows: list[dict]
                   "(`src/ComposeFile.cpp`, `benchmarks/comparison/*.cpp`).\n")
     lines.append("| Feature | ComposeMorph | yaml-cpp (careful use) | yaml-cpp (naive use) |")
     lines.append("|---|---|---|---|")
+    sem = (f"loads to the same data as the input in {cm_sem}/{n_rt} files (section 1)"
+           if n_rt else "see section 1")
+    yc_sem_txt = (f"{yc_sem}/{n_rt} files load to the same data as the input (section 1)"
+                  if n_rt else "see section 1")
     matrix = [
         ("C++ API", "Yes -- typed classes", "Yes -- raw `YAML::Node` only", "Yes -- raw `YAML::Node` only"),
         ("Docker Compose-aware API", "Yes (`Service`, `Environment`, `Ports`, ...)", "No", "No"),
         ("Generic property support", "Yes (`Service::set/get/remove`)", "Yes, unguided (manual `Node` indexing)", "Yes, unguided"),
-        ("Unknown field preservation", "100% (Exp. 3, this experiment)", "100% (this experiment)", "Top-level only -- service-level lost on `image`/`hostname`"),
-        ("x-* preservation", "100% (Exp. 4, this experiment)", "100% (this experiment)", "Top-level only -- service-level lost on `image`/`hostname`"),
-        ("Comment preservation", "No (Exp. 1)", "No (same yaml-cpp emitter)", "No"),
-        ("Formatting preservation", "No (Exp. 1: quote/flow-style normalized)", "No (identical, section 1 above)", "No"),
+        ("Unknown field preservation", "Measured (Exp. 3, section 3)", "Measured (section 3)", "Top-level only -- service-level lost on `image`/`hostname`"),
+        ("x-* preservation", "Measured (Exp. 4, section 3)", "Measured (section 3)", "Top-level only -- service-level lost on `image`/`hostname`"),
+        ("Comment preservation", "No (Exp. 1)", "No", "No"),
+        ("Formatting preservation", "Partial -- the author's quoting is kept (as double quotes); comments, blank lines, indentation and single-quote style are not (Exp. 1)", "No -- quoted scalars lose their quotes", "No"),
         ("Key order preservation", "Existing keys: yes; new keys appended at end", "Same (yaml-cpp preserves map insertion order)", "Same, within whatever subtree survives"),
-        ("Round-trip support", "Semantic yes, byte-identical no (Exp. 1)", "Identical to ComposeMorph (section 1)", "N/A -- not a round-trip tool"),
+        ("Round-trip support", f"Structure and scalar types: {sem}; byte-identical: no (Exp. 1)", f"Structure yes; quoted scalars can change type -- {yc_sem_txt}", "N/A -- not a round-trip tool"),
         ("Compose validation integration", "Basic business-rule `validate()` (image/build required, ...)", "None built in", "None built in"),
         ("Safe/atomic save", "Yes -- `SaveOptions::atomic` writes to a temp file + rename", "No -- direct `ofstream` overwrite", "No -- direct `ofstream` overwrite"),
     ]
@@ -476,7 +506,8 @@ def main() -> int:
         (args.modification_csv, mod_rows, ["experiment", "tool", "op", "file", "service", "status",
                                             "elapsed_s", "actual_changed_lines", "collateral_preserved"]),
         (args.roundtrip_csv, rt_rows, ["file", "composemorph_changed_lines", "yamlcpp_careful_changed_lines",
-                                        "byte_identical_to_each_other"]),
+                                        "byte_identical_to_each_other", "differ_only_in_quoting",
+                                        "composemorph_semantic_match", "yamlcpp_careful_semantic_match"]),
         (args.marker_csv, marker_rows, ["tool", "file", "status"] + [s["id"] for s in MARKER_SPECS]),
     ):
         path = (REPO_ROOT / rel).resolve()

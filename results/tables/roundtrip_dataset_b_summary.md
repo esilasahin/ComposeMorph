@@ -11,12 +11,12 @@ Files evaluated: **647**
 
 ## RQ2 -- Preservation (textual, identity round-trip)
 
-- Byte-identical round-trip: **5/647** (0.77%)
-  - **The library does not guarantee byte-identical round-trip.** yaml-cpp re-emits scalars/flow sequences with normalized quoting and collapses blank lines on save; see per-file diffs in the raw CSV.
-- Changed line ratio: mean=0.3110, median=0.2500, stdev=0.2103, max=1.8297
-- Line-level Levenshtein distance: mean=39.8393, median=11.0000, stdev=113.6133, max=1404.0000
-- Normalized edit distance: mean=0.3097, median=0.2500, stdev=0.2034, max=1.0000
+- Byte-identical round-trip: **26/647** (4.02%)
+  - **The library does not guarantee byte-identical round-trip.** The yaml-cpp emitter it serializes through drops comments and blank lines, re-indents to two spaces, writes empty values as `~` and writes quoted scalars with double quotes; see per-file diffs in the raw CSV.
+- Changed line ratio: mean=0.2368, median=0.1667, stdev=0.2267, max=1.8297
+- Line-level Levenshtein distance: mean=29.6012, median=7.0000, stdev=90.6833, max=1388.0000
+- Normalized edit distance: mean=0.2355, median=0.1667, stdev=0.2199, max=1.0000
 
 ## Performance (informational, see Experiment 7 for the full benchmark)
 
-- Load+save+reload wall time per file: mean=0.0046, median=0.0034, stdev=0.0041, max=0.0449 seconds
+- Load+save+reload wall time per file: mean=0.0057, median=0.0040, stdev=0.0058, max=0.0560 seconds

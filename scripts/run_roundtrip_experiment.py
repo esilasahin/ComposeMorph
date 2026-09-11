@@ -207,9 +207,10 @@ def summarize(rows: list[dict], dataset_label: str, semantic_requested: bool, se
     )
     if byte_ident_rows and byte_ident_ok < len(byte_ident_rows):
         lines.append(
-            "  - **The library does not guarantee byte-identical round-trip.** "
-            "yaml-cpp re-emits scalars/flow sequences with normalized quoting and "
-            "collapses blank lines on save; see per-file diffs in the raw CSV."
+            "  - **The library does not guarantee byte-identical round-trip.** The "
+            "yaml-cpp emitter it serializes through drops comments and blank lines, "
+            "re-indents to two spaces, writes empty values as `~` and writes quoted "
+            "scalars with double quotes; see per-file diffs in the raw CSV."
         )
     lines.append(f"- Changed line ratio: {stats_line('changed_line_ratio')}")
     lines.append(f"- Line-level Levenshtein distance: {stats_line('line_levenshtein')}")

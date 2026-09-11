@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-"""Deep-dive on the quote-normalization finding from Experiment 5:
-`docker compose config` rejected 542/557 (97%) of otherwise-valid outputs
-because a quoted scalar (e.g. `version: "3.8"`) came back unquoted after a
-ComposeMorph round-trip, silently changing its YAML-resolved type from
-string to number/bool/null.
+"""Deep-dive on quoted-scalar type stability (follow-up to Experiment 5).
 
-Two independent measurements, no synthetic guessing required for either:
+A scalar the author quoted (`version: "3.8"`, `DEBUG: "true"`) is a string.
+If an editor writes it back without quotes, YAML resolvers read it as a
+float/bool/int instead. Experiment 5 found this was the dominant cause of
+`docker compose config` rejecting yaml-cpp-based output. This script measures
+it for two editors:
 
-  1. Canonical-forms test: a small hand-built fixture with one quoted
-     value per YAML scalar "shape" (integer-like, float-like, boolean
-     word, null word, sexagesimal, special float, octal/hex, timestamp,
-     plain text) in both a generic location and realistic Compose
-     positions (`version`, a `command` list element, an `environment`
-     value). Round-tripped through roundtrip_tool, then the *actual*
-     post-round-trip Python type at each path is compared against `str`.
-     This gives a clean per-scalar-shape reference table.
+  composemorph       build/roundtrip_tool (quote-preserving serializer).
+  yamlcpp-baseline   build/yamlcpp_careful_tool noop: yaml-cpp's default
+                     emitter, byte-identical to ComposeMorph before the fix
+                     (Experiment 6), i.e. the "before" column.
 
-  2. Dataset B corpus scan: every explicitly double/single-quoted scalar
-     in all 647 real files is located (via PyYAML's event stream, which
-     records quote style -- `yaml.safe_load` alone would already have
-     thrown that information away), round-tripped, and the value at the
-     same path in the output is checked against `str`. This measures how
-     often each scalar shape and each Compose field actually appears
-     quoted-and-then-corrupted in the wild -- ground truth, not a
-     regex guess at what yaml-cpp "should" do.
+Two independent measurements:
+
+  1. Canonical-forms fixture: one quoted value per YAML scalar shape
+     (integer-, float-, bool-, null-, sexagesimal-, special-float-, hex/octal-,
+     timestamp-like, plain text) in an `environment:` value, a `command:` list
+     element and an `x-*` map, plus a quoted top-level `version`. Each editor
+     round-trips it and the Python type at each path is compared with `str`.
+
+  2. Corpus scan: every explicitly quoted scalar in the corpus is located via
+     PyYAML's event stream (which, unlike yaml.safe_load, keeps quote style),
+     each editor round-trips the file, and the value at the same path in the
+     output is checked against `str`. Experiment 5's raw CSV is joined in to
+     report which files docker compose actually rejected.
 
 Usage:
     python3 scripts/analyze_quote_normalization.py
@@ -237,64 +238,88 @@ def build_canonical_fixture() -> tuple[str, list[PatternPath]]:
     return "\n".join(lines) + "\n", paths
 
 
-def run_roundtrip(tool: Path, input_path: Path, output_path: Path) -> bool:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+EDITORS = ("yamlcpp-baseline", "composemorph")
+EDITOR_LABELS = {
+    "yamlcpp-baseline": "yaml-cpp baseline (before fix)",
+    "composemorph": "ComposeMorph",
+}
+
+
+def first_service(path: Path) -> Optional[str]:
     try:
-        proc = subprocess.run([str(tool), str(input_path), str(output_path)],
-                               capture_output=True, text=True, timeout=30)
+        doc = yaml.safe_load(path.read_text(errors="replace"))
+    except Exception:
+        return None
+    if isinstance(doc, dict) and isinstance(doc.get("services"), dict) and doc["services"]:
+        return sorted(doc["services"].keys())[0]
+    return None
+
+
+def run_editor(editor: str, tools: dict[str, Path], src: Path, out: Path) -> bool:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if editor == "composemorph":
+        cmd = [str(tools["composemorph"]), str(src), str(out)]
+    else:
+        service = first_service(src)
+        if service is None:
+            return False
+        cmd = [str(tools["yamlcpp-baseline"]), str(src), str(out), "noop", service]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
         return False
     return proc.returncode == 0
 
 
-def part1_canonical(tool: Path, scratch_dir: Path) -> list[dict]:
+def type_at(doc: Any, path: PatternPath) -> str:
+    value = get_by_path(doc, path)
+    return "missing" if value is _MISSING else type(value).__name__
+
+
+def part1_canonical(tools: dict[str, Path], scratch_dir: Path) -> dict[str, dict]:
+    """editor -> {"version": type, "rows": [{shape, value, pattern, env, command, x}]}"""
     text, _ = build_canonical_fixture()
     input_path = scratch_dir / "canonical-fixture.yml"
     input_path.parent.mkdir(parents=True, exist_ok=True)
     input_path.write_text(text)
-    output_path = scratch_dir / "canonical-fixture.out.yml"
-    if not run_roundtrip(tool, input_path, output_path):
-        print("error: roundtrip_tool failed on canonical fixture", file=sys.stderr)
-        return []
 
-    out_doc = yaml.safe_load(output_path.read_text())
-    rows = []
-    for name, val in CANONICAL_VALUES:
-        env_type = type(get_by_path(out_doc, ("services", "app", "environment", name))).__name__
-        x_type = type(get_by_path(out_doc, ("services", "app", "x-test-values", name))).__name__
-        rows.append({
-            "shape": name, "original_value": repr(val), "pattern": classify_pattern(val),
-            "environment_position_type": env_type, "generic_position_type": x_type,
-            "corrupted": env_type != "str" or x_type != "str",
-        })
-    # version and command[] are single fixed positions, report separately
-    version_type = type(get_by_path(out_doc, ("version",))).__name__
-    command_rows = []
-    for i, (name, val) in enumerate(CANONICAL_VALUES):
-        t = type(get_by_path(out_doc, ("services", "app", "command", i))).__name__
-        command_rows.append({"shape": name, "original_value": repr(val), "pattern": classify_pattern(val),
-                              "command_position_type": t, "corrupted": t != "str"})
-    return rows, command_rows, version_type
+    results = {}
+    for editor in EDITORS:
+        output_path = scratch_dir / f"canonical-fixture.{editor}.out.yml"
+        if not run_editor(editor, tools, input_path, output_path):
+            print(f"error: {editor} failed on the canonical fixture", file=sys.stderr)
+            continue
+        out_doc = yaml.safe_load(output_path.read_text())
+        rows = []
+        for i, (name, val) in enumerate(CANONICAL_VALUES):
+            rows.append({
+                "shape": name, "value": repr(val), "pattern": classify_pattern(val),
+                "env": type_at(out_doc, ("services", "app", "environment", name)),
+                "command": type_at(out_doc, ("services", "app", "command", i)),
+                "x": type_at(out_doc, ("services", "app", "x-test-values", name)),
+            })
+        results[editor] = {"version": type_at(out_doc, ("version",)), "rows": rows}
+    return results
 
 
 # ---------------------------------------------------------------------------
-# Part 2: real corpus scan
+# Part 2: corpus scan
 # ---------------------------------------------------------------------------
-def load_docker_validity(exp5_csv: Path) -> dict[str, bool]:
-    """file -> True/False (valid per real `docker compose config`), from Experiment 5's
-    already-computed roundtrip_output rows -- avoids re-invoking docker here."""
+def load_docker_validity(exp5_csv: Path) -> dict[tuple[str, str], bool]:
+    """(editor, file) -> valid per `docker compose config`, from Experiment 5's
+    roundtrip_output rows, so docker is not re-invoked here."""
     if not exp5_csv.exists():
         return {}
-    out: dict[str, bool] = {}
+    out: dict[tuple[str, str], bool] = {}
     with exp5_csv.open(newline="") as f:
         for row in csv_mod.DictReader(f):
-            if row.get("stage") == "roundtrip_output":
-                out[row["file"]] = row["valid"] == "True"
+            if row.get("stage") == "roundtrip_output" and row.get("tool") in EDITORS:
+                out[(row["tool"], row["file"])] = row["valid"] == "True"
     return out
 
 
-def part2_corpus(tool: Path, dataset_dir: Path, output_dir: Path, max_files: int,
-                  docker_validity: dict[str, bool]) -> list[dict]:
+def part2_corpus(tools: dict[str, Path], dataset_dir: Path, output_dir: Path, max_files: int,
+                  docker_validity: dict[tuple[str, str], bool]) -> list[dict]:
     files = sorted(p for p in dataset_dir.rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
     if max_files:
         files = files[:max_files]
@@ -302,216 +327,197 @@ def part2_corpus(tool: Path, dataset_dir: Path, output_dir: Path, max_files: int
     rows = []
     for i, path in enumerate(files, 1):
         try:
-            text = path.read_text(errors="replace")
-        except Exception:
-            continue
-        try:
-            quoted = iter_quoted_scalars(text)
+            quoted = iter_quoted_scalars(path.read_text(errors="replace"))
         except Exception:
             continue
         if not quoted:
             continue
 
-        out_path = output_dir / path.name
-        if not run_roundtrip(tool, path, out_path):
-            continue
-        try:
-            out_doc = yaml.safe_load(out_path.read_text(errors="replace"))
-        except Exception:
+        out_docs = {}
+        for editor in EDITORS:
+            out_path = output_dir / editor / path.name
+            if not run_editor(editor, tools, path, out_path):
+                continue
+            try:
+                out_docs[editor] = yaml.safe_load(out_path.read_text(errors="replace"))
+            except Exception:
+                continue
+        if len(out_docs) != len(EDITORS):
             continue
 
-        for path_tuple, value, style in quoted:
-            after = get_by_path(out_doc, path_tuple)
-            if after is _MISSING:
-                continue  # path shape changed (e.g. quoting itself doesn't remove keys); skip rather than misreport
-            after_type = type(after).__name__
-            docker_valid = docker_validity.get(path.name)
-            rows.append({
-                "file": path.name, "path": path_str(path_tuple), "value": value,
-                "pattern": classify_pattern(value), "field": classify_field(path_tuple),
-                "after_type": after_type, "corrupted": after_type != "str",
-                "docker_confirmed_invalid": (docker_valid is False) if docker_valid is not None else None,
-            })
+        for path_tuple, value, _style in quoted:
+            row = {"file": path.name, "path": path_str(path_tuple), "value": value,
+                   "pattern": classify_pattern(value), "field": classify_field(path_tuple)}
+            skip = False
+            for editor in EDITORS:
+                after = get_by_path(out_docs[editor], path_tuple)
+                if after is _MISSING:
+                    skip = True
+                    break
+                valid = docker_validity.get((editor, path.name))
+                row[f"{editor}_type"] = type(after).__name__
+                row[f"{editor}_corrupted"] = type(after) is not str
+                row[f"{editor}_docker_invalid"] = (valid is False) if valid is not None else None
+            if not skip:
+                rows.append(row)
         if i % 100 == 0 or i == len(files):
             print(f"  [{i}/{len(files)}]", file=sys.stderr)
     return rows
 
 
-def summarize(canonical_env: list[dict], canonical_cmd: list[dict], version_type: str,
-              corpus_rows: list[dict]) -> str:
-    lines = ["# Quote-Normalization Deep Dive (follow-up to Experiment 5)\n"]
+def _group_table(rows: list[dict], key: str, order: list[str]) -> list[str]:
+    out = []
+    head = "| " + key.capitalize() + " | Occurrences | " + " | ".join(
+        f"{EDITOR_LABELS[e]}: corrupted | {EDITOR_LABELS[e]}: files docker-invalid*" for e in EDITORS) + " |"
+    out.append(head)
+    out.append("|---" * (2 + 2 * len(EDITORS)) + "|")
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(r[key], []).append(r)
+    for name in order:
+        g = groups.get(name, [])
+        if not g:
+            continue
+        cells = []
+        for e in EDITORS:
+            bad = [r for r in g if r[f"{e}_corrupted"]]
+            confirmed = {r["file"] for r in bad if r[f"{e}_docker_invalid"]}
+            known = {r["file"] for r in bad if r[f"{e}_docker_invalid"] is not None}
+            cells.append(f"{len(bad)} ({100 * len(bad) / len(g):.1f}%)")
+            cells.append(f"{len(confirmed)}/{len(known)}" if known else "n/a")
+        out.append(f"| {name} | {len(g)} | " + " | ".join(cells) + " |")
+    return out
+
+
+def summarize(canonical: dict[str, dict], corpus_rows: list[dict], dataset_label: str) -> str:
+    lines = ["# Quoted-Scalar Type Stability (follow-up to Experiment 5)\n"]
 
     lines.append("## 1. Canonical scalar-shape reference table\n")
-    lines.append(
-        f"Fixture's top-level `version: \"3.9\"` came back as: **{version_type}**"
-        f" (corrupted: {version_type != 'str'}).\n"
-    )
-    lines.append("| Shape | Quoted value | Pattern | In `environment:` value | In `command:` list | In generic (`x-*`) map |")
-    lines.append("|---|---|---|---|---|---|")
-    for env_row, cmd_row in zip(canonical_env, canonical_cmd):
-        mark_env = env_row["environment_position_type"]
-        mark_cmd = cmd_row["command_position_type"]
-        mark_x = env_row["generic_position_type"]
-        lines.append(
-            f"| {env_row['shape']} | {env_row['original_value']} | {env_row['pattern']} | "
-            f"{mark_env} | {mark_cmd} | {mark_x} |"
-        )
-    lines.append("\n`str` = quote effectively preserved (safe). Anything else (`int`, `float`, `bool`, "
-                  "`NoneType`) means the round-trip silently changed the value's type.\n")
+    for e in EDITORS:
+        if e in canonical:
+            lines.append(f"- {EDITOR_LABELS[e]}: quoted top-level `version: \"3.9\"` came back as "
+                         f"**{canonical[e]['version']}**")
+    lines.append("")
+    lines.append("Each cell gives the resolved type after the round-trip in an `environment:` value / "
+                 "a `command:` element / an `x-*` map. `str` everywhere means the quotes held.\n")
+    lines.append("| Shape | Quoted value | Pattern | " + " | ".join(EDITOR_LABELS[e] for e in EDITORS) + " |")
+    lines.append("|---" * (3 + len(EDITORS)) + "|")
+    base_rows = canonical.get(EDITORS[0], {}).get("rows", [])
+    for i, r in enumerate(base_rows):
+        cells = []
+        for e in EDITORS:
+            er = canonical.get(e, {}).get("rows", [])
+            cells.append(f"{er[i]['env']} / {er[i]['command']} / {er[i]['x']}" if i < len(er) else "n/a")
+        lines.append(f"| {r['shape']} | {r['value']} | {r['pattern']} | " + " | ".join(cells) + " |")
+    lines.append("")
 
-    lines.append("## 2. Dataset B corpus scan: real quoted-scalar occurrences\n")
-    lines.append(f"Total quoted-scalar occurrences found and checked: **{len(corpus_rows)}**\n")
-    files_affected = {r["file"] for r in corpus_rows}
-    files_corrupted = {r["file"] for r in corpus_rows if r["corrupted"]}
-    lines.append(f"- Files with at least one explicitly-quoted scalar: **{len(files_affected)}**")
+    lines.append(f"## 2. {dataset_label} corpus scan: real quoted-scalar occurrences\n")
+    files_quoted = {r["file"] for r in corpus_rows}
+    lines.append(f"- Quoted-scalar occurrences checked: **{len(corpus_rows)}** "
+                 f"in **{len(files_quoted)}** files")
+    for e in EDITORS:
+        bad = [r for r in corpus_rows if r[f"{e}_corrupted"]]
+        bad_files = {r["file"] for r in bad}
+        share = f"{100 * len(bad_files) / len(files_quoted):.1f}%" if files_quoted else "n/a"
+        lines.append(f"- {EDITOR_LABELS[e]}: **{len(bad)}** occurrences changed type, in "
+                     f"**{len(bad_files)}** files ({share} of files with quoted scalars)")
+    lines.append("")
     lines.append(
-        f"- Of those, files where at least one quoted scalar was corrupted by the round-trip: "
-        f"**{len(files_corrupted)}** ({100*len(files_corrupted)/len(files_affected):.1f}%)\n" if files_affected else ""
+        "\"Corrupted\" = the value at the same path no longer resolves to `str` under PyYAML "
+        "(YAML 1.1 resolution rules). \"Files docker-invalid\" joins Experiment 5's "
+        "`docker compose config` result for that editor's output of the same file; go-yaml, "
+        "Compose's parser, resolves some shapes differently (e.g. no sexagesimal ints), so not "
+        "every PyYAML-level type change is rejected by Docker.\n"
     )
 
     lines.append("### By YAML scalar pattern\n")
-    lines.append(
-        "\"Corrupted\" = type changed under PyYAML's YAML-1.1-family resolver (same core "
-        "schema family as yaml-cpp's), used here as an instrument since `yaml.safe_load` alone "
-        "discards quote style. \"Docker-confirmed invalid\" cross-references Experiment 5's "
-        "actual `docker compose config` run on the same files -- go-yaml (Compose's parser) "
-        "resolves scalars slightly differently (e.g. it has no sexagesimal-int support), so not "
-        "every PyYAML-detected type change is something Docker itself rejects.\n"
-    )
-    lines.append("| Pattern | Occurrences | Corrupted (PyYAML) | Rate | Files docker-confirmed invalid* |")
-    lines.append("|---|---|---|---|---|")
-    by_pattern: dict[str, list[dict]] = {}
-    for r in corpus_rows:
-        by_pattern.setdefault(r["pattern"], []).append(r)
-    for pattern, _ in PATTERN_RULES + [("plain-text (safe)", None)]:
-        rows = by_pattern.get(pattern, [])
-        if not rows:
-            continue
-        corrupted = sum(1 for r in rows if r["corrupted"])
-        corrupted_rows_here = [r for r in rows if r["corrupted"]]
-        confirmed_files = {r["file"] for r in corrupted_rows_here if r["docker_confirmed_invalid"]}
-        known_files = {r["file"] for r in corrupted_rows_here if r["docker_confirmed_invalid"] is not None}
-        confirm_str = f"{len(confirmed_files)}/{len(known_files)} files" if known_files else "n/a"
-        lines.append(f"| {pattern} | {len(rows)} | {corrupted} | {100*corrupted/len(rows):.1f}% | {confirm_str} |")
-    lines.append(
-        "\n\\* Denominator is distinct *files* with a corrupted occurrence of that pattern whose "
-        "docker-validity is known from Experiment 5's run (not occurrences, since validity is "
-        "per-file); a file can appear under multiple patterns.\n"
-    )
-
+    lines.extend(_group_table(corpus_rows, "pattern",
+                              [name for name, _ in PATTERN_RULES] + ["plain-text (safe)"]))
+    lines.append("")
     lines.append("### By Compose field location\n")
-    lines.append("| Field | Occurrences | Corrupted (PyYAML) | Rate | Files docker-confirmed invalid* |")
-    lines.append("|---|---|---|---|---|")
-    by_field: dict[str, list[dict]] = {}
-    for r in corpus_rows:
-        by_field.setdefault(r["field"], []).append(r)
-    for field, rows in sorted(by_field.items(), key=lambda kv: -len(kv[1])):
-        corrupted = sum(1 for r in rows if r["corrupted"])
-        corrupted_rows_here = [r for r in rows if r["corrupted"]]
-        confirmed_files = {r["file"] for r in corrupted_rows_here if r["docker_confirmed_invalid"]}
-        known_files = {r["file"] for r in corrupted_rows_here if r["docker_confirmed_invalid"] is not None}
-        confirm_str = f"{len(confirmed_files)}/{len(known_files)} files" if known_files else "n/a"
-        lines.append(f"| {field} | {len(rows)} | {corrupted} | {100*corrupted/len(rows):.1f}% | {confirm_str} |")
-    lines.append(
-        "\n**Environment/label values are the most *frequently* corrupted by occurrence count, "
-        "but this table's last column is what tells you whether that corruption is something "
-        "`docker compose config` actually rejects** -- the Compose schema treats most "
-        "`environment:`/`labels:` values as permissively-typed, so a `\"true\"` becoming `true` "
-        "there often round-trips back to a config Docker still accepts, whereas the same shape in "
-        "`version:` or a `command:` element is fatal. Either way, ComposeMorph is silently "
-        "changing a value the user explicitly wrote as a string -- an application reading that "
-        "environment variable expecting text (e.g. via a strict-typed config loader) would still "
-        "see different content if it introspects the file directly rather than the merged "
-        "container environment.\n"
-    )
+    field_order = sorted({r["field"] for r in corpus_rows},
+                         key=lambda f: -sum(1 for r in corpus_rows if r["field"] == f))
+    lines.extend(_group_table(corpus_rows, "field", field_order))
+    lines.append("\n\\* Distinct files with a corrupted occurrence in that group whose docker "
+                 "validity is known from Experiment 5 (validity is per file, not per occurrence).\n")
 
-    corrupted_rows = [r for r in corpus_rows if r["corrupted"]]
-    if corrupted_rows:
-        lines.append(f"### Sample of corrupted occurrences ({len(corrupted_rows)} total)\n")
+    for e in EDITORS:
+        bad = [r for r in corpus_rows if r[f"{e}_corrupted"]]
+        if not bad:
+            continue
+        lines.append(f"### {EDITOR_LABELS[e]}: sample of corrupted occurrences ({len(bad)} total)\n")
         lines.append("| File | Path | Original (quoted) | Became |")
         lines.append("|---|---|---|---|")
-        for r in corrupted_rows[:20]:
-            lines.append(f"| `{r['file']}` | `{r['path']}` | `{r['value']!r}` | {r['after_type']} |")
-        if len(corrupted_rows) > 20:
-            lines.append(f"| ... | {len(corrupted_rows) - 20} more | | (see raw CSV) |")
+        for r in bad[:20]:
+            lines.append(f"| `{r['file']}` | `{r['path']}` | `{r['value']!r}` | {r[f'{e}_type']} |")
+        if len(bad) > 20:
+            lines.append(f"| ... | {len(bad) - 20} more | | (see raw CSV) |")
         lines.append("")
 
-    per_file_counts = {}
-    for r in corrupted_rows:
-        per_file_counts[r["file"]] = per_file_counts.get(r["file"], 0) + 1
-    if per_file_counts:
-        counts = list(per_file_counts.values())
-        lines.append(
-            f"### Corrupted occurrences per affected file\n\n"
-            f"mean={statistics.mean(counts):.2f}, median={statistics.median(counts)}, "
-            f"max={max(counts)} (n={len(counts)} files)\n"
-        )
-
-    lines.append("## Takeaway\n")
+    lines.append("## Mechanism\n")
     lines.append(
-        "The corruption is fully explained by scalar *shape*, not by which Compose field it "
-        "happens to sit in: any explicitly-quoted value that reads as an integer, float, "
-        "YAML 1.1 boolean word, or null word loses its quotes on save and is reinterpreted "
-        "with the new type -- in a generic map, in an `environment:` value, or in a `command:` "
-        "list element alike. `version:` is simply the single field where this shape "
-        "(`\"N.N\"`, matching `float-like`) happens to appear in nearly every real Compose file, "
-        "which is why it dominates Experiment 5's failure count. Plain-text quoted values "
-        "(`plain-text (safe)`) are unaffected. This is a property of yaml-cpp's default "
-        "emitter -- which does not track each scalar's original quote style, only whether "
-        "quoting is syntactically *required* -- not something specific to ComposeMorph's own code.\n"
+        "yaml-cpp's parser marks every quoted scalar with the non-specific tag `!` (plain scalars "
+        "get `?`), but its emitter ignores that tag: `IsValidPlainScalar` in yaml-cpp 0.8.0's "
+        "`src/emitterutils.cpp` writes a string without quotes unless it is null-like "
+        "(`IsNullString`) or syntactically unsafe. That is why only the null-word shapes keep "
+        "their quotes in the baseline column. ComposeMorph's serializer writes every `!`-tagged "
+        "scalar double-quoted and leaves `?`-tagged (plain) scalars plain; see "
+        "`src/ScalarQuoting.cpp`.\n"
     )
-
     return "\n".join(lines)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset-dir", default="datasets/real-world-combined")
+    ap.add_argument("--dataset-label", default="Dataset B")
     ap.add_argument("--tool", default="build/roundtrip_tool")
+    ap.add_argument("--baseline-tool", default="build/yamlcpp_careful_tool")
     ap.add_argument("--output-dir", default="results/raw/quote-analysis/output")
     ap.add_argument("--scratch-dir", default="results/raw/quote-analysis/fixture")
     ap.add_argument("--raw-csv", default="results/raw/quote_normalization_analysis.csv")
     ap.add_argument("--summary-md", default="results/tables/quote_normalization_analysis.md")
     ap.add_argument("--exp5-csv", default="results/raw/validation_dataset_b.csv",
-                     help="Experiment 5's raw CSV, used to cross-reference which PyYAML-detected "
-                          "type changes are confirmed by a real docker compose config run.")
-    ap.add_argument("--max-files", type=int, default=0, help="0 = all of Dataset B")
+                     help="Experiment 5's raw CSV, joined in for docker-confirmed validity.")
+    ap.add_argument("--max-files", type=int, default=0, help="0 = whole corpus")
     args = ap.parse_args()
 
-    tool = (REPO_ROOT / args.tool).resolve()
+    tools = {"composemorph": (REPO_ROOT / args.tool).resolve(),
+             "yamlcpp-baseline": (REPO_ROOT / args.baseline_tool).resolve()}
     dataset_dir = (REPO_ROOT / args.dataset_dir).resolve()
     output_dir = (REPO_ROOT / args.output_dir).resolve()
     scratch_dir = (REPO_ROOT / args.scratch_dir).resolve()
-    if not tool.exists():
-        print(f"error: roundtrip_tool not found at {tool} (build it first)", file=sys.stderr)
-        return 1
+    for name, path in tools.items():
+        if not path.exists():
+            print(f"error: {name} binary not found at {path} (build it first)", file=sys.stderr)
+            return 1
     if not dataset_dir.is_dir():
         print(f"error: dataset dir not found: {dataset_dir}", file=sys.stderr)
         return 1
-
     output_dir.mkdir(parents=True, exist_ok=True)
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     print("Running canonical-forms fixture...", file=sys.stderr)
-    canonical_env, canonical_cmd, version_type = part1_canonical(tool, scratch_dir)
+    canonical = part1_canonical(tools, scratch_dir)
 
     docker_validity = load_docker_validity((REPO_ROOT / args.exp5_csv).resolve())
     if not docker_validity:
-        print(f"warning: {args.exp5_csv} not found or empty -- run run_validation_experiment.py "
-              f"first for docker-confirmed cross-referencing (proceeding without it)", file=sys.stderr)
+        print(f"warning: no per-tool rows in {args.exp5_csv} -- run run_validation_experiment.py "
+              f"first for docker-confirmed columns (proceeding without them)", file=sys.stderr)
 
-    print("Scanning Dataset B for quoted scalars and checking round-trip type stability...", file=sys.stderr)
-    corpus_rows = part2_corpus(tool, dataset_dir, output_dir, args.max_files, docker_validity)
+    print("Scanning corpus for quoted scalars...", file=sys.stderr)
+    corpus_rows = part2_corpus(tools, dataset_dir, output_dir, args.max_files, docker_validity)
 
     raw_csv = (REPO_ROOT / args.raw_csv).resolve()
     raw_csv.parent.mkdir(parents=True, exist_ok=True)
+    fields = ["file", "path", "value", "pattern", "field"] + [
+        f"{e}_{k}" for e in EDITORS for k in ("type", "corrupted", "docker_invalid")]
     with raw_csv.open("w", newline="") as f:
-        writer = csv_mod.DictWriter(f, fieldnames=["file", "path", "value", "pattern", "field",
-                                                     "after_type", "corrupted", "docker_confirmed_invalid"])
+        writer = csv_mod.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(corpus_rows)
 
-    summary = summarize(canonical_env, canonical_cmd, version_type, corpus_rows)
+    summary = summarize(canonical, corpus_rows, args.dataset_label)
     summary_md = (REPO_ROOT / args.summary_md).resolve()
     summary_md.parent.mkdir(parents=True, exist_ok=True)
     summary_md.write_text(summary)

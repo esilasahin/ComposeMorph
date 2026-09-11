@@ -2,12 +2,15 @@
 // direct yaml-cpp usage of the same single-property edits ComposeMorph's
 // benchmarks/modification/modify_tool.cpp performs, but without any of
 // ComposeMorph's typed Service/Environment/... classes -- just raw
-// YAML::Node indexing, mutating only the target leaf/sequence in place
-// (the same technique ComposeMorph itself uses under the hood).
+// YAML::Node indexing, mutating only the target leaf/sequence in place,
+// including the short (list) syntax of environment and extra_hosts.
 //
-// This is the fair baseline: if ComposeMorph's preservation numbers match
-// this tool's, that shows ComposeMorph's contribution is API ergonomics
-// and safety, not a novel preservation algorithm. Contrast with
+// It serializes with yaml-cpp's default emitter, so it also stands in for
+// ComposeMorph before the quote-preserving serializer (src/ScalarQuoting.cpp)
+// in Experiment 5 and the quoted-scalar analysis: before that change,
+// ComposeMorph's round-trip output was byte-identical to this tool's noop
+// output (Experiment 6, results/pre-fix/tables/comparison_summary.md: 100/100
+// files), and its image edit follows the same Node write. Contrast with
 // yamlcpp_naive_tool.cpp, which implements the same edits the way an
 // unguided caller plausibly would, and loses data.
 #include <yaml-cpp/yaml.h>
@@ -51,8 +54,24 @@ void applyOp(YAML::Node root, const std::string& op, const std::vector<std::stri
     } else if (op == "restart") {
         svc["restart"] = args.at(1);
     } else if (op == "env") {
-        if (!svc["environment"]) svc["environment"] = YAML::Node(YAML::NodeType::Map);
-        svc["environment"][args.at(1)] = args.at(2);
+        const std::string& key = args.at(1);
+        YAML::Node env = svc["environment"];
+        if (env && env.IsSequence()) {
+            const std::string entry = key + "=" + args.at(2);
+            bool found = false;
+            for (std::size_t i = 0; i < env.size(); ++i) {
+                const std::string current = env[i].as<std::string>();
+                if (current.substr(0, current.find('=')) == key) {
+                    env[i] = entry;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) env.push_back(entry);
+        } else {
+            if (!env) svc["environment"] = YAML::Node(YAML::NodeType::Map);
+            svc["environment"][key] = args.at(2);
+        }
     } else if (op == "port") {
         if (!svc["ports"]) svc["ports"] = YAML::Node(YAML::NodeType::Sequence);
         if (!sequenceHas(svc["ports"], args.at(1))) svc["ports"].push_back(args.at(1));
@@ -82,8 +101,28 @@ void applyOp(YAML::Node root, const std::string& op, const std::vector<std::stri
             svc["volumes"].push_back(newSource + ":" + target);
         }
     } else if (op == "extra-host") {
-        if (!svc["extra_hosts"]) svc["extra_hosts"] = YAML::Node(YAML::NodeType::Map);
-        svc["extra_hosts"][args.at(1)] = args.at(2);
+        const std::string& host = args.at(1);
+        YAML::Node hosts = svc["extra_hosts"];
+        if (hosts && hosts.IsSequence()) {
+            bool found = false;
+            char sep = '=';
+            for (std::size_t i = 0; i < hosts.size(); ++i) {
+                const std::string current = hosts[i].as<std::string>();
+                const auto eq = current.find('=');
+                const auto pos = eq != std::string::npos ? eq : current.find(':');
+                if (pos == std::string::npos) continue;
+                if (i == 0) sep = current[pos];
+                if (current.substr(0, pos) == host) {
+                    hosts[i] = host + current[pos] + args.at(2);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) hosts.push_back(host + sep + args.at(2));
+        } else {
+            if (!hosts) svc["extra_hosts"] = YAML::Node(YAML::NodeType::Map);
+            svc["extra_hosts"][host] = args.at(2);
+        }
     } else if (op == "network") {
         if (!svc["networks"]) svc["networks"] = YAML::Node(YAML::NodeType::Sequence);
         if (!sequenceHas(svc["networks"], args.at(1))) svc["networks"].push_back(args.at(1));

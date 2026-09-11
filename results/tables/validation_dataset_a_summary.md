@@ -2,30 +2,34 @@
 
 Dataset A (controlled corpus) files tested: **38**
 
-## Input validity (baseline, evaluated separately per the PDF)
+## Input validity (evaluated separately per the task spec)
 
-- **33/38** (86.84%) of the raw GitHub Compose files are already valid per `docker compose config`, before ComposeMorph touches them. The rest fail for reasons unrelated to this library (missing `.env` files, undefined interpolation variables, deprecated/malformed syntax, etc.) -- see stage=`input` rows in the raw CSV for the specific errors. These files are excluded from the rates below.
+- **33/38 (86.84%)** of the input files are already valid per `docker compose config` before any editor touches them. The rest fail for reasons unrelated to the editors (missing `.env` files, undefined interpolation variables, deprecated or malformed syntax, ...); see the stage=`input` rows in the raw CSV. They are excluded from the rates below.
 
 ## Docker Compose Validation Success Rate (RQ1, main metric)
 
-- Identity round-trip output (Experiment 1, no modification): **32/33** (96.97%)
-- Targeted `image` modification output (Experiment 2): **30/31** (96.77%)
-- **Combined: 62/64 (96.88%)**
+| Output | ComposeMorph | yaml-cpp baseline (= ComposeMorph before the quote fix) |
+|---|---|---|
+| Identity round-trip (Experiment 1) | 33/33 (100.00%) | 32/33 (96.97%) |
+| Targeted `image` edit (Experiment 2) | 31/31 (100.00%) | 30/31 (96.77%) |
+| **Combined** | **64/64 (100.00%)** | **62/64 (96.88%)** |
 
 ## Marker fixtures: x-* vs. non-x- unknown properties (RQ4 nuance)
 
-- x-* extension fields only: **30/31** (96.77%) valid per docker compose config
-- x-* extension fields *and* non-x- "future property" style unknown fields: **0/31** (0.00%)
+| Fixture | ComposeMorph | yaml-cpp baseline (= ComposeMorph before the quote fix) |
+|---|---|---|
+| x-* extension fields only | 31/31 (100.00%) | 30/31 (96.77%) |
+| x-* plus non-x- "future property" unknown fields | 0/31 (0.00%) | 0/31 (0.00%) |
 
-**Interpretation:** Experiments 3/4 showed ComposeMorph preserves *both* kinds of unknown structure semantically at ~100%. This experiment shows that preservation alone isn't the same as validity: the Compose Specification schema only permits unrecognized top-level/service keys when they're `x-*`-prefixed. A non-`x-` "forward-compatible" field survives the round-trip but docker compose still rejects the *file*, independent of anything ComposeMorph did. This is a real constraint worth stating plainly in Limitations, not a bug in the library.
+The Compose Specification schema only admits unrecognized top-level or service keys when they are `x-*`-prefixed. A non-`x-` field that an editor preserves faithfully still makes docker compose reject the file, so the second row measures the schema, not the editor.
 
-## Outputs that became invalid despite a valid input (2)
+## ComposeMorph: outputs that became invalid despite a valid input (0)
 
-Categorized by root cause (see `classify_error()` in this script):
+None observed.
 
-### schema-type: quoted numeric-looking scalar unquoted on save (e.g. version, command/entrypoint elements) -- 2 case(s)
+## yaml-cpp baseline (= ComposeMorph before the quote fix): outputs that became invalid despite a valid input (2)
 
-- `roundtrip_output` / `quoted-scalar-types.yml`: validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/roundtrip/quoted-scalar-types.yml: services.app.command.2 must be a string
-- `modification_output` / `quoted-scalar-types.yml`: validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/modification/quoted-scalar-types.yml: services.app.command.2 must be a string
+### schema-type: a string field came back as a number/bool (quoted scalar lost its quotes) -- 2 case(s)
 
-**The dominant failure mode -- quoted numeric-looking scalars losing their quotes on save -- is the *same mechanism* Experiment 1 already flagged as a formatting-only issue (e.g. `"2.0"` -> `2.0`). This experiment shows it is not purely cosmetic: when that scalar is `version:`, a `command:`/`entrypoint:` list element, or any other field the Compose schema requires to be a string, the re-serialized file is outright rejected by `docker compose config`. In at least one observed case (`command: ["caddy", "respond", "--listen", ":80", "QA"]`), the unquoted `:80` inside a flow sequence is not just schema-invalid but syntactically unparseable YAML for other parsers (confirmed independently with PyYAML) -- yaml-cpp's own reader accepts its own output, but standards-compliant parsers do not. This is the single most consequential finding in this benchmark suite and should be reported prominently in Results/Limitations, not folded into the round-trip byte-diff numbers.
+- `roundtrip_output` / `quoted-scalar-types.yml`: validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/yamlcpp-baseline/roundtrip/quoted-scalar-types.yml: services.app.command.2 must be a string
+- `modification_output` / `quoted-scalar-types.yml`: validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/yamlcpp-baseline/modification/quoted-scalar-types.yml: services.app.command.2 must be a string

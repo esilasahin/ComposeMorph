@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import csv
 import platform
 import re
@@ -174,6 +175,36 @@ def fmt(s: dict, unit: str = "ms") -> str:
             f"stdev={s['stdev']:.3f}{unit}, p95={s['p95']:.3f}{unit}")
 
 
+def wilcoxon_signed_rank(a: list[float], b: list[float]) -> tuple[int, float, float]:
+    """Two-sided Wilcoxon signed-rank test for paired samples, normal
+    approximation with tie correction (adequate for the n >= 30 used here).
+    Returns (n non-zero pairs, z, p)."""
+    diffs = [x - y for x, y in zip(a, b) if x != y]
+    n = len(diffs)
+    if n == 0:
+        return 0, 0.0, 1.0
+    order = sorted(range(n), key=lambda i: abs(diffs[i]))
+    ranks = [0.0] * n
+    tie_term = 0.0
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and abs(diffs[order[j + 1]]) == abs(diffs[order[i]]):
+            j += 1
+        avg = (i + j) / 2 + 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg
+        tie_term += (j - i + 1) ** 3 - (j - i + 1)
+        i = j + 1
+    w_plus = sum(r for r, d in zip(ranks, diffs) if d > 0)
+    mean = n * (n + 1) / 4
+    var = n * (n + 1) * (2 * n + 1) / 24 - tie_term / 48
+    if var <= 0:
+        return n, 0.0, 1.0
+    z = (w_plus - mean) / math.sqrt(var)
+    return n, z, math.erfc(abs(z) / math.sqrt(2))
+
+
 def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int, dataset_label: str = "Dataset B") -> str:
     lines = ["# Experiment 7 -- Performance Benchmark\n"]
     lines.append("## Benchmark environment\n")
@@ -205,6 +236,29 @@ def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int, d
         lines.append(f"- file line count range: {min(line_counts)}-{max(line_counts)}")
         lines.append("")
 
+    lines.append("## Serializer cost: yaml-cpp's emitter vs. ComposeMorph's quote-preserving serializer\n")
+    lines.append(
+        "Both serializers write the same loaded tree to memory inside the same process, in "
+        "alternating order per iteration (`emit_yamlcpp_ms`, `emit_preserving_ms` in the raw CSV). "
+        "yaml-cpp's emitter is what `ComposeFile::save` used before the quote-preserving serializer. "
+        "Paired two-sided Wilcoxon signed-rank test (normal approximation) per bucket.\n"
+    )
+    lines.append("| Bucket | Pairs | yaml-cpp median (ms) | quote-preserving median (ms) | median ratio | Wilcoxon z | p |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for name, _, _ in BUCKETS:
+        its = [it for r in file_results.get(name, []) for it in r["iterations"]
+               if "emit_yamlcpp_ms" in it and "emit_preserving_ms" in it]
+        if not its:
+            continue
+        a = [it["emit_yamlcpp_ms"] for it in its]
+        b = [it["emit_preserving_ms"] for it in its]
+        ratios = [y / x for x, y in zip(a, b) if x > 0]
+        n, z, p = wilcoxon_signed_rank(b, a)
+        lines.append(f"| {name} | {len(its)} | {statistics.median(a):.3f} | {statistics.median(b):.3f} | "
+                     f"{statistics.median(ratios):.3f} | {z:.2f} | {p:.3g} |")
+    lines.append("\nRatio < 1 means the quote-preserving serializer is faster; z < 0 means its times "
+                 "are systematically lower.\n")
+
     lines.append("## Notes\n")
     xlarge = file_results.get("XLarge (>2000 lines)", [])
     if len(xlarge) < 5:
@@ -214,9 +268,11 @@ def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int, d
             "criteria (dataset limitation acknowledged rather than hidden)."
         )
     lines.append(
-        "- The first iteration of each file (cold: page faults, filesystem cache) is included "
-        "in the pooled statistics rather than discarded, so mean/p95 are conservative; median "
-        "is a better single-number summary for typical steady-state cost."
+        "- The first iteration of each file (cold: page faults, filesystem cache, and for "
+        "`modify_ms` the one-time compilation of the regular expression ComposeMorph uses to "
+        "decide whether a string written through the API needs quotes) is included in the "
+        "pooled statistics rather than discarded, so mean/p95 are conservative; median is a "
+        "better single-number summary for typical steady-state cost."
     )
     lines.append("")
 
@@ -315,7 +371,8 @@ def main() -> int:
     raw_csv.parent.mkdir(parents=True, exist_ok=True)
     with raw_csv.open("w", newline="") as f:
         fieldnames = ["bucket", "file", "total_lines", "size_bytes", "peak_rss_kb",
-                      "iteration", "load_ms", "modify_ms", "save_ms", "total_ms"]
+                      "iteration", "load_ms", "modify_ms", "save_ms", "total_ms",
+                      "emit_yamlcpp_ms", "emit_preserving_ms"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(raw_rows)

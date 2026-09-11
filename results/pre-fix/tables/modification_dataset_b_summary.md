@@ -2,22 +2,22 @@
 
 Total (op, file) cases evaluated: **1467**
 
-Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. Adjusted ratio further divides by (Actual - that file's own identity-round-trip noise from Experiment 1), isolating the edit's footprint from the library's baseline re-serialization noise (dropped comments and blank lines, re-indentation).
+Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. Adjusted ratio further divides by (Actual - that file's own identity-round-trip noise from Experiment 1), isolating the edit's footprint from the library's baseline re-serialization noise (quote/flow-style normalization, blank-line loss).
 
 ## Per-property results
 
 | Op | N | Success | Median actual changed lines | Median locality ratio | Median adjusted ratio |
 |---|---|---|---|---|---|
-| image | 200 | 200/200 | 9.0 | 0.1111 | 1.0000 |
-| hostname | 39 | 39/39 | 23.0 | 0.0435 | 1.0000 |
-| restart | 200 | 200/200 | 10.0 | 0.1000 | 1.0000 |
-| env | 200 | 200/200 | 9.0 | 0.1111 | 1.0000 |
-| port | 200 | 199/200 | 8.0 | 0.1250 | 1.0000 |
-| volume-source | 200 | 200/200 | 9.0 | 0.1111 | 1.0000 |
-| extra-host | 34 | 34/34 | 36.0 | 0.0278 | 1.0000 |
-| network | 200 | 169/200 | 13.0 | 0.0769 | 1.0000 |
-| healthcheck-retries | 185 | 185/185 | 13.0 | 0.0769 | 1.0000 |
-| deploy-cpus | 9 | 9/9 | 20.0 | 0.0500 | 1.0000 |
+| image | 200 | 200/200 | 13.0 | 0.0769 | 1.0000 |
+| hostname | 39 | 39/39 | 31.0 | 0.0323 | 1.0000 |
+| restart | 200 | 200/200 | 14.0 | 0.0714 | 1.0000 |
+| env | 200 | 200/200 | 15.0 | 0.0667 | 1.0000 |
+| port | 200 | 199/200 | 12.0 | 0.0833 | 1.0000 |
+| volume-source | 200 | 200/200 | 13.0 | 0.0769 | 1.0000 |
+| extra-host | 34 | 34/34 | 105.0 | 0.0095 | 1.0000 |
+| network | 200 | 169/200 | 19.0 | 0.0526 | 1.0000 |
+| healthcheck-retries | 185 | 185/185 | 19.0 | 0.0526 | 1.0000 |
+| deploy-cpus | 9 | 9/9 | 25.0 | 0.0400 | 1.0000 |
 
 ## Notes
 

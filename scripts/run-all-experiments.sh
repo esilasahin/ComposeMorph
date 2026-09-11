@@ -127,7 +127,7 @@ run_dataset_a() {
 
   log "Quote-normalization deep dive (Dataset A)"
   python3 scripts/analyze_quote_normalization.py \
-    --dataset-dir datasets/controlled \
+    --dataset-dir datasets/controlled --dataset-label "Dataset A (controlled corpus)" \
     --output-dir results/raw/quote-analysis/dataset-a-output \
     --scratch-dir results/raw/quote-analysis/dataset-a-fixture \
     --raw-csv results/raw/quote_normalization_analysis_dataset_a.csv \

@@ -1,63 +1,63 @@
-file,path,value,pattern,field,after_type,corrupted,docker_confirmed_invalid
-full-featured.yml,version,3.9,float-like,version,float,True,
-full-featured.yml,x-default-logging.options.max-size,10m,plain-text (safe),other/unclassified,str,False,
-full-featured.yml,x-default-logging.options.max-file,3,integer-like,other/unclassified,int,True,
-full-featured.yml,services.web.extra_hosts.[0],hsm-server=10.10.10.20,plain-text (safe),other/unclassified,str,False,
-full-featured.yml,services.web.ports.[0],8080:80,sexagesimal,ports element,str,False,
-full-featured.yml,services.web.ports.[1].published,8443,integer-like,ports element,int,True,
-full-featured.yml,services.web.healthcheck.test.[0],CMD,plain-text (safe),healthcheck,str,False,
-full-featured.yml,services.web.healthcheck.test.[1],curl,plain-text (safe),healthcheck,str,False,
-full-featured.yml,services.web.healthcheck.test.[2],-f,plain-text (safe),healthcheck,str,False,
-full-featured.yml,services.web.healthcheck.test.[3],http://localhost/health,plain-text (safe),healthcheck,str,False,
-full-featured.yml,services.web.labels.[0],com.example.owner=team-a,plain-text (safe),labels value,str,False,
-full-featured.yml,services.web.labels.[1],com.example.tier=edge,plain-text (safe),labels value,str,False,
-full-featured.yml,services.web.deploy.resources.limits.cpus,1.0,float-like,deploy resources (cpus/memory/replicas),float,True,
-full-featured.yml,services.api.build.args.VERSION,2.1.0,plain-text (safe),build args/context,str,False,
-full-featured.yml,services.api.environment.PORT,3000,integer-like,environment value,int,True,
-full-featured.yml,services.api.environment.DEBUG,false,bool-word,environment value,bool,True,
-full-featured.yml,services.worker.devices.[0],/dev/dri:/dev/dri,plain-text (safe),other/unclassified,str,False,
-minimal-multi-service.yml,services.app.ports.[0],3000:3000,plain-text (safe),ports element,str,False,False
-deploy-placement-and-profiles.yml,services.app.profiles.[0],prod,plain-text (safe),other/unclassified,str,False,False
-deploy-placement-and-profiles.yml,services.app.profiles.[1],staging,plain-text (safe),other/unclassified,str,False,False
-deploy-placement-and-profiles.yml,services.app.deploy.placement.constraints.[0],node.role==worker,plain-text (safe),other/unclassified,str,False,False
-quoted-scalar-types.yml,version,3.9,float-like,version,float,True,True
-quoted-scalar-types.yml,services.app.environment.FEATURE_FLAG,true,bool-word,environment value,bool,True,True
-quoted-scalar-types.yml,services.app.environment.RETRY_COUNT,3,integer-like,environment value,int,True,True
-quoted-scalar-types.yml,services.app.environment.TIMEOUT_SECONDS,2.5,float-like,environment value,float,True,True
-quoted-scalar-types.yml,services.app.environment.DEBUG_MODE,yes,bool-word,environment value,bool,True,True
-quoted-scalar-types.yml,services.app.environment.EMPTY_VALUE,,null-word,environment value,str,False,True
-quoted-scalar-types.yml,services.app.environment.NULL_LIKE,null,null-word,environment value,str,False,True
-quoted-scalar-types.yml,services.app.command.[0],run,plain-text (safe),command/entrypoint element,str,False,True
-quoted-scalar-types.yml,services.app.command.[1],--workers,plain-text (safe),command/entrypoint element,str,False,True
-quoted-scalar-types.yml,services.app.command.[2],4,integer-like,command/entrypoint element,int,True,True
-quoted-scalar-types.yml,services.app.command.[3],--verbose,plain-text (safe),command/entrypoint element,str,False,True
-similar-looking-env-keys.yml,services.app.environment.API_KEY,abc,plain-text (safe),environment value,str,False,False
-similar-looking-env-keys.yml,services.app.environment.Api_Key,def,plain-text (safe),environment value,str,False,False
-similar-looking-env-keys.yml,services.app.environment.api-key,ghi,plain-text (safe),environment value,str,False,False
-unicode-and-special-chars.yml,services.app.labels.[0],com.example.description=Ünïcödé tëst — 日本語 emoji 🚀,plain-text (safe),labels value,str,False,False
-unicode-and-special-chars.yml,services.app.environment.GREETING,"Héllo, Wörld! 你好",plain-text (safe),environment value,str,False,False
-build.yml,services.app.build.args.VERSION,1.0.0,plain-text (safe),build args/context,str,False,False
-deploy.yml,services.worker.deploy.resources.limits.cpus,2.0,float-like,deploy resources (cpus/memory/replicas),float,True,False
-deploy.yml,services.worker.deploy.resources.reservations.cpus,0.5,float-like,deploy resources (cpus/memory/replicas),float,True,False
-devices.yml,services.app.devices.[0],/dev/ttyUSB0:/dev/ttyUSB0,plain-text (safe),other/unclassified,str,False,False
-devices.yml,services.app.devices.[1],/dev/snd:/dev/snd:rwm,plain-text (safe),other/unclassified,str,False,False
-environment-long.yml,services.api.environment.PORT,3000,integer-like,environment value,int,True,False
-environment-long.yml,services.api.environment.DEBUG,false,bool-word,environment value,bool,True,False
-healthcheck.yml,services.api.healthcheck.test.[0],CMD,plain-text (safe),healthcheck,str,False,False
-healthcheck.yml,services.api.healthcheck.test.[1],curl,plain-text (safe),healthcheck,str,False,False
-healthcheck.yml,services.api.healthcheck.test.[2],-f,plain-text (safe),healthcheck,str,False,False
-healthcheck.yml,services.api.healthcheck.test.[3],http://localhost:3000/health,plain-text (safe),healthcheck,str,False,False
-labels.yml,services.app.labels.[0],com.example.owner=team-a,plain-text (safe),labels value,str,False,False
-labels.yml,services.app.labels.[1],com.example.tier=backend,plain-text (safe),labels value,str,False,False
-logging.yml,services.app.logging.options.max-size,10m,plain-text (safe),other/unclassified,str,False,False
-logging.yml,services.app.logging.options.max-file,3,integer-like,other/unclassified,int,True,False
-ports-long.yml,services.web.ports.[0].published,8080,integer-like,ports element,int,True,False
-ports-short.yml,services.web.ports.[0],8080:80,sexagesimal,ports element,str,False,False
-ports-short.yml,services.web.ports.[1],443:443,plain-text (safe),ports element,str,False,False
-ports-short.yml,services.web.ports.[2],127.0.0.1:9000:9000,plain-text (safe),ports element,str,False,False
-sysctls.yml,services.app.sysctls.net.ipv4.tcp_syncookies,0,integer-like,other/unclassified,int,True,False
-preservation-edge-cases.yml,version,3.9,float-like,version,float,True,
-preservation-edge-cases.yml,x-scalar-extension,just-a-string,plain-text (safe),other/unclassified,str,False,
-preservation-edge-cases.yml,services.app.deploy.resources.limits.cpus,1.5,float-like,deploy resources (cpus/memory/replicas),float,True,
-preservation-standard-markers.yml,version,3.9,float-like,version,float,True,
-preservation-standard-markers.yml,services.app.ports.[0],8080:8080,plain-text (safe),ports element,str,False,
+file,path,value,pattern,field,yamlcpp-baseline_type,yamlcpp-baseline_corrupted,yamlcpp-baseline_docker_invalid,composemorph_type,composemorph_corrupted,composemorph_docker_invalid
+full-featured.yml,version,3.9,float-like,version,float,True,,str,False,
+full-featured.yml,x-default-logging.options.max-size,10m,plain-text (safe),other/unclassified,str,False,,str,False,
+full-featured.yml,x-default-logging.options.max-file,3,integer-like,other/unclassified,int,True,,str,False,
+full-featured.yml,services.web.extra_hosts.[0],hsm-server=10.10.10.20,plain-text (safe),other/unclassified,str,False,,str,False,
+full-featured.yml,services.web.ports.[0],8080:80,sexagesimal,ports element,str,False,,str,False,
+full-featured.yml,services.web.ports.[1].published,8443,integer-like,ports element,int,True,,str,False,
+full-featured.yml,services.web.healthcheck.test.[0],CMD,plain-text (safe),healthcheck,str,False,,str,False,
+full-featured.yml,services.web.healthcheck.test.[1],curl,plain-text (safe),healthcheck,str,False,,str,False,
+full-featured.yml,services.web.healthcheck.test.[2],-f,plain-text (safe),healthcheck,str,False,,str,False,
+full-featured.yml,services.web.healthcheck.test.[3],http://localhost/health,plain-text (safe),healthcheck,str,False,,str,False,
+full-featured.yml,services.web.labels.[0],com.example.owner=team-a,plain-text (safe),labels value,str,False,,str,False,
+full-featured.yml,services.web.labels.[1],com.example.tier=edge,plain-text (safe),labels value,str,False,,str,False,
+full-featured.yml,services.web.deploy.resources.limits.cpus,1.0,float-like,deploy resources (cpus/memory/replicas),float,True,,str,False,
+full-featured.yml,services.api.build.args.VERSION,2.1.0,plain-text (safe),build args/context,str,False,,str,False,
+full-featured.yml,services.api.environment.PORT,3000,integer-like,environment value,int,True,,str,False,
+full-featured.yml,services.api.environment.DEBUG,false,bool-word,environment value,bool,True,,str,False,
+full-featured.yml,services.worker.devices.[0],/dev/dri:/dev/dri,plain-text (safe),other/unclassified,str,False,,str,False,
+minimal-multi-service.yml,services.app.ports.[0],3000:3000,plain-text (safe),ports element,str,False,False,str,False,False
+deploy-placement-and-profiles.yml,services.app.profiles.[0],prod,plain-text (safe),other/unclassified,str,False,False,str,False,False
+deploy-placement-and-profiles.yml,services.app.profiles.[1],staging,plain-text (safe),other/unclassified,str,False,False,str,False,False
+deploy-placement-and-profiles.yml,services.app.deploy.placement.constraints.[0],node.role==worker,plain-text (safe),other/unclassified,str,False,False,str,False,False
+quoted-scalar-types.yml,version,3.9,float-like,version,float,True,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.FEATURE_FLAG,true,bool-word,environment value,bool,True,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.RETRY_COUNT,3,integer-like,environment value,int,True,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.TIMEOUT_SECONDS,2.5,float-like,environment value,float,True,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.DEBUG_MODE,yes,bool-word,environment value,bool,True,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.EMPTY_VALUE,,null-word,environment value,str,False,True,str,False,False
+quoted-scalar-types.yml,services.app.environment.NULL_LIKE,null,null-word,environment value,str,False,True,str,False,False
+quoted-scalar-types.yml,services.app.command.[0],run,plain-text (safe),command/entrypoint element,str,False,True,str,False,False
+quoted-scalar-types.yml,services.app.command.[1],--workers,plain-text (safe),command/entrypoint element,str,False,True,str,False,False
+quoted-scalar-types.yml,services.app.command.[2],4,integer-like,command/entrypoint element,int,True,True,str,False,False
+quoted-scalar-types.yml,services.app.command.[3],--verbose,plain-text (safe),command/entrypoint element,str,False,True,str,False,False
+similar-looking-env-keys.yml,services.app.environment.API_KEY,abc,plain-text (safe),environment value,str,False,False,str,False,False
+similar-looking-env-keys.yml,services.app.environment.Api_Key,def,plain-text (safe),environment value,str,False,False,str,False,False
+similar-looking-env-keys.yml,services.app.environment.api-key,ghi,plain-text (safe),environment value,str,False,False,str,False,False
+unicode-and-special-chars.yml,services.app.labels.[0],com.example.description=Ünïcödé tëst — 日本語 emoji 🚀,plain-text (safe),labels value,str,False,False,str,False,False
+unicode-and-special-chars.yml,services.app.environment.GREETING,"Héllo, Wörld! 你好",plain-text (safe),environment value,str,False,False,str,False,False
+build.yml,services.app.build.args.VERSION,1.0.0,plain-text (safe),build args/context,str,False,False,str,False,False
+deploy.yml,services.worker.deploy.resources.limits.cpus,2.0,float-like,deploy resources (cpus/memory/replicas),float,True,False,str,False,False
+deploy.yml,services.worker.deploy.resources.reservations.cpus,0.5,float-like,deploy resources (cpus/memory/replicas),float,True,False,str,False,False
+devices.yml,services.app.devices.[0],/dev/ttyUSB0:/dev/ttyUSB0,plain-text (safe),other/unclassified,str,False,False,str,False,False
+devices.yml,services.app.devices.[1],/dev/snd:/dev/snd:rwm,plain-text (safe),other/unclassified,str,False,False,str,False,False
+environment-long.yml,services.api.environment.PORT,3000,integer-like,environment value,int,True,False,str,False,False
+environment-long.yml,services.api.environment.DEBUG,false,bool-word,environment value,bool,True,False,str,False,False
+healthcheck.yml,services.api.healthcheck.test.[0],CMD,plain-text (safe),healthcheck,str,False,False,str,False,False
+healthcheck.yml,services.api.healthcheck.test.[1],curl,plain-text (safe),healthcheck,str,False,False,str,False,False
+healthcheck.yml,services.api.healthcheck.test.[2],-f,plain-text (safe),healthcheck,str,False,False,str,False,False
+healthcheck.yml,services.api.healthcheck.test.[3],http://localhost:3000/health,plain-text (safe),healthcheck,str,False,False,str,False,False
+labels.yml,services.app.labels.[0],com.example.owner=team-a,plain-text (safe),labels value,str,False,False,str,False,False
+labels.yml,services.app.labels.[1],com.example.tier=backend,plain-text (safe),labels value,str,False,False,str,False,False
+logging.yml,services.app.logging.options.max-size,10m,plain-text (safe),other/unclassified,str,False,False,str,False,False
+logging.yml,services.app.logging.options.max-file,3,integer-like,other/unclassified,int,True,False,str,False,False
+ports-long.yml,services.web.ports.[0].published,8080,integer-like,ports element,int,True,False,str,False,False
+ports-short.yml,services.web.ports.[0],8080:80,sexagesimal,ports element,str,False,False,str,False,False
+ports-short.yml,services.web.ports.[1],443:443,plain-text (safe),ports element,str,False,False,str,False,False
+ports-short.yml,services.web.ports.[2],127.0.0.1:9000:9000,plain-text (safe),ports element,str,False,False,str,False,False
+sysctls.yml,services.app.sysctls.net.ipv4.tcp_syncookies,0,integer-like,other/unclassified,int,True,False,str,False,False
+preservation-edge-cases.yml,version,3.9,float-like,version,float,True,,str,False,
+preservation-edge-cases.yml,x-scalar-extension,just-a-string,plain-text (safe),other/unclassified,str,False,,str,False,
+preservation-edge-cases.yml,services.app.deploy.resources.limits.cpus,1.5,float-like,deploy resources (cpus/memory/replicas),float,True,,str,False,
+preservation-standard-markers.yml,version,3.9,float-like,version,float,True,,str,False,
+preservation-standard-markers.yml,services.app.ports.[0],8080:8080,plain-text (safe),ports element,str,False,,str,False,

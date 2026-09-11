@@ -10,8 +10,8 @@ Change Locality Ratio = Expected Changed Lines / Actual Changed Lines
 edit or a single new list entry is, in principle, a one-line change.
 
 Because Experiment 1 already showed this library does not preserve
-formatting on a no-op save (quote/flow-style normalization, blank-line
-collapse), "Actual Changed Lines" mixes that baseline re-serialization
+formatting on a no-op save (comments and blank lines dropped, indentation
+normalized), "Actual Changed Lines" mixes that baseline re-serialization
 noise with the cost of the edit itself. This script also reports an
 adjusted ratio that subtracts each file's own identity-round-trip noise
 (from results/raw/roundtrip_dataset_b.csv, produced by
@@ -49,11 +49,39 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # entry" -- see the summary's Notes section.
 # ---------------------------------------------------------------------------
 
+def image_repository(img: str) -> str:
+    """The image reference without its tag or digest. Per Docker's reference
+    grammar the tag separator is the last ':' after the last '/'; colons inside
+    Compose `${VAR:-default}` interpolations and a registry port
+    (`host:5000/app`) are not tag separators."""
+    depth = 0
+    last_slash = -1
+    tag_colon = -1
+    i = 0
+    while i < len(img):
+        if img.startswith("${", i):
+            depth += 1
+            i += 2
+            continue
+        ch = img[i]
+        if ch == "}" and depth:
+            depth -= 1
+        elif depth == 0:
+            if ch == "@":
+                return img[:i]
+            if ch == "/":
+                last_slash, tag_colon = i, -1
+            elif ch == ":":
+                tag_colon = i
+        i += 1
+    return img[:tag_colon] if tag_colon > last_slash else img
+
+
 def find_image(svc: dict) -> Optional[dict]:
     img = svc.get("image")
     if not isinstance(img, str) or not img:
         return None
-    base = img.rsplit(":", 1)[0] if ":" in img else img
+    base = image_repository(img)
     new_img = base + ":cm-test-9.9"
     if new_img == img:
         new_img = base + ":cm-test-9.9x"
@@ -284,7 +312,7 @@ def summarize(rows: list[dict], dataset_label: str = "Dataset B") -> str:
         "Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. "
         "Adjusted ratio further divides by (Actual - that file's own identity-round-trip "
         "noise from Experiment 1), isolating the edit's footprint from the library's "
-        "baseline re-serialization noise (quote/flow-style normalization, blank-line loss).\n"
+        "baseline re-serialization noise (dropped comments and blank lines, re-indentation).\n"
     )
 
     lines.append("## Per-property results\n")
