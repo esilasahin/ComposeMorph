@@ -1,0 +1,10 @@
+services:
+  app:
+    image: myorg/app:1.0
+    configs:
+      - source: app_config
+        target: /etc/app/config.yml
+
+configs:
+  app_config:
+    file: ./config.yml

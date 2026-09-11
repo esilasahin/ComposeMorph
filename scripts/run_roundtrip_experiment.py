@@ -256,7 +256,7 @@ def main() -> int:
         print(f"error: dataset dir not found: {dataset_dir}", file=sys.stderr)
         return 1
 
-    files = sorted(p for p in dataset_dir.iterdir() if p.suffix in (".yml", ".yaml") and p.is_file())
+    files = sorted(p for p in dataset_dir.rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
     if args.limit:
         files = files[: args.limit]
     if not files:

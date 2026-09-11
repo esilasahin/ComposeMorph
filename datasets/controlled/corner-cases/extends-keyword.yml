@@ -1,0 +1,10 @@
+services:
+  base:
+    image: myorg/base:1.0
+    environment:
+      COMMON_VAR: shared
+
+  app:
+    extends:
+      service: base
+    image: myorg/app:1.0

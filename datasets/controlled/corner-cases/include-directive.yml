@@ -1,0 +1,7 @@
+include:
+  - path: ./other-compose.yml
+    project_directory: .
+
+services:
+  app:
+    image: myorg/app:1.0

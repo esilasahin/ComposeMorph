@@ -1,0 +1,17 @@
+services:
+  frontend:
+    image: myorg/frontend:1.0
+    networks:
+      - public
+      - internal
+  backend:
+    image: myorg/backend:1.0
+    networks:
+      internal:
+        aliases:
+          - backend-service
+
+networks:
+  public:
+  internal:
+    driver: bridge

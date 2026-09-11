@@ -117,7 +117,8 @@ def main() -> int:
     ap.add_argument("--raw-csv", default="results/raw/validation_dataset_b.csv")
     ap.add_argument("--summary-md", default="results/tables/validation_summary.md")
     ap.add_argument("--max-files", type=int, default=200,
-                     help="Cap on Dataset B files to test; 0 = all files (the full official run per the PDF's >=500-file requirement).")
+                     help="Cap on files to test; 0 = all files (the full official run per the PDF's >=500-file requirement).")
+    ap.add_argument("--dataset-label", default="Dataset B")
     args = ap.parse_args()
 
     docker_problem = check_docker_compose_cli()
@@ -139,7 +140,7 @@ def main() -> int:
         print(f"error: dataset dir not found: {dataset_dir}", file=sys.stderr)
         return 1
 
-    files = sorted(p for p in dataset_dir.iterdir() if p.suffix in (".yml", ".yaml") and p.is_file())
+    files = sorted(p for p in dataset_dir.rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
     if args.max_files:
         files = files[: args.max_files]
 
@@ -239,7 +240,7 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(rows)
 
-    summary = summarize(rows, len(files), len(valid_inputs))
+    summary = summarize(rows, len(files), len(valid_inputs), args.dataset_label)
     summary_md = (REPO_ROOT / args.summary_md).resolve()
     summary_md.parent.mkdir(parents=True, exist_ok=True)
     summary_md.write_text(summary)
@@ -250,9 +251,9 @@ def main() -> int:
     return 0
 
 
-def summarize(rows: list[dict], n_files: int, n_valid_inputs: int) -> str:
+def summarize(rows: list[dict], n_files: int, n_valid_inputs: int, dataset_label: str = "Dataset B") -> str:
     lines = ["# Experiment 5 -- Docker Compose Validation\n"]
-    lines.append(f"Dataset B files tested: **{n_files}**\n")
+    lines.append(f"{dataset_label} files tested: **{n_files}**\n")
 
     lines.append("## Input validity (baseline, evaluated separately per the PDF)\n")
     lines.append(

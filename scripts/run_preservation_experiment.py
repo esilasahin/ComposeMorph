@@ -139,14 +139,14 @@ def run_case(tool: Path, seed_path: Path, op: str, service: str, tool_args: list
 
 
 def process_real_world_sample(dataset_dir: Path, tool: Path, seed_dir: Path, out_dir: Path,
-                               max_per_op: int) -> list[dict]:
+                               max_per_op: int, source_label: str = "real-world") -> list[dict]:
     rows = []
     for op, finder in OPS_FOR_SAMPLING.items():
         for path, service, spec in find_eligible(dataset_dir, op, finder, max_per_op):
             try:
                 doc = yaml.safe_load(path.read_text(errors="replace"))
             except Exception as e:
-                rows.append({"source": "real-world", "file": path.name, "op": op,
+                rows.append({"source": source_label, "file": path.name, "op": op,
                              "service": service, "status": f"LOAD_FAILED: {e}",
                              **{s["id"]: False for s in MARKER_SPECS}})
                 continue
@@ -169,7 +169,7 @@ def process_real_world_sample(dataset_dir: Path, tool: Path, seed_dir: Path, out
             else:
                 marker_results = {s["id"]: False for s in MARKER_SPECS}
 
-            rows.append({"source": "real-world", "file": path.name, "op": op,
+            rows.append({"source": source_label, "file": path.name, "op": op,
                          "service": service, "status": status, "elapsed_s": elapsed,
                          **marker_results})
     return rows
@@ -334,6 +334,8 @@ def main() -> int:
     ap.add_argument("--summary-md", default="results/tables/preservation_summary.md")
     ap.add_argument("--figure", default="results/figures/preservation_rates")
     ap.add_argument("--max-per-op", type=int, default=200)
+    ap.add_argument("--sample-source-label", default="real-world",
+                     help="Label for the --dataset-dir sample in the 'source' column/table (e.g. 'controlled' when pointing at Dataset A).")
     args = ap.parse_args()
 
     dataset_dir = (REPO_ROOT / args.dataset_dir).resolve()
@@ -354,7 +356,7 @@ def main() -> int:
     for d in (seed_dir, out_dir, raw_csv.parent, summary_md.parent):
         d.mkdir(parents=True, exist_ok=True)
 
-    rows = process_real_world_sample(dataset_dir, tool, seed_dir, out_dir, args.max_per_op)
+    rows = process_real_world_sample(dataset_dir, tool, seed_dir, out_dir, args.max_per_op, args.sample_source_label)
     rows += process_controlled_standard(tool, out_dir)
     edge_rows = process_controlled_edge_cases(tool, out_dir)
 

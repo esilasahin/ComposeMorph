@@ -1,0 +1,11 @@
+services:
+  app:
+    image: myorg/app:1.0
+    labels:
+      - "com.example.owner=team-a"
+      - "com.example.tier=backend"
+  app2:
+    image: myorg/app2:1.0
+    labels:
+      com.example.owner: team-b
+      com.example.tier: frontend

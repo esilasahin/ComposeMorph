@@ -165,7 +165,7 @@ def run_modification_comparison(dataset_dir: Path, tools: dict[str, Path], out_d
 def run_roundtrip_comparison(dataset_dir: Path, composemorph_roundtrip: Path, yamlcpp_careful: Path,
                               out_dir: Path, max_files: int) -> list[dict]:
     rows = []
-    files = sorted(p for p in dataset_dir.iterdir() if p.suffix in (".yml", ".yaml"))[:max_files]
+    files = sorted(p for p in dataset_dir.rglob("*") if p.suffix in (".yml", ".yaml"))[:max_files]
     for path in files:
         try:
             doc = yaml.safe_load(path.read_text(errors="replace"))

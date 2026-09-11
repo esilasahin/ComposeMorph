@@ -1,0 +1,24 @@
+services:
+  app:
+    image: myorg/app:1.0
+    networks:
+      - shared-net
+    volumes:
+      - shared-vol:/data
+    configs:
+      - shared-config
+    secrets:
+      - shared-secret
+
+networks:
+  shared-net:
+    external: true
+volumes:
+  shared-vol:
+    external: true
+configs:
+  shared-config:
+    external: true
+secrets:
+  shared-secret:
+    external: true

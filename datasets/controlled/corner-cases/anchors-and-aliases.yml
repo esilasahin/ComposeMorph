@@ -1,0 +1,12 @@
+x-base-service: &base-service
+  restart: unless-stopped
+  environment:
+    TZ: UTC
+
+services:
+  service-a:
+    <<: *base-service
+    image: myorg/service-a:1.0
+  service-b:
+    <<: *base-service
+    image: myorg/service-b:1.0

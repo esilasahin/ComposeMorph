@@ -1,0 +1,10 @@
+services:
+  app:
+    image: myorg/app:1.0
+    sysctls:
+      net.core.somaxconn: 1024
+      net.ipv4.tcp_syncookies: "0"
+  app2:
+    image: myorg/app2:1.0
+    sysctls:
+      - net.core.somaxconn=1024

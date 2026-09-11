@@ -1,0 +1,9 @@
+services:
+  app:
+    image: myorg/app:1.0
+    future_compose_property:
+      enabled: true
+      mode: experimental
+
+future_top_level_section:
+  note: reserved for a future Compose Specification field

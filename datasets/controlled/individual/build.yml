@@ -1,0 +1,8 @@
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+      args:
+        VERSION: "1.0.0"
+      target: production

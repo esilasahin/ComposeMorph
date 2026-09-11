@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  app:
+    image: myorg/app:1.0
+    environment:
+      FEATURE_FLAG: "true"
+      RETRY_COUNT: "3"
+      TIMEOUT_SECONDS: "2.5"
+      DEBUG_MODE: "yes"
+      EMPTY_VALUE: ""
+      NULL_LIKE: "null"
+    command: ["run", "--workers", "4", "--verbose"]

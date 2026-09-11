@@ -100,7 +100,7 @@ def collect_environment_info() -> dict:
 
 def pick_files(dataset_dir: Path, max_per_bucket: int) -> dict[str, list[Path]]:
     by_bucket: dict[str, list[Path]] = {name: [] for name, _, _ in BUCKETS}
-    for path in sorted(dataset_dir.iterdir()):
+    for path in sorted(dataset_dir.rglob("*")):
         if path.suffix not in (".yml", ".yaml") or not path.is_file():
             continue
         n = sum(1 for _ in path.open(errors="replace"))
@@ -174,7 +174,7 @@ def fmt(s: dict, unit: str = "ms") -> str:
             f"stdev={s['stdev']:.3f}{unit}, p95={s['p95']:.3f}{unit}")
 
 
-def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int) -> str:
+def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int, dataset_label: str = "Dataset B") -> str:
     lines = ["# Experiment 7 -- Performance Benchmark\n"]
     lines.append("## Benchmark environment\n")
     lines.append(f"- CPU: {env['cpu']}")
@@ -209,7 +209,7 @@ def summarize(env: dict, file_results: dict[str, list[dict]], iterations: int) -
     xlarge = file_results.get("XLarge (>2000 lines)", [])
     if len(xlarge) < 5:
         lines.append(
-            f"- Dataset B contains only {len(xlarge)} file(s) over 2000 lines, so the XLarge "
+            f"- {dataset_label} contains only {len(xlarge)} file(s) over 2000 lines, so the XLarge "
             "bucket's statistics rest on a small sample -- reported as-is per the acceptance "
             "criteria (dataset limitation acknowledged rather than hidden)."
         )
@@ -273,6 +273,7 @@ def make_figure(file_results: dict[str, list[dict]], figure_stub: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset-dir", default="datasets/real-world-combined")
+    ap.add_argument("--dataset-label", default="Dataset B")
     ap.add_argument("--tool", default="build/perf_tool")
     ap.add_argument("--iterations", type=int, default=30)
     ap.add_argument("--max-per-bucket", type=int, default=20)
@@ -319,7 +320,7 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(raw_rows)
 
-    summary = summarize(env, file_results, args.iterations)
+    summary = summarize(env, file_results, args.iterations, args.dataset_label)
     summary_md = (REPO_ROOT / args.summary_md).resolve()
     summary_md.parent.mkdir(parents=True, exist_ok=True)
     summary_md.write_text(summary)

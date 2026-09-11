@@ -1,0 +1,12 @@
+services:
+  app:
+    image: myorg/app:1.0
+    environment:
+      OPTIONAL_VAR:
+      ANOTHER_NULL: null
+    networks:
+      default:
+
+networks:
+  default:
+    external: true

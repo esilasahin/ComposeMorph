@@ -295,7 +295,7 @@ def load_docker_validity(exp5_csv: Path) -> dict[str, bool]:
 
 def part2_corpus(tool: Path, dataset_dir: Path, output_dir: Path, max_files: int,
                   docker_validity: dict[str, bool]) -> list[dict]:
-    files = sorted(p for p in dataset_dir.iterdir() if p.suffix in (".yml", ".yaml") and p.is_file())
+    files = sorted(p for p in dataset_dir.rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
     if max_files:
         files = files[:max_files]
 

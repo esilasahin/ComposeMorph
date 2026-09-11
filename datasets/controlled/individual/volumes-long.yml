@@ -1,0 +1,12 @@
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - type: volume
+        source: db-data
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+
+volumes:
+  db-data:

@@ -1,0 +1,7 @@
+services:
+  app:
+    image: myorg/app:1.0
+    labels:
+      - "com.example.description=Ünïcödé tëst — 日本語 emoji 🚀"
+    environment:
+      GREETING: "Héllo, Wörld! 你好"

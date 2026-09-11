@@ -1,0 +1,8 @@
+services:
+  app:
+    image: myorg/app:1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

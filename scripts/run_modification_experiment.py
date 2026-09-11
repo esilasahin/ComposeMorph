@@ -199,7 +199,7 @@ def find_eligible(dataset_dir: Path, op: str, finder: Callable[[dict], Optional[
     """Yield (path, service_name, spec) for up to max_count files with one
     eligible service each, in sorted filename order for reproducibility."""
     found = 0
-    for path in sorted(dataset_dir.iterdir()):
+    for path in sorted(dataset_dir.rglob("*")):
         if found >= max_count:
             return
         if path.suffix not in (".yml", ".yaml") or not path.is_file():
@@ -277,8 +277,8 @@ def run_one(tool: Path, op: str, path: Path, service: str, spec: dict, out_dir: 
     return row
 
 
-def summarize(rows: list[dict]) -> str:
-    lines = ["# Experiment 2 -- Targeted Modification / Change Locality -- Dataset B\n"]
+def summarize(rows: list[dict], dataset_label: str = "Dataset B") -> str:
+    lines = [f"# Experiment 2 -- Targeted Modification / Change Locality -- {dataset_label}\n"]
     lines.append(f"Total (op, file) cases evaluated: **{len(rows)}**\n")
     lines.append(
         "Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. "
@@ -348,7 +348,7 @@ def summarize(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def make_figure(rows: list[dict], figure_path_stub: Path) -> None:
+def make_figure(rows: list[dict], figure_path_stub: Path, dataset_label: str = "Dataset B") -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -372,7 +372,7 @@ def make_figure(rows: list[dict], figure_path_stub: Path) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.boxplot(data, tick_labels=ops_with_data, showfliers=False)
     ax.set_ylabel("Adjusted Change Locality Ratio\n(1 = only the targeted line changed)")
-    ax.set_title("Experiment 2 -- Change Locality by Modified Property (Dataset B)")
+    ax.set_title(f"Experiment 2 -- Change Locality by Modified Property ({dataset_label})")
     ax.set_ylim(bottom=0)
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
     fig.tight_layout()
@@ -386,6 +386,7 @@ def make_figure(rows: list[dict], figure_path_stub: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset-dir", default="datasets/real-world-combined")
+    ap.add_argument("--dataset-label", default="Dataset B")
     ap.add_argument("--tool", default="build/modify_tool")
     ap.add_argument("--output-dir", default="results/raw/modification/dataset-b-output")
     ap.add_argument("--baseline-csv", default="results/raw/roundtrip_dataset_b.csv")
@@ -429,9 +430,9 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(rows)
 
-    summary = summarize(rows)
+    summary = summarize(rows, args.dataset_label)
     summary_md.write_text(summary)
-    make_figure(rows, figure_stub)
+    make_figure(rows, figure_stub, args.dataset_label)
 
     print(summary)
     print(f"\nRaw per-case results: {raw_csv}", file=sys.stderr)

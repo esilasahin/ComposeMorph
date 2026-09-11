@@ -1,0 +1,16 @@
+services:
+  worker:
+    image: myorg/worker:1.0
+    deploy:
+      replicas: 3
+      mode: replicated
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5

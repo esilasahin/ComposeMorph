@@ -1,0 +1,165 @@
+stage,file,service,variant,valid,exit_code,error,elapsed_s
+input,full-featured.yml,,,False,15,validating /home/user/ComposeMorph/datasets/controlled/combined/full-featured.yml: services.api Additional property future_compose_property is not allowed,0.051
+input,minimal-multi-service.yml,,,True,0,,0.051
+input,anchors-and-aliases.yml,,,True,0,,0.048
+input,build-only-no-image.yml,,,True,0,,0.047
+input,deploy-placement-and-profiles.yml,,,True,0,,0.043
+input,extends-keyword.yml,,,True,0,,0.046
+input,external-resources.yml,,,True,0,,0.052
+input,include-directive.yml,,,False,14,open /home/user/ComposeMorph/datasets/controlled/corner-cases/other-compose.yml: no such file or directory,0.044
+input,null-and-empty-values.yml,,,True,0,,0.046
+input,quoted-scalar-types.yml,,,True,0,"time=""2026-09-11T10:35:12+03:00"" level=warning msg=""/home/user/ComposeMorph/datasets/controlled/corner-cases/quoted-scalar-types.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion""",0.045
+input,similar-looking-env-keys.yml,,,True,0,,0.046
+input,unicode-and-special-chars.yml,,,True,0,,0.046
+input,build.yml,,,True,0,,0.04
+input,configs.yml,,,True,0,,0.049
+input,depends-on.yml,,,True,0,,0.049
+input,deploy.yml,,,True,0,,0.051
+input,devices.yml,,,True,0,,0.047
+input,environment-long.yml,,,True,0,,0.045
+input,environment-short.yml,,,True,0,,0.045
+input,extension-fields.yml,,,True,0,,0.048
+input,healthcheck.yml,,,True,0,,0.052
+input,image.yml,,,True,0,,0.055
+input,labels.yml,,,True,0,,0.041
+input,logging.yml,,,True,0,,0.052
+input,nested-generic-properties.yml,,,True,0,,0.043
+input,networks.yml,,,True,0,,0.048
+input,ports-long.yml,,,True,0,,0.05
+input,ports-short.yml,,,True,0,,0.05
+input,profiles.yml,,,True,0,,0.047
+input,secrets.yml,,,True,0,,0.046
+input,services-minimal.yml,,,True,0,,0.046
+input,sysctls.yml,,,True,0,,0.047
+input,ulimits.yml,,,True,0,,0.051
+input,unknown-properties.yml,,,False,15,validating /home/user/ComposeMorph/datasets/controlled/individual/unknown-properties.yml: services.app Additional property future_compose_property is not allowed,0.048
+input,volumes-long.yml,,,True,0,,0.044
+input,volumes-short.yml,,,True,0,,0.041
+input,preservation-edge-cases.yml,,,False,15,validating /home/user/ComposeMorph/datasets/controlled/preservation-edge-cases.yml: services.app.deploy Additional property future_scaling_hint is not allowed,0.053
+input,preservation-standard-markers.yml,,,False,15,validating /home/user/ComposeMorph/datasets/controlled/preservation-standard-markers.yml: services.app Additional property future_compose_property is not allowed,0.057
+roundtrip_output,minimal-multi-service.yml,,,True,0,,0.052
+roundtrip_output,anchors-and-aliases.yml,,,True,0,,0.046
+roundtrip_output,build-only-no-image.yml,,,True,0,,0.05
+roundtrip_output,deploy-placement-and-profiles.yml,,,True,0,,0.05
+roundtrip_output,extends-keyword.yml,,,True,0,,0.05
+roundtrip_output,external-resources.yml,,,True,0,,0.045
+roundtrip_output,null-and-empty-values.yml,,,True,0,,0.044
+roundtrip_output,quoted-scalar-types.yml,,,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/roundtrip/quoted-scalar-types.yml: services.app.command.2 must be a string,0.049
+roundtrip_output,similar-looking-env-keys.yml,,,True,0,,0.047
+roundtrip_output,unicode-and-special-chars.yml,,,True,0,,0.042
+roundtrip_output,build.yml,,,True,0,,0.046
+roundtrip_output,configs.yml,,,True,0,,0.045
+roundtrip_output,depends-on.yml,,,True,0,,0.05
+roundtrip_output,deploy.yml,,,True,0,,0.044
+roundtrip_output,devices.yml,,,True,0,,0.049
+roundtrip_output,environment-long.yml,,,True,0,,0.045
+roundtrip_output,environment-short.yml,,,True,0,,0.043
+roundtrip_output,extension-fields.yml,,,True,0,,0.049
+roundtrip_output,healthcheck.yml,,,True,0,,0.047
+roundtrip_output,image.yml,,,True,0,,0.04
+roundtrip_output,labels.yml,,,True,0,,0.059
+roundtrip_output,logging.yml,,,True,0,,0.052
+roundtrip_output,nested-generic-properties.yml,,,True,0,,0.049
+roundtrip_output,networks.yml,,,True,0,,0.046
+roundtrip_output,ports-long.yml,,,True,0,,0.049
+roundtrip_output,ports-short.yml,,,True,0,,0.046
+roundtrip_output,profiles.yml,,,True,0,,0.049
+roundtrip_output,secrets.yml,,,True,0,,0.043
+roundtrip_output,services-minimal.yml,,,True,0,,0.046
+roundtrip_output,sysctls.yml,,,True,0,,0.049
+roundtrip_output,ulimits.yml,,,True,0,,0.049
+roundtrip_output,volumes-long.yml,,,True,0,,0.045
+roundtrip_output,volumes-short.yml,,,True,0,,0.05
+modification_output,minimal-multi-service.yml,app,,True,0,,0.049
+modification_output,anchors-and-aliases.yml,service-a,,True,0,,0.045
+modification_output,deploy-placement-and-profiles.yml,app,,True,0,,0.044
+modification_output,extends-keyword.yml,app,,True,0,,0.049
+modification_output,external-resources.yml,app,,True,0,,0.053
+modification_output,null-and-empty-values.yml,app,,True,0,,0.046
+modification_output,quoted-scalar-types.yml,app,,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/modification/quoted-scalar-types.yml: services.app.command.2 must be a string,0.043
+modification_output,similar-looking-env-keys.yml,app,,True,0,,0.049
+modification_output,unicode-and-special-chars.yml,app,,True,0,,0.054
+modification_output,configs.yml,app,,True,0,,0.052
+modification_output,depends-on.yml,cache,,True,0,,0.052
+modification_output,deploy.yml,worker,,True,0,,0.044
+modification_output,devices.yml,app,,True,0,,0.043
+modification_output,environment-long.yml,api,,True,0,,0.047
+modification_output,environment-short.yml,api,,True,0,,0.053
+modification_output,extension-fields.yml,app,,True,0,,0.048
+modification_output,healthcheck.yml,api,,True,0,,0.051
+modification_output,image.yml,web,,True,0,,0.045
+modification_output,labels.yml,app,,True,0,,0.047
+modification_output,logging.yml,app,,True,0,,0.05
+modification_output,nested-generic-properties.yml,app,,True,0,,0.047
+modification_output,networks.yml,backend,,True,0,,0.049
+modification_output,ports-long.yml,web,,True,0,,0.05
+modification_output,ports-short.yml,web,,True,0,,0.047
+modification_output,profiles.yml,app,,True,0,,0.047
+modification_output,secrets.yml,app,,True,0,,0.048
+modification_output,services-minimal.yml,app,,True,0,,0.05
+modification_output,sysctls.yml,app,,True,0,,0.049
+modification_output,ulimits.yml,app,,True,0,,0.042
+modification_output,volumes-long.yml,db,,True,0,,0.051
+modification_output,volumes-short.yml,db,,True,0,,0.05
+marker_output,minimal-multi-service.yml,app,extension_only,True,0,,0.049
+marker_output,minimal-multi-service.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/minimal-multi-service.yml: services.app Additional property future_compose_property is not allowed,0.044
+marker_output,anchors-and-aliases.yml,service-a,extension_only,True,0,,0.045
+marker_output,anchors-and-aliases.yml,service-a,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/anchors-and-aliases.yml: services.service-a Additional property future_compose_property is not allowed,0.048
+marker_output,deploy-placement-and-profiles.yml,app,extension_only,True,0,,0.051
+marker_output,deploy-placement-and-profiles.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/deploy-placement-and-profiles.yml: services.app Additional property future_compose_property is not allowed,0.053
+marker_output,extends-keyword.yml,app,extension_only,True,0,,0.057
+marker_output,extends-keyword.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/extends-keyword.yml: services.app Additional property future_compose_property is not allowed,0.052
+marker_output,external-resources.yml,app,extension_only,True,0,,0.045
+marker_output,external-resources.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/external-resources.yml: services.app Additional property future_compose_property is not allowed,0.041
+marker_output,null-and-empty-values.yml,app,extension_only,True,0,,0.048
+marker_output,null-and-empty-values.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/null-and-empty-values.yml: services.app Additional property future_compose_property is not allowed,0.041
+marker_output,quoted-scalar-types.yml,app,extension_only,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/extension_only/quoted-scalar-types.yml: services.app.command.2 must be a string,0.052
+marker_output,quoted-scalar-types.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/quoted-scalar-types.yml: services.app.command.2 must be a string,0.05
+marker_output,similar-looking-env-keys.yml,app,extension_only,True,0,,0.054
+marker_output,similar-looking-env-keys.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/similar-looking-env-keys.yml: services.app Additional property future_compose_property is not allowed,0.049
+marker_output,unicode-and-special-chars.yml,app,extension_only,True,0,,0.051
+marker_output,unicode-and-special-chars.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/unicode-and-special-chars.yml: services.app Additional property future_compose_property is not allowed,0.049
+marker_output,configs.yml,app,extension_only,True,0,,0.053
+marker_output,configs.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/configs.yml: services.app Additional property future_compose_property is not allowed,0.041
+marker_output,depends-on.yml,cache,extension_only,True,0,,0.041
+marker_output,depends-on.yml,cache,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/depends-on.yml: services.cache Additional property future_compose_property is not allowed,0.047
+marker_output,deploy.yml,worker,extension_only,True,0,,0.054
+marker_output,deploy.yml,worker,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/deploy.yml: services.worker Additional property future_compose_property is not allowed,0.058
+marker_output,devices.yml,app,extension_only,True,0,,0.065
+marker_output,devices.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/devices.yml: services.app Additional property future_compose_property is not allowed,0.053
+marker_output,environment-long.yml,api,extension_only,True,0,,0.042
+marker_output,environment-long.yml,api,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/environment-long.yml: services.api Additional property future_compose_property is not allowed,0.041
+marker_output,environment-short.yml,api,extension_only,True,0,,0.057
+marker_output,environment-short.yml,api,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/environment-short.yml: services.api Additional property future_compose_property is not allowed,0.042
+marker_output,extension-fields.yml,app,extension_only,True,0,,0.043
+marker_output,extension-fields.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/extension-fields.yml: services.app Additional property future_compose_property is not allowed,0.043
+marker_output,healthcheck.yml,api,extension_only,True,0,,0.045
+marker_output,healthcheck.yml,api,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/healthcheck.yml: services.api Additional property future_compose_property is not allowed,0.044
+marker_output,image.yml,web,extension_only,True,0,,0.046
+marker_output,image.yml,web,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/image.yml: services.web Additional property future_compose_property is not allowed,0.042
+marker_output,labels.yml,app,extension_only,True,0,,0.046
+marker_output,labels.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/labels.yml: services.app Additional property future_compose_property is not allowed,0.048
+marker_output,logging.yml,app,extension_only,True,0,,0.052
+marker_output,logging.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/logging.yml: services.app Additional property future_compose_property is not allowed,0.042
+marker_output,nested-generic-properties.yml,app,extension_only,True,0,,0.042
+marker_output,nested-generic-properties.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/nested-generic-properties.yml: services.app Additional property future_compose_property is not allowed,0.048
+marker_output,networks.yml,backend,extension_only,True,0,,0.05
+marker_output,networks.yml,backend,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/networks.yml: services.backend Additional property future_compose_property is not allowed,0.05
+marker_output,ports-long.yml,web,extension_only,True,0,,0.051
+marker_output,ports-long.yml,web,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/ports-long.yml: services.web Additional property future_compose_property is not allowed,0.042
+marker_output,ports-short.yml,web,extension_only,True,0,,0.054
+marker_output,ports-short.yml,web,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/ports-short.yml: services.web Additional property future_compose_property is not allowed,0.066
+marker_output,profiles.yml,app,extension_only,True,0,,0.062
+marker_output,profiles.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/profiles.yml: services.app Additional property future_compose_property is not allowed,0.056
+marker_output,secrets.yml,app,extension_only,True,0,,0.053
+marker_output,secrets.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/secrets.yml: services.app Additional property future_compose_property is not allowed,0.044
+marker_output,services-minimal.yml,app,extension_only,True,0,,0.047
+marker_output,services-minimal.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/services-minimal.yml: services.app Additional property future_compose_property is not allowed,0.045
+marker_output,sysctls.yml,app,extension_only,True,0,,0.047
+marker_output,sysctls.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/sysctls.yml: services.app Additional property future_compose_property is not allowed,0.046
+marker_output,ulimits.yml,app,extension_only,True,0,,0.043
+marker_output,ulimits.yml,app,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/ulimits.yml: services.app Additional property future_compose_property is not allowed,0.052
+marker_output,volumes-long.yml,db,extension_only,True,0,,0.043
+marker_output,volumes-long.yml,db,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/volumes-long.yml: services.db Additional property future_compose_property is not allowed,0.044
+marker_output,volumes-short.yml,db,extension_only,True,0,,0.052
+marker_output,volumes-short.yml,db,full,False,15,validating /home/user/ComposeMorph/results/raw/validation/dataset-a-output/markers/full/volumes-short.yml: services.db Additional property future_compose_property is not allowed,0.044

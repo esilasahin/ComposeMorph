@@ -1,0 +1,12 @@
+services:
+  web:
+    image: myorg/web:1.0
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+  db:
+    image: postgres:16
+  cache:
+    image: redis:7

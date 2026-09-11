@@ -1,0 +1,8 @@
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - target: 80
+        published: "8080"
+        protocol: tcp
+        mode: host

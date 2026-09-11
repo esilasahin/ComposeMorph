@@ -1,0 +1,9 @@
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./config:/etc/postgresql:ro
+
+volumes:
+  db-data:

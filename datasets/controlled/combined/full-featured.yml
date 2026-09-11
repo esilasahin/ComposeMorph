@@ -1,0 +1,118 @@
+version: "3.9"
+
+x-company-metadata:
+  team: platform
+  cost-center: CC-1234
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  web:
+    image: nginx:1.25-alpine
+    container_name: full-featured-web
+    hostname: web01
+    restart: unless-stopped
+    extra_hosts:
+      - "hsm-server=10.10.10.20"
+    ports:
+      - "8080:80"
+      - target: 443
+        published: "8443"
+        protocol: tcp
+        mode: host
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "com.example.owner=team-a"
+      - "com.example.tier=edge"
+    logging: *default-logging
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+    networks:
+      - public
+      - internal
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      args:
+        VERSION: "2.1.0"
+      target: production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DEBUG: "false"
+    volumes:
+      - type: volume
+        source: api-cache
+        target: /var/cache/api
+      - ./api/config:/etc/api:ro
+    configs:
+      - source: api_config
+        target: /etc/api/config.yml
+    secrets:
+      - db_password
+    profiles:
+      - default
+    networks:
+      internal:
+        aliases:
+          - api-service
+    x-service-owner: backend-team
+    future_compose_property:
+      enabled: true
+      mode: experimental
+
+  worker:
+    image: myorg/worker:1.0
+    environment:
+      - QUEUE_NAME=jobs
+      - CONCURRENCY=4
+    volumes:
+      - worker-data:/var/lib/worker
+    sysctls:
+      net.core.somaxconn: 1024
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    devices:
+      - "/dev/dri:/dev/dri"
+    profiles:
+      - background-jobs
+
+networks:
+  public:
+  internal:
+    driver: bridge
+
+volumes:
+  api-cache:
+  worker-data:
+
+configs:
+  api_config:
+    file: ./api/config.yml
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt

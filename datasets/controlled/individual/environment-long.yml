@@ -1,0 +1,7 @@
+services:
+  api:
+    image: myorg/api:1.0
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DEBUG: "false"
