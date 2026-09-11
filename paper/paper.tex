@@ -7,14 +7,36 @@
 % ya da latexmk -pdf paper.tex.
 %
 % Bölüm iskeleti görev dosyasının 15. bölümüne (Bildiri Yapısı) göredir.
-% Aşağıdaki her bölüm bir yer tutucudur; ilgili bölüm gerçekten
-% yazılmadan buraya düzyazı eklenmemelidir.
+% TODO ile işaretli bölümler henüz yazılmamış yer tutuculardır.
+%
+% TERİM SÖZLÜĞÜ -- tüm bölümler bu karşılıkları kullanır:
+%   round-trip             -> round-trip (ilk geçişte "gidiş-dönüş (round-trip)")
+%   preservation           -> koruma
+%   change locality        -> değişiklik yerelliği
+%   forward compatibility  -> ileriye dönük uyumluluk
+%   unknown property       -> bilinmeyen özellik
+%   extension field (x-*)  -> uzantı alanı (x-*)
+%   configuration churn    -> gereksiz değişiklik (configuration churn)
+%   quote normalization    -> tırnak normalizasyonu
+%   scalar                 -> skaler değer
+%   type-aware API         -> tip-farkında API
+%   node tree              -> düğüm ağacı
+%   emitter / serializer   -> serileştirici
+%   dataset                -> veri kümesi (Veri Kümesi A = kontrollü, 38 dosya;
+%                             Veri Kümesi B = gerçek dünya, 647 dosya)
+%   research question      -> araştırma sorusu; etiketler RQ1--RQ5 olarak kalır
+%   benchmark suite        -> değerlendirme paketi
+% Sayı biçimi: ondalık virgül (%37,6), binlik nokta (1.203), yüzde işareti
+% sayıdan önce (\%97,3). Tüm sayılar results/tables/ altındaki commit'lenmiş
+% özetlerden alınır; metne yeni bir sayı eklenirken kaynağı yorumda belirtilir.
 
 \documentclass[conference]{IEEEtran}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[turkish]{babel}
+% shorthands=off: babel-turkish'in olası etkin karakterleri (: ! =)
+% \texttt/\url/anahtar=değer argümanlarını bozmasın diye kapatılıyor.
+\usepackage[turkish,shorthands=off]{babel}
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
@@ -62,37 +84,138 @@ Docker Compose, YAML, kod olarak yapılandırma (configuration-as-code), round-t
 % ---------------------------------------------------------------------
 \section{Giriş}
 \label{sec:giris}
-% TODO: temel problem -- Compose dosyalarının programatik olarak
-% değiştirilmesi yalnızca YAML syntax'ını parse etmekten ibaret
-% değildir (kullanıcı extension'ları, bilinmeyen alanlar, farklı syntax
-% gösterimleri, mevcut configuration yapısı). Gerçek bir deployment
-% otomasyonu senaryosu üzerinden motive edilmeli (görev dosyası §15).
-%
-% Giriş, açık bir 3--4 maddelik katkı listesiyle bitmeli. Taslak
-% katkılar (görev dosyası §14, nihai Bulgular sayılarına göre
-% güncellenecek):
-% \begin{enumerate}
-%   \item Docker Compose yapılandırmalarını C++'tan değiştirmek için
-%     yeniden kullanılabilir, sınıf tabanlı, type-aware bir API
-%     (Service/Environment/Ports/Volumes/... artı generic
-%     Service::set/get/remove kaçış kapısı).
-%   \item Gelecekteki Compose Specification alanlarına forward
-%     compatibility sağlayan generic-property ve unknown-property
-%     preservation mekanizması (ölçülen: Deney 3--4'te \%100 koruma).
-%   \item Bu preservation mekanizmasının gerçekte ne sağlayıp ne
-%     sağlamadığının deneysel karakterizasyonu: dikkatli yazılmış
-%     çıplak yaml-cpp kullanımıyla birebir aynı round-trip/change-locality
-%     davranışı (Deney 6), ve skaler tiplerini sessizce değiştiren,
-%     \texttt{docker compose config} geçerliliğini ölçülebilir şekilde
-%     kıran bir quote-normalization kusurunun nicel tespiti (Deney 1, 5
-%     ve quote-normalization derinlemesine analizi).
-%   \item Correctness, preservation, change locality, forward
-%     compatibility, validation, karşılaştırmalı ve performans
-%     değerlendirmesini kapsayan, tek komutla
-%     (\texttt{scripts/run-all-experiments.sh}) tekrar çalıştırılabilir
-%     bir benchmark paketi (Dataset A: 38 kontrollü fixture; Dataset B:
-%     647 gerçek dünya GitHub Compose dosyası).
-% \end{enumerate}
+
+Docker Compose, çok konteynerli uygulamaların servislerini, ağlarını,
+depolama birimlerini ve bunlar arasındaki bağımlılıkları tek bir YAML
+dosyasında bildirimsel olarak tanımlamanın fiilî standardı hâline
+gelmiştir~\cite{composespec}. Ibrahim ve arkadaşlarının 4.103 açık kaynak
+GitHub projesi üzerinde yaptığı çalışma, Compose'un yalnızca çok bileşenli
+sistemlerde değil, projelerin dörtte birinden fazlasında tek bileşenli
+uygulamalar için bile kullanıldığını göstermektedir~\cite{ibrahim2021dockercompose}.
+Bu dosyalar, kaynak kodla birlikte sürüm kontrolünde tutulan, elle yazılıp
+bakımı yapılan birer \emph{kod olarak yapılandırma} (configuration-as-code)
+varlığıdır.
+
+Compose dosyaları giderek yalnızca insanlar tarafından değil, programlar
+tarafından da değiştirilmektedir. Sürekli entegrasyon ve dağıtım hatları
+yeni bir sürüm çıktığında servis imajının etiketini günceller; kurum içi
+(on-premise) kurulum ve dağıtım araçları hedef ortama göre ortam
+değişkenlerini, ek host kayıtlarını ya da volume kaynaklarını ayarlar.
+Bu çalışmayı motive eden senaryoda bir C++ dağıtım aracı, bir kriptografi
+servisinin imajını yeni sürüme yükseltmekte, donanım güvenlik modülüne
+(HSM) erişim için bir \texttt{extra\_hosts} kaydı eklemekte ve yeni
+sürümün çalıştırılabilir dosyalarını gösteren volume kaynağını
+değiştirmektedir. Bu değişikliklerin her biri kavramsal olarak dosyadaki
+tek bir alana dokunur.
+% Senaryo kaynağı: examples/change-volume.cpp, test-data/full-compose.yml
+
+İlk bakışta bu tür bir düzenleme basittir: dosyayı ayrıştır, ilgili alanı
+değiştir, geri yaz. Ancak bir Compose dosyası, onu düzenleyen programın
+bildiği alanlardan ibaret değildir. Dosyada kullanıcı tarafından
+tanımlanmış \texttt{x-*} uzantı alanları, düzenleyici aracın henüz
+modellemediği daha yeni Compose Specification alanları, aynı bilginin kısa
+ve uzun sözdizimi (short/long syntax) gibi farklı gösterimleri, yazarın
+tırnak kullanımı ve düzen tercihleri bulunabilir. Bu nedenle naif bir
+\emph{ayrıştır $\rightarrow$ değiştir $\rightarrow$ serileştir} akışı,
+hedeflenen alanın çok ötesine taşan gereksiz değişikliklere
+(configuration churn) ya da bilgi kaybına yol açabilir.
+
+Üstelik bu kayıp her zaman görünür değildir. Bu çalışmada geliştirdiğimiz
+ve yaml-cpp~\cite{yamlcpp} üzerine kurulu olan kütüphane, değişiklik
+yapılmadan kaydedilen bir dosyada bile \texttt{version: "3.8"} satırının
+tırnaklarını kaldırmaktadır. Ortaya çıkan \texttt{version: 3.8} ifadesi
+bir kayan noktalı sayı olarak çözümlendiği için \texttt{docker compose config}
+dosyayı ``version must be a string'' hatasıyla reddeder. Dosya sözdizimsel
+olarak geçerli bir YAML belgesidir ve düzenleyicinin kendisi tarafından
+sorunsuz okunur; hata ancak Docker dosyayı okuduğunda ortaya çıkar.
+
+C++ ekosistemi bu probleme karşı özellikle hazırlıksızdır. Python'da
+ruamel.yaml~\cite{ruamelyaml}, JavaScript'te eemeli/yaml~\cite{eemeliyaml}
+yorumları, anahtar sırasını ve biçimi koruyan olgun round-trip desteği
+sunar; Go ekosisteminde ise Compose Specification'ın başvuru kütüphanesi
+compose-go~\cite{composego} ve Kubernetes araçlarının kullandığı
+kyaml~\cite{kyaml} bulunur. C++ tarafında incelediğimiz YAML
+kütüphanelerinin hiçbiri yorum veya biçim koruyan round-trip düzenlemeyi
+desteklenen bir özellik olarak belgelememektedir: yaml-cpp'de yorumların
+korunmasına yönelik talep 2015'ten beri açıktır ve kütüphanenin geliştiricisi
+2026'da hâlâ böyle bir seçenek bulunmadığını belirtmiştir~\cite{yamlcpp_issue154,yamlcpp_issue457}.
+Bildiğimiz kadarıyla, Docker Compose'a özgü tip-farkında düzenlemeyi ve
+ölçülmüş ileriye dönük uyumlu bilinmeyen-özellik korumasını bir arada sunan
+bir C++ kütüphanesi bulunmamaktadır (Bölüm~\ref{sec:ilgili-calismalar}).
+
+Bu bildiride, Docker Compose yapılandırmalarının C++ uygulamalarından
+güvenli ve en az yan etkiyle değiştirilmesi için ComposeMorph adlı bir
+kütüphane sunuyor ve bu problemin gerçekte ne kadarının çözülebildiğini
+sistematik olarak ölçüyoruz. ComposeMorph, yaml-cpp'nin düğüm ağacı
+üzerine, Compose kavramlarını (servis, ortam değişkenleri, portlar,
+volume'lar, ağlar, sağlık kontrolü, dağıtım kaynakları vb.) doğrudan
+yansıtan sınıf tabanlı, tip-farkında bir API kurar. Her düzenleme yalnızca
+hedef düğümü yerinde değiştirir; kütüphanenin modellemediği alanlar hiçbir
+zaman yeniden inşa edilmez, bu yüzden bilinmeyen özellikler ve
+\texttt{x-*} uzantı alanları dokunulmadan kalır. Modellenmemiş alanlar için
+nokta-yollu (dot-path) genel bir özellik API'si, dosya bütünlüğü için de
+geçici dosya üzerinden atomik kaydetme sağlanır.
+
+Değerlendirme; doğruluk, koruma, değişiklik yerelliği, ileriye dönük
+uyumluluk ve performans başlıklı beş araştırma sorusu etrafında, 647 gerçek
+dünya GitHub Compose dosyasından oluşan bir veri kümesi ile 38 kontrollü
+dosyadan oluşan ikinci bir veri kümesi üzerinde yedi deneyle yapılmıştır.
+Sonuçlar karışık ama öğreticidir. Gerçek dosyalara kontrollü olarak
+eklenen bilinmeyen özellikler ve \texttt{x-*} uzantı alanları, ilgisiz bir
+alan değiştirildikten sonra tüm vakalarda korunmuştur (802/802 bilinmeyen
+özellik ve 1.203/1.203 uzantı alanı örneği). Tek bir alanı değiştirmenin
+maliyeti ihmal edilebilir düzeydedir; 2.000 satırın üzerindeki dosyalarda
+bile yükle--değiştir--kaydet döngüsünün medyanı yaklaşık 15~ms'dir. Buna
+karşın sağlanan koruma yapısaldır, metinsel değildir: dosyaların yalnızca
+\%0,77'si değişiklik yapılmadan kaydedildiğinde bayt düzeyinde aynı
+kalmaktadır. Daha önemlisi, tırnak normalizasyonu kozmetik bir sorun
+değildir. \texttt{docker compose config} tarafından geçerli kabul edilen
+girdilerden üretilen çıktıların yalnızca \%37,6'sı (335/892) yeniden
+geçerli bulunmuş; geçersizleşen 557 çıktının 542'si (\%97,3) tırnakları
+kaldırıldığı için tipi değişen skaler değerlerden kaynaklanmıştır.
+Ham yaml-cpp ile yapılan karşılaştırma ise ComposeMorph'un round-trip
+çıktısının dikkatle yazılmış ham yaml-cpp koduyla bayt düzeyinde aynı
+olduğunu (100/100) göstermektedir. Kütüphanenin katkısı yeni bir koruma
+algoritmasında değil, düzenlemeleri güvenli yola yönlendiren API'dedir:
+aynı düzenlemeleri ilgili alt ağacı yeniden inşa ederek yapan, makul
+görünen ham yaml-cpp kodu, ölçülebilen hiçbir vakada kardeş alanları
+koruyamamıştır.
+% Sayı kaynakları: results/tables/preservation_summary.md (802/802,
+% 1203/1203); performance_summary.md (XLarge median 15,5 ms);
+% roundtrip_dataset_b_summary.md (5/647 = %0,77); validation_summary.md
+% (335/892, 557 geçersiz, 542 schema-type); comparison_summary.md
+% (100/100 bayt-özdeş; naive: 0/149, 0/39, 0/116 kardeş alan korundu).
+
+Bu bildirinin katkıları şunlardır:
+\begin{enumerate}
+  \item Docker Compose yapılandırmalarının C++ uygulamalarından sınıf
+    tabanlı ve tip-farkında biçimde değiştirilmesini sağlayan, modellenmemiş
+    alanlar için genel bir özellik API'si ve atomik kaydetme içeren,
+    yeniden kullanılabilir bir kütüphane (ComposeMorph).
+  \item Hedef düğümün yerinde değiştirilmesine dayanan, gelecekteki Compose
+    Specification alanlarına karşı ileriye dönük uyumluluk sağlayan
+    bilinmeyen-özellik ve uzantı alanı koruma mekanizması ile bu
+    mekanizmanın gerçek dünya dosyaları üzerindeki ölçümü.
+  \item C++'ta düğüm ağacı tabanlı Compose düzenlemenin sınırlarının deneysel
+    karakterizasyonu: koruma davranışının temel YAML kütüphanesinden miras
+    alındığının karşılaştırmalı olarak gösterilmesi ve tırnak
+    normalizasyonunun skaler tiplerini sessizce değiştirerek Docker Compose
+    geçerliliğini ölçülebilir biçimde bozduğunun nicel olarak ortaya konması.
+  \item İki veri kümesi (38 kontrollü ve 647 gerçek dünya Compose dosyası),
+    yedi deney ve tüm sonuçları tek komutla yeniden üreten betiklerden
+    oluşan, açık ve tekrarlanabilir bir değerlendirme paketi.
+\end{enumerate}
+
+Bildirinin geri kalanı şöyle düzenlenmiştir. Bölüm~\ref{sec:altyapi} Docker
+Compose, YAML ve round-trip düzenleme problemine ilişkin altyapıyı,
+Bölüm~\ref{sec:ilgili-calismalar} ilgili çalışmaları sunar.
+Bölüm~\ref{sec:tasarim} ve Bölüm~\ref{sec:yaklasim} kütüphanenin tasarımını
+ve round-trip dönüşüm yaklaşımını, Bölüm~\ref{sec:gerceklestirim}
+gerçekleştirimi anlatır. Bölüm~\ref{sec:yontem} deneysel yöntemi,
+Bölüm~\ref{sec:bulgular} bulguları verir. Bölüm~\ref{sec:tartisma} sonuçları
+tartışır; Bölüm~\ref{sec:gecerlilik} ve Bölüm~\ref{sec:kisitlamalar}
+geçerlilik tehditlerini ve kısıtlamaları ele alır; Bölüm~\ref{sec:sonuc}
+çalışmayı sonuçlandırır.
 
 % ---------------------------------------------------------------------
 \section{Altyapı ve Motivasyon}
@@ -246,7 +369,8 @@ Docker Compose, YAML, kod olarak yapılandırma (configuration-as-code), round-t
 % başarısız vakalar gizlenmemeli). Gerçek bulgulardan taslak liste:
 % \begin{itemize}
 %   \item Yorum satırı korunmuyor (yaml-cpp'den miras; jbeder/yaml-cpp
-%     \#457, \#154 issue'ları hâlâ açık).
+%     \#154 2015'ten beri açık, \#457 Nisan 2026'da "Currently there is
+%     no option to do this" notuyla \#154'ün kopyası olarak kapatıldı).
 %   \item Byte-identical round-trip yok; her kaydetmede quote/flow-style
 %     normalizasyonu ve boş satır kaybı (Deney 1: Dataset B'de
 %     \%0.77 byte-identical).

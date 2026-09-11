@@ -10,18 +10,19 @@ at the end; BibTeX entries in `paper/references.bib`).
 
 | Library | Language | Round-trip / comment preservation | Evidence |
 |---|---|---|---|
-| **yaml-cpp** (jbeder/yaml-cpp) | C++ | **No.** Comments are dropped on parse and never re-emitted. Two long-standing feature requests are open: "Preserve comments after parsing and re-emit them" (#457) and "option to not eat comments" (#154). | GitHub issues #457, #154 |
+| **yaml-cpp** (jbeder/yaml-cpp) | C++ | **No.** Comments are dropped on parse and never re-emitted. The feature request "option to not eat comments" (#154) has been open since March 2015 (latest comment December 2025 asking about progress). A second request, "Preserve comments after parsing and re-emit them" (#457, opened January 2017), was closed by a maintainer on 2026-04-25 as a duplicate of #154 with the note "Currently there is no option to do this." | GitHub issues #154, #457 (status checked via the GitHub API on 2026-09-11) |
 | **libyaml** (yaml/libyaml) | C | **No.** The parser does not generate comment tokens/events at all -- an architectural gap, not a missing convenience API. An open issue (#42) tracks the (unimplemented) feature request. | GitHub issue #42 |
-| **rapidyaml / ryml** (biojppm/rapidyaml) | C++ | **Partial, and in the opposite direction from yaml-cpp's bug.** ryml is view-based (nodes hold pointers into the source buffer, no copies) and is fully YAML 1.2 conformant, but an open issue (#30, "Preserving scalar type information when emitting") reports that scalar *type* fidelity is not reliably preserved on emit -- e.g. integers can come back as strings. This is the same *class* of defect as our Experiment 5 finding (quoted-scalar round-trip changes a value's resolved type), just manifesting in the opposite direction (over-stringification instead of over-numification), on a different, source-buffer-view C++ design. | GitHub issue #30; project README |
+| **rapidyaml / ryml** (biojppm/rapidyaml) | C++ | **No comment-preservation claim.** ryml is view-based (nodes hold pointers into the source buffer, no copies) and fully YAML 1.2 conformant. Its emitter had a historical scalar type-fidelity bug (#30, "Preserving scalar type information when emitting", January 2020): the integer `-1` was emitted as the quoted string `'-1'`, so type-detecting parsers such as PyYAML reloaded it as a string. It was fixed and closed in February 2020. It is the mirror image of the defect our Experiment 5 found in yaml-cpp (over-quoting there, quote *loss* here), and it shows that emitter quoting decisions are a recurring source of round-trip type errors in C++ YAML libraries. It is **not** a current open bug. | GitHub issue #30 (status checked via the GitHub API on 2026-09-11); project README |
 | **fkYAML** (fktn-k/fkYAML) | C++11+ (header-only) | Not documented. fkYAML markets itself on performance (~6.5x faster than yaml-cpp in its own benchmark) and spec conformance/encoding support, but its documentation makes no round-trip or comment-preservation claim. | Project docs/releases page |
 
-**Takeaway:** every actively maintained C/C++ YAML library we could find either
-explicitly lacks comment/format preservation (yaml-cpp, libyaml) or has its
-own open, unresolved round-trip fidelity bug of the same general class our
-benchmarks measure (rapidyaml). None make a comment/format-preservation
-claim we could evaluate as a competitor in that dimension. Nothing in the
-C or C++ ecosystem approaches ruamel.yaml/eemeli-yaml-level guarantees
-(see section 3).
+**Takeaway:** none of the C/C++ YAML libraries we surveyed documents
+comment- or format-preserving round-trip editing. yaml-cpp and libyaml
+explicitly lack comment support, and yaml-cpp's maintainer confirmed this
+again in April 2026. rapidyaml and fkYAML make no such claim. rapidyaml's
+fixed 2020 emitter bug (#30) shows that the scalar type-fidelity defect
+class our benchmarks measure has occurred before in other C++ emitters.
+Nothing in the C or C++ ecosystem approaches ruamel.yaml/eemeli-yaml-level
+guarantees (see section 3).
 
 ## 2. YAML Concrete Syntax Tree (CST) / AST-based tooling
 
@@ -83,7 +84,8 @@ instead of Compose files, and in Go instead of C++.
 2. *Which C++ YAML tools provide round-trip preservation?* None of the
    four surveyed (yaml-cpp, libyaml, rapidyaml, fkYAML) document
    comment/format-preserving round-trip editing as a supported feature;
-   two have open, years-old issues asking for exactly that.
+   yaml-cpp (#154, open since 2015) and libyaml (#42, open since 2016)
+   each have a years-old open request asking for exactly that.
 3. *Which tools have comment/formatting/key-order preservation?* Python
    (ruamel.yaml), JavaScript (eemeli/yaml), and Rust (yaml-edit) do, in
    general-purpose YAML; Go's kyaml does, specifically for Kubernetes
@@ -140,19 +142,35 @@ instead of Compose files, and in Go instead of C++.
 
 ## Conclusion: is the "no comparable C++ library" claim defensible?
 
-Yes, with the PDF's own recommended phrasing rather than an absolute
-"first/only" claim:
+Yes, but only in a narrower form than the phrasing the task PDF suggests.
+The PDF suggests:
 
 > "To the best of our knowledge, existing C++ libraries do not provide the
 > same combination of Docker Compose-aware structured manipulation,
 > forward-compatible unknown-property preservation, and validated
 > round-trip editing."
 
+That sentence implies ComposeMorph itself provides *validated* round-trip
+editing. Our own Experiment 5 contradicts this: only 37.6% (335/892) of
+ComposeMorph's outputs from docker-valid inputs pass
+`docker compose config`. The paper therefore uses the narrower claim the
+evidence supports:
+
+> "To the best of our knowledge, no C++ library combines Docker
+> Compose-aware, type-aware editing with *measured* forward-compatible
+> preservation of unknown properties and `x-*` extension fields."
+
+(Turkish, as used in paper.tex's Introduction: "Bildiğimiz kadarıyla,
+Docker Compose'a özgü tip-farkında düzenlemeyi ve ölçülmüş ileriye dönük
+uyumlu bilinmeyen-özellik korumasını bir arada sunan bir C++ kütüphanesi
+bulunmamaktadır.")
+
 This is supported because: (a) no Docker Compose-aware *editing* API
 (typed or generic) was found in C++ in any form; (b) no C++ YAML library
 was found that treats round-trip preservation as a solved, documented
-feature -- the two most relevant ones (yaml-cpp, rapidyaml) each have
-their own open, unresolved round-trip fidelity issues; (c) the closest
+feature -- yaml-cpp, the one ComposeMorph is built on, still has no
+comment support (#154, open since 2015; the maintainer reiterated in 2026
+that no such option exists); (c) the closest
 matches to ComposeMorph's design intent exist only in other languages
 (compose-py in Python, docker-compose-yaml-parser in JavaScript, kyaml in
 Go for a different config domain), none of which publish the kind of
