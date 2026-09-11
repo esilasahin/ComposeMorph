@@ -1,0 +1,290 @@
+% ComposeMorph bildirisi -- IEEEtran iskeleti (Türkçe).
+%
+% Bu ortamda derlenip doğrulanmadı (TeX araç zinciri kurulu değil, kurma
+% iznim de yok). Standart bir TeX Live / MiKTeX kurulumuyla veya
+% Overleaf'te (şablon: IEEEtran / "IEEE Conference") derleyin.
+% Bibliyografya: pdflatex -> bibtex -> pdflatex -> pdflatex,
+% ya da latexmk -pdf paper.tex.
+%
+% Bölüm iskeleti görev dosyasının 15. bölümüne (Bildiri Yapısı) göredir.
+% Aşağıdaki her bölüm bir yer tutucudur; ilgili bölüm gerçekten
+% yazılmadan buraya düzyazı eklenmemelidir.
+
+\documentclass[conference]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[turkish]{babel}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% IEEEtran babel'in dil dizgilerini her zaman doğru miras almayabiliyor;
+% garantiye almak için elle yeniden tanımlanıyor.
+\renewcommand{\abstractname}{Özet}
+\renewcommand{\IEEEkeywordsname}{Anahtar Kelimeler}
+
+% Figürler results/figures/ içinde yaşıyor (tek doğruluk kaynağı,
+% scripts/run-all-experiments.sh ile yeniden üretiliyor) -- paper/
+% altında ayrı bir kopya tutulmuyor.
+\graphicspath{{../results/figures/}}
+
+\begin{document}
+
+\title{C++ Ortamında Docker Compose Yapılandırmalarının Yapı-Koruyucu Dönüşümü\\
+\large \textit{(geçici başlık -- Bulgular/Tartışma yazıldıktan sonra gözden geçirilecek; alternatifler için README.md'deki Research bölümüne ve docs/related-work.md'nin sonuç kısmına bakınız)}}
+
+\author{
+\IEEEauthorblockN{Yazar Adı (TBD)}
+\IEEEauthorblockA{Kurum (TBD)\\
+E-posta (TBD)}
+}
+
+\maketitle
+
+\begin{abstract}
+TODO (150--250 kelime). Görev dosyasına göre şunları içermeli: problem,
+mevcut yaklaşımların eksikliği, önerilen yaklaşım, deneysel
+değerlendirme, temel sonuçlar. Bu bölüm \emph{en son} yazılmalı --
+Giriş/Bulgular/Tartışma bölümleri ortaya çıktıktan sonra onları
+özetlemeli. Şimdilik sadece belgedeki yerini ayırmak için tutuluyor.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Docker Compose, YAML, kod olarak yapılandırma (configuration-as-code), round-trip düzenleme, C++
+\end{IEEEkeywords}
+
+% ---------------------------------------------------------------------
+\section{Giriş}
+\label{sec:giris}
+% TODO: temel problem -- Compose dosyalarının programatik olarak
+% değiştirilmesi yalnızca YAML syntax'ını parse etmekten ibaret
+% değildir (kullanıcı extension'ları, bilinmeyen alanlar, farklı syntax
+% gösterimleri, mevcut configuration yapısı). Gerçek bir deployment
+% otomasyonu senaryosu üzerinden motive edilmeli (görev dosyası §15).
+%
+% Giriş, açık bir 3--4 maddelik katkı listesiyle bitmeli. Taslak
+% katkılar (görev dosyası §14, nihai Bulgular sayılarına göre
+% güncellenecek):
+% \begin{enumerate}
+%   \item Docker Compose yapılandırmalarını C++'tan değiştirmek için
+%     yeniden kullanılabilir, sınıf tabanlı, type-aware bir API
+%     (Service/Environment/Ports/Volumes/... artı generic
+%     Service::set/get/remove kaçış kapısı).
+%   \item Gelecekteki Compose Specification alanlarına forward
+%     compatibility sağlayan generic-property ve unknown-property
+%     preservation mekanizması (ölçülen: Deney 3--4'te \%100 koruma).
+%   \item Bu preservation mekanizmasının gerçekte ne sağlayıp ne
+%     sağlamadığının deneysel karakterizasyonu: dikkatli yazılmış
+%     çıplak yaml-cpp kullanımıyla birebir aynı round-trip/change-locality
+%     davranışı (Deney 6), ve skaler tiplerini sessizce değiştiren,
+%     \texttt{docker compose config} geçerliliğini ölçülebilir şekilde
+%     kıran bir quote-normalization kusurunun nicel tespiti (Deney 1, 5
+%     ve quote-normalization derinlemesine analizi).
+%   \item Correctness, preservation, change locality, forward
+%     compatibility, validation, karşılaştırmalı ve performans
+%     değerlendirmesini kapsayan, tek komutla
+%     (\texttt{scripts/run-all-experiments.sh}) tekrar çalıştırılabilir
+%     bir benchmark paketi (Dataset A: 38 kontrollü fixture; Dataset B:
+%     647 gerçek dünya GitHub Compose dosyası).
+% \end{enumerate}
+
+% ---------------------------------------------------------------------
+\section{Altyapı ve Motivasyon}
+\label{sec:altyapi}
+% TODO: Docker Compose Specification; YAML (YAML 1.1 core-schema skaler
+% çözümlemesi dahil -- quote-normalization bulgusunu açıklamak için
+% ileride gerekecek); Compose short/long syntax varyantları;
+% configuration transformation ve genel round-trip editing problemi;
+% tasarım hedefi olarak forward compatibility.
+
+% ---------------------------------------------------------------------
+\section{İlgili Çalışmalar}
+\label{sec:ilgili-calismalar}
+% TODO: docs/related-work.md'yi bildiri formuna sıkıştır. Alt başlıklar
+% o dokümanı yansıtıyor:
+% \subsection{C/C++ YAML Kütüphaneleri}
+% \subsection{Ekosisteme Göre Yorum-Koruyan ve Round-Trip YAML Editörleri}
+% \subsection{Kubernetes ve Docker Compose Yapılandırma Araçları}
+% \subsection{Ampirik Çalışmalar ve Configuration-as-Code Araştırmaları}
+% Görev dosyasının önerdiği, kanıta dayalı konumlandırma cümlesiyle
+% kapat (doğrulanmamış bir "ilk/tek" iddiası değil).
+
+% ---------------------------------------------------------------------
+\section{Tasarım}
+\label{sec:tasarim}
+% TODO: kütüphane mimarisi (ComposeFile -> ServiceCollection -> Service
+% -> {Environment, Ports, Volumes, Networks, BuildConfig, HealthCheck,
+% DeployConfig, DependsOn, ExtraHosts}, artı üst seviye
+% Networks/Volumes/Configs/Secrets koleksiyonları). Typed API ile
+% generic Service::set/get/remove dot-path API'si arasındaki ilişki
+% -- görev dosyasında açıkça istenen bir nokta.
+
+% ---------------------------------------------------------------------
+\section{Round-Trip Dönüşüm Yaklaşımı}
+\label{sec:yaklasim}
+% TODO -- görev dosyasına göre bu, bildirinin teknik olarak en güçlü
+% bölümü olmalı. Kapsanacaklar: YAML parse modeli (yaml-cpp'nin
+% mutable Node ağacı -- bir CST/token-span değil; bunun node-seviyesi
+% olduğu, AST/CST-seviyesi olmadığı açıkça belirtilmeli, çünkü hem
+% preservation sonuçlarını hem quote-normalization kusurunu doğrudan
+% açıklıyor); property representation; unknown node'ların nasıl hayatta
+% kaldığı (asla yeniden inşa edilmiyor, sadece yerinde referanslanıyor/
+% değiştiriliyor); modification tracking (yok -- mutasyonlar anında,
+% yerinde Node yazmaları); serialization (yaml-cpp'nin varsayılan
+% emitter'ı); bunun x-*/unknown alanlar için sağladığı preservation
+% mekanizması (Deney 3--4); conflict durumları (gerek yok -- merge
+% adımı yok); desteklenmeyen YAML özellikleri (yorumlar, anchor/alias
+% adları -- genişletilmiyor ama yeniden numaralandırılıyor, bkz.
+% datasets/controlled/corner-cases/anchors-and-aliases.yml).
+
+% ---------------------------------------------------------------------
+\section{Gerçekleştirim}
+\label{sec:gerceklestirim}
+% TODO: C++20, GCC 11+/Clang 13+, CMake >=3.16, yaml-cpp >=0.7.0,
+% GoogleTest, CTest entegrasyonu, repository yapısı
+% (benchmarks/datasets/scripts/results/paper), yaklaşık LOC (`cloc src
+% include` veya benzeriyle nihai haliyle raporlanacak).
+
+% ---------------------------------------------------------------------
+\section{Deneysel Yöntem}
+\label{sec:yontem}
+% TODO: RQ1--RQ5'i açıkça belirt (Correctness, Preservation, Change
+% Locality, Compatibility/Forward-Compatibility, Performance -- görev
+% dosyası §1), her RQ'yu onu yanıtlayan deney(ler)le eşleştir, Dataset A
+% (38 kontrollü fixture: datasets/controlled/, bkz. kendi README.md'si)
+% ve Dataset B'yi (647 gerçek dünya GitHub Compose dosyası:
+% datasets/real-world-combined/, toplama yöntemi
+% scripts/collect-dataset-b.py ve scripts/collect-large-files.py'de)
+% tanımla. İstatistiksel değerlendirmeyi belirt (median/mean/stdev/p95,
+% performans için >=30 iterasyon -- görev dosyası §12).
+
+% ---------------------------------------------------------------------
+\section{Bulgular}
+\label{sec:bulgular}
+% TODO: her RQ için, sayılar results/tables/*.md'den (öncelikli olarak
+% Dataset B, çapraz doğrulama için Dataset A) ve figürler
+% results/figures/'dan alınacak.
+
+\subsection{RQ1 -- Doğruluk (Correctness)}
+% Kaynak: results/tables/roundtrip_dataset_b_summary.md,
+% results/tables/validation_summary.md,
+% results/tables/quote_normalization_analysis.md
+
+\subsection{RQ2 -- Koruma (Preservation)}
+% Kaynak: results/tables/roundtrip_dataset_b_summary.md (textual),
+% results/tables/preservation_summary.md (unknown/x-*),
+% results/tables/comparison_summary.md §1 (semantic: yaml-cpp-careful
+% ile birebir aynı).
+
+\subsection{RQ3 -- Değişiklik Yerelliği (Change Locality)}
+% Kaynak: results/tables/modification_dataset_b_summary.md,
+% results/figures/modification_change_locality.png
+
+\subsection{RQ4 -- Uyumluluk (Forward Compatibility)}
+% Kaynak: results/tables/preservation_summary.md,
+% results/figures/preservation_rates.png,
+% results/tables/validation_summary.md "Marker fixtures" bölümü (x-*
+% ile x- olmayan ayrımının inceliği).
+
+\subsection{RQ5 -- Performans}
+% Kaynak: results/tables/performance_summary.md,
+% results/figures/performance_by_bucket.png
+
+% ---------------------------------------------------------------------
+\section{Tartışma}
+\label{sec:tartisma}
+% TODO: sonuçların anlamı; hangi kullanım senaryolarının avantaj
+% sağladığı (tek-alanlı otomasyon değişiklikleri) hangilerinin
+% sağlamadığı (yorum/formatting/byte fidelity bekleyen her şey);
+% performans/preservation trade-off'u (çoğunlukla yok -- modification
+% maliyeti ihmal edilebilir, bkz. RQ5); Compose-specific API'nin
+% avantajı (Deney 6: ergonomi/güvenlik, preservation değil); diğer
+% ekosistemlerdeki (ruamel.yaml, eemeli/yaml) yorum korumasını çözen
+% ama Compose-aware olmayan generic YAML editörlerinden farkı.
+
+% ---------------------------------------------------------------------
+\section{Geçerlilik Tehditleri}
+\label{sec:gecerlilik}
+
+\subsection{İç Geçerlilik}
+% TODO: benchmark implementasyonundaki olası bias -- örn.
+% find_image()'ın naif ':' tabanlı tag ayırma mantığı,
+% ${VAR:-default} interpolation syntax'ı kullanan image'ları bozuyor
+% (bkz. results/tables/validation_summary.md, ~11 vaka), orada bir
+% harness artifact'i olarak not edildi, kütüphane kusuru değil.
+
+\subsection{Dış Geçerlilik}
+% TODO: Dataset B (647 GitHub dosyası) gerçek dünya Compose
+% kullanımının tamamını temsil etmeyebilir; Ibrahim ve ark. 2021 ile
+% Eng ve ark. 2023'ü (docs/related-work.md §6) GitHub kökenli
+% corpus'ların daha geniş kullanımla nasıl karşılaştırıldığı için
+% referans ver.
+
+\subsection{Yapı Geçerliliği (Construct Validity)}
+% TODO: changed-line/edit-distance diff sayıları her zaman algılanan
+% preservation kalitesini temsil etmeyebilir; quote-normalization
+% analizindeki "docker-confirmed invalid" çapraz referansını kısmi bir
+% hafifletme olarak not et (textual diff'i bağımsız, daha katı bir
+% oracle'a bağlıyor).
+
+\subsection{Sürüm Geçerliliği}
+% TODO: Compose Specification ve `docker compose` CLI'ı zamanla
+% değişiyor; test edilen kesin sürümleri kaydet (Docker Compose
+% 2.26.1-4, bkz. results/tables/performance_summary.md'nin benchmark
+% ortamı bloğu).
+
+% ---------------------------------------------------------------------
+\section{Kısıtlamalar}
+\label{sec:kisitlamalar}
+% TODO, görev dosyasına göre açıkça belirtilmeli (desteklenmeyen/
+% başarısız vakalar gizlenmemeli). Gerçek bulgulardan taslak liste:
+% \begin{itemize}
+%   \item Yorum satırı korunmuyor (yaml-cpp'den miras; jbeder/yaml-cpp
+%     \#457, \#154 issue'ları hâlâ açık).
+%   \item Byte-identical round-trip yok; her kaydetmede quote/flow-style
+%     normalizasyonu ve boş satır kaybı (Deney 1: Dataset B'de
+%     \%0.77 byte-identical).
+%   \item Quote-normalization, tırnaklı sayısal/boolean görünümlü
+%     değerlerin tipini (int/float/bool) sessizce değiştiriyor; bulunan
+%     baskın başarısızlık modunda \texttt{docker compose config}
+%     geçerliliğini ölçülebilir şekilde kırıyor (Deney 5 +
+%     quote-normalization derinlemesine analizi).
+%   \item YAML anchor/alias/merge-key yapıları round-trip'te yapısal
+%     olarak hayatta kalıyor ama orijinal anchor adını kaybediyor
+%     (yaml-cpp tarafından yeniden numaralandırılıyor).
+%   \item Ports/Volumes/Networks yardımcı sınıfları liste elemanlarının
+%     short-syntax (string) olduğunu varsayıyor; long-syntax (mapping)
+%     girdiler hataya (\texttt{Ports::add}/\texttt{has},
+%     \texttt{Volumes::setSource}) veya non-sequence node'lara karşı
+%     sessiz koruma eksikliğine (\texttt{Networks::add}) yol açabilir
+%     -- bkz. results/tables/modification\_dataset\_b\_summary.md Notes.
+%   \item x- olmayan "forward-compatible" unknown property'ler
+%     semantik olarak korunuyor ama kütüphaneden bağımsız olarak
+%     Compose Specification şemasına göre geçersiz -- yalnızca
+%     \texttt{x-*} önekli extension'lar şema açısından geçerli (Deney
+%     5, RQ4 inceliği).
+%   \item Platform: Linux'ta (Debian 13) geliştirildi/benchmark edildi;
+%     Windows/macOS'ta test edilmedi.
+% \end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Sonuç}
+\label{sec:sonuc}
+% TODO: problem/çözüm/sonuçların kısa özeti. Görev dosyasına göre
+% future work (§15/Conclusion): full CST editing, comment preservation,
+% schema-aware validation, automatic Compose Specification
+% synchronization, additional configuration formats (taslak liste --
+% Tartışma/Kısıtlamalar bölümlerinin gerçekte neyi motive ettiğine göre
+% gözden geçirilecek).
+
+% ---------------------------------------------------------------------
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
