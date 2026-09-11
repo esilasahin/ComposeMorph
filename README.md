@@ -10,6 +10,24 @@ ComposeMorph, Docker Compose spesifikasyonları üzerinde tip güvenli ve sezgis
 
 ---
 
+## Research
+
+Bu repository, C++ uygulamalarından Docker Compose YAML dosyalarının güvenli, geri uyumlu ve minimum yan etkiyle programatik olarak değiştirilmesi üzerine hazırlanmakta olan bir bilimsel bildiriye eşlik etmektedir.
+
+Title: TBD
+Authors: ...
+Conference: ...
+Paper: ...
+Artifact: bu repository (`benchmarks/`, `datasets/`, `scripts/`, `results/`)
+
+Tüm deneyleri tek komutla yeniden çalıştırmak için:
+
+    ./scripts/run-all-experiments.sh
+
+Sonuçlar için `results/tables/` ve `results/figures/`, ilgili literatür taraması için `docs/related-work.md` dizinine bakınız.
+
+---
+
 ## Bağımlılıklar
 
 Proje, standart ve modern C++ araç ve kütüphanelerine dayanır:
@@ -175,5 +193,7 @@ Doğrulanmış Test Senaryoları:
 ## Kısıtlamalar
 
 - Yorum Satırı Koruması: Standart yaml-cpp emitter'larında olduğu gibi, dosya yeniden serileştirilirken yapısal ve satır içi YAML yorumları korunmaz.
-- Anchor & Alias Genişletmesi: YAML anchor (&) ve alias (*) yapıları parse sırasında somut değerlere genişletilir ve yeniden yazılırken referans bağı korunmayabilir.
+- Quote/Tip Normalizasyonu: Tırnaklı sayısal/boolean görünümlü skalerler (`"3.8"`, `"true"`, `"1"` gibi) yeniden serileştirmede tırnaksız hale gelip YAML tipini değiştirebilir (`version`, `command`/`entrypoint` elemanları, `environment` değerleri dahil) — bkz. `results/tables/quote_normalization_analysis.md`.
+- Anchor & Alias Etiket Kaybı: YAML anchor (&) / alias (*) / merge-key (`<<`) yapıları round-trip sırasında referans bağı korunarak (somut değerlere genişletilmeden) yeniden yazılır, ancak orijinal anchor adı korunmaz — yaml-cpp bunun yerine otomatik üretilmiş sayısal bir etiket (örn. `&1`) atar (bkz. `datasets/controlled/corner-cases/anchors-and-aliases.yml`).
 - Katı Compose V2 Spesifikasyonu: Öncelikli olarak modern Compose V2 spesifikasyon standartları etrafında tasarlanmıştır.
+- Uzun (long) syntax desteği kısmi: `Volumes`/`Ports`/`Networks` yardımcı sınıfları liste elemanlarını string varsayar; sadece long-syntax (mapping) kullanan `ports`/`volumes` girdilerinde veya `networks` mapping syntax'ında `add`/`has` çağrıları hataya düşebilir — bkz. `results/tables/modification_dataset_b_summary.md` Notes bölümü.
