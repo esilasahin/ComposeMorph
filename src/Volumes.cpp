@@ -1,4 +1,5 @@
 #include "compose/Volumes.hpp"
+#include "ScalarQuoting.hpp"
 #include <sstream>
 
 namespace compose {
@@ -11,7 +12,7 @@ void Volumes::add(const std::string& volumeMapping) {
     }
 
     if (!has(volumeMapping)) {
-        serviceNode_["volumes"].push_back(volumeMapping);
+        serviceNode_["volumes"].push_back(detail::makeString(volumeMapping));
     }
 }
 
@@ -39,7 +40,7 @@ void Volumes::removeByTarget(const std::string& target) {
         std::getline(ss, tgt, ':');
 
         if (tgt != target) {
-            newVolumes.push_back(current);
+            newVolumes.push_back(serviceNode_["volumes"][i]);
         }
     }
     serviceNode_["volumes"] = newVolumes;
@@ -64,7 +65,7 @@ void Volumes::setSource(const std::string& target, const std::string& newSource)
             if (!mode.empty()) {
                 updated += ":" + mode;
             }
-            serviceNode_["volumes"][i] = updated;
+            detail::assignString(serviceNode_["volumes"][i], updated);
             return;
         }
     }
@@ -82,7 +83,7 @@ void Volumes::remove(const std::string& volumeMapping) {
     for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
         std::string current = serviceNode_["volumes"][i].as<std::string>();
         if (current != volumeMapping) {
-            newVolumes.push_back(current);
+            newVolumes.push_back(serviceNode_["volumes"][i]);
         }
     }
     serviceNode_["volumes"] = newVolumes;

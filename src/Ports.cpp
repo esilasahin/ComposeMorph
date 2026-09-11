@@ -1,4 +1,5 @@
 #include "compose/Ports.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -10,7 +11,7 @@ void Ports::add(const std::string& portMapping) {
     }
 
     if (!has(portMapping)) {
-        serviceNode_["ports"].push_back(portMapping);
+        serviceNode_["ports"].push_back(detail::makeString(portMapping));
     }
 }
 
@@ -23,7 +24,7 @@ void Ports::remove(const std::string& portMapping) {
     for (std::size_t i = 0; i < serviceNode_["ports"].size(); ++i) {
         std::string current = serviceNode_["ports"][i].as<std::string>();
         if (current != portMapping) {
-            newPorts.push_back(current);
+            newPorts.push_back(serviceNode_["ports"][i]);
         }
     }
     serviceNode_["ports"] = newPorts;

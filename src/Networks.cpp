@@ -1,4 +1,5 @@
 #include "compose/Networks.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -10,7 +11,7 @@ void Networks::add(const std::string& networkName) {
     }
 
     if (!has(networkName)) {
-        serviceNode_["networks"].push_back(networkName);
+        serviceNode_["networks"].push_back(detail::makeString(networkName));
     }
 }
 
@@ -23,7 +24,7 @@ void Networks::remove(const std::string& networkName) {
     for (std::size_t i = 0; i < serviceNode_["networks"].size(); ++i) {
         std::string current = serviceNode_["networks"][i].as<std::string>();
         if (current != networkName) {
-            newNetworks.push_back(current);
+            newNetworks.push_back(serviceNode_["networks"][i]);
         }
     }
     serviceNode_["networks"] = newNetworks;

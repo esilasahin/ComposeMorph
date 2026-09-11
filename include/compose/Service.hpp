@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 #include <sstream>
+#include <type_traits>
 #include <yaml-cpp/yaml.h>
 #include "compose/Environment.hpp"
 #include "compose/ExtraHosts.hpp"
@@ -93,7 +94,11 @@ public:
             }
             current.reset(current[keys[i]]);
         }
-        current[keys.back()] = value;
+        if constexpr (std::is_convertible_v<const T&, std::string>) {
+            assignString(current[keys.back()], std::string(value));
+        } else {
+            current[keys.back()] = value;
+        }
     }
 
     template <typename T>
@@ -129,6 +134,10 @@ public:
 
 private:
     YAML::Node node_;
+
+    // Quotes the value on save if its plain form would be read back as a
+    // non-string (see src/ScalarQuoting.hpp).
+    static void assignString(YAML::Node node, const std::string& value);
 
     static std::vector<std::string> splitKeyPath(const std::string& path) {
         std::vector<std::string> tokens;

@@ -1,4 +1,5 @@
 #include "compose/TopLevelCollections.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -14,7 +15,7 @@ bool NetworkDefinition::external() const {
 }
 
 void NetworkDefinition::setDriver(const std::string& driver) {
-    node_["driver"] = driver;
+    detail::assignString(node_["driver"], driver);
 }
 
 std::string NetworkDefinition::driver() const {
@@ -70,7 +71,7 @@ bool VolumeDefinition::external() const {
 }
 
 void VolumeDefinition::setDriver(const std::string& driver) {
-    node_["driver"] = driver;
+    detail::assignString(node_["driver"], driver);
 }
 
 std::string VolumeDefinition::driver() const {
@@ -118,7 +119,7 @@ std::vector<std::string> VolumeCollection::names() const {
 FileConfigDefinition::FileConfigDefinition(YAML::Node node) : node_(node) {}
 
 void FileConfigDefinition::setFile(const std::string& filePath) {
-    node_["file"] = filePath;
+    detail::assignString(node_["file"], filePath);
 }
 
 std::string FileConfigDefinition::file() const {

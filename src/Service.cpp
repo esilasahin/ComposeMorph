@@ -1,4 +1,5 @@
 #include "compose/Service.hpp"
+#include "ScalarQuoting.hpp"
 #include "compose/BuildConfig.hpp"
 #include "compose/HealthCheck.hpp"
 #include "compose/DependsOn.hpp"
@@ -8,8 +9,12 @@ namespace compose {
 
 Service::Service(YAML::Node node) : node_(node) {}
 
+void Service::assignString(YAML::Node node, const std::string& value) {
+    detail::assignString(node, value);
+}
+
 void Service::setImage(const std::string& img) {
-    node_["image"] = img;
+    detail::assignString(node_["image"], img);
 }
 
 std::string Service::image() const {
@@ -17,7 +22,7 @@ std::string Service::image() const {
 }
 
 void Service::setHostname(const std::string& host) {
-    node_["hostname"] = host;
+    detail::assignString(node_["hostname"], host);
 }
 
 std::string Service::hostname() const {
@@ -29,7 +34,7 @@ void Service::removeHostname() {
 }
 
 void Service::setContainerName(const std::string& name) {
-    node_["container_name"] = name;
+    detail::assignString(node_["container_name"], name);
 }
 
 std::string Service::containerName() const {
@@ -41,7 +46,7 @@ void Service::removeContainerName() {
 }
 
 void Service::setRestart(const std::string& restartPolicy) {
-    node_["restart"] = restartPolicy;
+    detail::assignString(node_["restart"], restartPolicy);
 }
 
 std::string Service::restart() const {
@@ -61,7 +66,7 @@ bool Service::privileged() const {
 }
 
 void Service::setWorkingDir(const std::string& dir) {
-    node_["working_dir"] = dir;
+    detail::assignString(node_["working_dir"], dir);
 }
 
 std::string Service::workingDir() const {
@@ -73,7 +78,7 @@ void Service::removeWorkingDir() {
 }
 
 void Service::setUser(const std::string& user) {
-    node_["user"] = user;
+    detail::assignString(node_["user"], user);
 }
 
 std::string Service::user() const {
@@ -85,13 +90,13 @@ void Service::removeUser() {
 }
 
 void Service::setCommand(const std::string& cmd) {
-    node_["command"] = cmd;
+    detail::assignString(node_["command"], cmd);
 }
 
 void Service::setCommand(const std::vector<std::string>& cmdSeq) {
     YAML::Node seq(YAML::NodeType::Sequence);
     for (const auto& item : cmdSeq) {
-        seq.push_back(item);
+        seq.push_back(detail::makeString(item));
     }
     node_["command"] = seq;
 }
@@ -110,13 +115,13 @@ std::string Service::command() const {
 }
 
 void Service::setEntrypoint(const std::string& entrypoint) {
-    node_["entrypoint"] = entrypoint;
+    detail::assignString(node_["entrypoint"], entrypoint);
 }
 
 void Service::setEntrypoint(const std::vector<std::string>& entrypointSeq) {
     YAML::Node seq(YAML::NodeType::Sequence);
     for (const auto& item : entrypointSeq) {
-        seq.push_back(item);
+        seq.push_back(detail::makeString(item));
     }
     node_["entrypoint"] = seq;
 }

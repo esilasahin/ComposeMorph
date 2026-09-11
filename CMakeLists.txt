@@ -23,6 +23,7 @@ set(COMPOSE_SOURCES
     src/DependsOn.cpp
     src/DeployConfig.cpp
     src/TopLevelCollections.cpp
+    src/ScalarQuoting.cpp
 )
 
 # Statik kütüphane hedefi
@@ -63,3 +64,5 @@ target_link_libraries(yamlcpp_naive_tool PRIVATE yaml-cpp)
 # Deney 7 (Performance Benchmark) için ölçüm aracı
 add_executable(perf_tool benchmarks/performance/perf_tool.cpp)
 target_link_libraries(perf_tool PRIVATE composemorph)
+# Serializer-only overhead measurement needs the library's internal header.
+target_include_directories(perf_tool PRIVATE src)

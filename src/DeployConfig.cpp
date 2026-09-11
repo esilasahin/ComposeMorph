@@ -1,4 +1,5 @@
 #include "compose/DeployConfig.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -6,7 +7,7 @@ namespace compose {
 ResourceSpecs::ResourceSpecs(YAML::Node node) : node_(node) {}
 
 void ResourceSpecs::setCpus(const std::string& cpus) {
-    node_["cpus"] = cpus;
+    detail::assignString(node_["cpus"], cpus);
 }
 
 std::string ResourceSpecs::cpus() const {
@@ -14,7 +15,7 @@ std::string ResourceSpecs::cpus() const {
 }
 
 void ResourceSpecs::setMemory(const std::string& memory) {
-    node_["memory"] = memory;
+    detail::assignString(node_["memory"], memory);
 }
 
 std::string ResourceSpecs::memory() const {
@@ -65,7 +66,7 @@ void DeployConfig::setMode(const std::string& mode) {
     if (!serviceNode_["deploy"]) {
         serviceNode_["deploy"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["deploy"]["mode"] = mode;
+    detail::assignString(serviceNode_["deploy"]["mode"], mode);
 }
 
 std::string DeployConfig::mode() const {

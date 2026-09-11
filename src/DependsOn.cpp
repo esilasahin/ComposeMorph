@@ -1,4 +1,5 @@
 #include "compose/DependsOn.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -23,7 +24,7 @@ void DependsOn::add(const std::string& serviceName) {
 
     if (serviceNode_["depends_on"].IsSequence()) {
         if (!has(serviceName)) {
-            serviceNode_["depends_on"].push_back(serviceName);
+            serviceNode_["depends_on"].push_back(detail::makeString(serviceName));
         }
     } else if (serviceNode_["depends_on"].IsMap()) {
         serviceNode_["depends_on"][serviceName]["condition"] = "service_started";
@@ -51,7 +52,7 @@ void DependsOn::remove(const std::string& serviceName) {
         YAML::Node newSeq(YAML::NodeType::Sequence);
         for (std::size_t i = 0; i < serviceNode_["depends_on"].size(); ++i) {
             if (serviceNode_["depends_on"][i].as<std::string>() != serviceName) {
-                newSeq.push_back(serviceNode_["depends_on"][i].as<std::string>());
+                newSeq.push_back(serviceNode_["depends_on"][i]);
             }
         }
         serviceNode_["depends_on"] = newSeq;

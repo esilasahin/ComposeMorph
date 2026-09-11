@@ -1,5 +1,6 @@
 #include "compose/ComposeFile.hpp"
 #include "compose/Exceptions.hpp"
+#include "ScalarQuoting.hpp"
 #include <fstream>
 #include <filesystem>
 #include <regex>
@@ -53,7 +54,8 @@ void ComposeFile::save(const std::string& filepath, const SaveOptions& options) 
             if (!fout.is_open()) {
                 throw ComposeException("Failed to open temporary file: " + tmpPath);
             }
-            fout << rootNode_ << std::endl;
+            detail::emitPreservingQuotes(fout, rootNode_);
+            fout << std::endl;
         }
         // Atomic rename
         fs::rename(tmpPath, target);
@@ -62,7 +64,8 @@ void ComposeFile::save(const std::string& filepath, const SaveOptions& options) 
         if (!fout.is_open()) {
             throw ComposeException("Failed to open target file: " + target);
         }
-        fout << rootNode_ << std::endl;
+        detail::emitPreservingQuotes(fout, rootNode_);
+        fout << std::endl;
     }
 }
 

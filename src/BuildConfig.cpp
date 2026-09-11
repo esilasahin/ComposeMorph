@@ -1,4 +1,5 @@
 #include "compose/BuildConfig.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -8,7 +9,7 @@ void BuildConfig::setContext(const std::string& context) {
     if (!serviceNode_["build"]) {
         serviceNode_["build"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["build"]["context"] = context;
+    detail::assignString(serviceNode_["build"]["context"], context);
 }
 
 std::string BuildConfig::context() const {
@@ -22,7 +23,7 @@ void BuildConfig::setDockerfile(const std::string& dockerfile) {
     if (!serviceNode_["build"]) {
         serviceNode_["build"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["build"]["dockerfile"] = dockerfile;
+    detail::assignString(serviceNode_["build"]["dockerfile"], dockerfile);
 }
 
 std::string BuildConfig::dockerfile() const {
@@ -36,7 +37,7 @@ void BuildConfig::setTarget(const std::string& target) {
     if (!serviceNode_["build"]) {
         serviceNode_["build"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["build"]["target"] = target;
+    detail::assignString(serviceNode_["build"]["target"], target);
 }
 
 std::string BuildConfig::target() const {

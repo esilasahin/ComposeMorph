@@ -1,4 +1,5 @@
 #include "compose/HealthCheck.hpp"
+#include "ScalarQuoting.hpp"
 
 namespace compose {
 
@@ -10,7 +11,7 @@ void HealthCheck::setCommand(const std::vector<std::string>& cmd) {
     }
     YAML::Node cmdSeq(YAML::NodeType::Sequence);
     for (const auto& arg : cmd) {
-        cmdSeq.push_back(arg);
+        cmdSeq.push_back(detail::makeString(arg));
     }
     serviceNode_["healthcheck"]["test"] = cmdSeq;
 }
@@ -29,7 +30,7 @@ void HealthCheck::setInterval(const std::string& interval) {
     if (!serviceNode_["healthcheck"]) {
         serviceNode_["healthcheck"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["healthcheck"]["interval"] = interval;
+    detail::assignString(serviceNode_["healthcheck"]["interval"], interval);
 }
 
 std::string HealthCheck::interval() const {
@@ -43,7 +44,7 @@ void HealthCheck::setTimeout(const std::string& timeout) {
     if (!serviceNode_["healthcheck"]) {
         serviceNode_["healthcheck"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["healthcheck"]["timeout"] = timeout;
+    detail::assignString(serviceNode_["healthcheck"]["timeout"], timeout);
 }
 
 std::string HealthCheck::timeout() const {
@@ -71,7 +72,7 @@ void HealthCheck::setStartPeriod(const std::string& startPeriod) {
     if (!serviceNode_["healthcheck"]) {
         serviceNode_["healthcheck"] = YAML::Node(YAML::NodeType::Map);
     }
-    serviceNode_["healthcheck"]["start_period"] = startPeriod;
+    detail::assignString(serviceNode_["healthcheck"]["start_period"], startPeriod);
 }
 
 std::string HealthCheck::startPeriod() const {
