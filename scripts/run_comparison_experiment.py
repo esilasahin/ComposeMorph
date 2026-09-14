@@ -364,10 +364,19 @@ def summarize(mod_rows: list[dict], rt_rows: list[dict], marker_rows: list[dict]
         yn = loc.get("yamlcpp-naive", {}).get(op, "not modeled")
         lines.append(f"| {op} | {cm} | {yc} | {yn} |")
     lines.append("")
+    naive_loc = loc.get("yamlcpp-naive", {})
+    careful_loc = loc.get("yamlcpp-careful", {})
+    not_longer = [op for op in all_ops
+                  if isinstance(naive_loc.get(op), int) and isinstance(careful_loc.get(op), int)
+                  and naive_loc[op] <= careful_loc[op]]
+    longer = [op for op in all_ops
+              if isinstance(naive_loc.get(op), int) and isinstance(careful_loc.get(op), int)
+              and naive_loc[op] > careful_loc[op]]
+    fmt = lambda ops: ", ".join(f"`{op}`" for op in ops) or "none"
     lines.append(
-        "yaml-cpp (naive)'s lower or equal LOC for `image`/`hostname` is exactly the problem: "
-        "the destructive version is not more work to write than the correct one -- there is no "
-        "natural code-review signal that distinguishes them.\n"
+        f"The destructive naive version is no longer than the correct careful one for: "
+        f"{fmt(not_longer)}; it is longer for: {fmt(longer)}. Line count therefore gives no "
+        f"reliable code-review signal that distinguishes the two.\n"
     )
 
     # --- Capability matrix ---

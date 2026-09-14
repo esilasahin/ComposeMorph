@@ -54,7 +54,7 @@ Counted by brace-matching each `if (op == "X") { ... }` branch body in the tool'
 | restart | 1 | 1 | not modeled |
 | volume-source | 1 | 24 | not modeled |
 
-yaml-cpp (naive)'s lower or equal LOC for `image`/`hostname` is exactly the problem: the destructive version is not more work to write than the correct one -- there is no natural code-review signal that distinguishes them.
+The destructive naive version is no longer than the correct careful one for: `env`; it is longer for: `hostname`, `image`. Line count therefore gives no reliable code-review signal that distinguishes the two.
 
 ## 5. Capability matrix (PDF section 9)
 

@@ -24,7 +24,7 @@
   \renewcommand{\IEEEkeywordsname}{Keywords}%
 }
 
-\graphicspath{{../results/figures/}{./results/figures/}{./}}
+\graphicspath{{./figures/}{../results/figures/}{./results/figures/}{./}}
 
 \begin{document}
 
@@ -55,8 +55,9 @@ kütüphanesi bulamadık. Bu bildiride, Compose kavramlarını yansıtan tipli
 bir C++ API sunan ve düzenlemeleri düğüm ağacında yerinde yapan
 ComposeMorph'u sunuyoruz. 647 gerçek dünya ve 38 kontrollü Compose dosyası
 üzerinde yedi deneyle doğruluk, koruma, değişiklik yerelliği, ileriye
-dönük uyumluluk ve performansı ölçtük. Bilinmeyen özelliklerin ve
-\texttt{x-*} uzantılarının tamamı korunmaktadır. Değerlendirme ayrıca
+dönük uyumluluk ve performansı ölçtük. Dosyalara eklenen 802 bilinmeyen
+özelliğin ve 1.203 \texttt{x-*} uzantı alanının tamamı korunmaktadır.
+Değerlendirme ayrıca
 yaml-cpp tabanlı serileştirmede sessiz bir tip değişimi kusuru ortaya
 çıkarmıştır: tırnaklı skalerler tırnaksız yazıldığında
 \texttt{docker compose config} çıktıların yalnızca \%38,1'ini kabul
@@ -96,8 +97,8 @@ preservation, change locality, Docker Compose CLI validation success and
 performance against a baseline built directly on yaml-cpp. All 802
 injected unknown properties and all 1,203 \texttt{x-*} extension fields
 survive a targeted single-property edit, and once the baseline save noise
-is subtracted, edits stay confined to the single intended line for nine
-of ten properties. The evaluation also exposes a silent type-coercion
+is subtracted, edits stay confined to the single intended line for all
+ten edited properties. The evaluation also exposes a silent type-coercion
 defect in yaml-cpp-based serialization: when quoted scalars are re-emitted
 unquoted, \texttt{docker compose config} accepts only 38.1\% of the
 outputs. Serialization driven by the quote information the parser already
@@ -162,8 +163,8 @@ geçerli bir YAML belgesidir ve düzenleyicinin kendisi tarafından sorunsuz
 okunur; hata ancak Docker dosyayı okuduğunda ortaya çıkar. Kütüphanemizin
 ilk sürümü de bu davranışı miras almıştı; deneylerimiz hatayı ortaya
 çıkarmış, kök nedenini yaml-cpp'nin serileştiricisinde tespit etmiş ve
-Bölüm~\ref{sec:yaklasim}'de anlatılan tırnak koruyan serileştirme ile
-gidermemizi sağlamıştır.
+tırnak koruyan serileştirme (Bölüm~\ref{sec:yaklasim}) ile gidermemizi
+sağlamıştır.
 
 C++ ekosistemi bu probleme karşı özellikle hazırlıksızdır. Python'da
 ruamel.yaml~\cite{ruamelyaml}, JavaScript'te eemeli/yaml~\cite{eemeliyaml}
@@ -206,8 +207,9 @@ edilen girdilerden üretilen çıktıların tamamı (892/892) yeniden geçerli
 bulunmuştur; aynı düzenlemeleri yaml-cpp'nin varsayılan serileştiricisiyle
 yapan temel çizgide bu oran \%38,1'de (340/892) kalmaktadır. Korpustaki
 9.807 tırnaklı skaler değerin hiçbiri tip değiştirmemiş, temel çizgide ise
-452 dosyada 2.570 değer tip değiştirmiştir; çıktının girdiyle aynı veriye
-çözümlenme oranı \%33'ten \%100'e çıkmaktadır. Tırnak koruyan serileştirici
+452 dosyada 2.570 değer tip değiştirmiştir; 100 dosyalık bir örneklemde
+çıktının girdiyle aynı veriye çözümlenme oranı 33/100'den 100/100'e
+çıkmaktadır. Tırnak koruyan serileştirici
 bir performans bedeli getirmez: aynı süreçte yapılan eşleşik ölçümde
 yaml-cpp'nin kendi serileştiricisinden \%3--21 daha hızlıdır (Wilcoxon
 işaretli sıralar testi, $p < 10^{-10}$); tek bir alanı değiştirmenin
@@ -215,11 +217,11 @@ maliyeti ise ihmal edilebilir düzeydedir. Buna karşın sağlanan koruma
 yapısaldır, tam anlamıyla metinsel değildir: yorumlar ve boş satırlar
 korunmadığı için dosyaların yalnızca \%4,0'ü (26/647) değişiklik yapılmadan
 kaydedildiğinde bayt düzeyinde aynı kalır. Ham yaml-cpp ile yapılan
-karşılaştırma ikinci bir katkıyı ortaya koyar: aynı düzenlemeleri ilgili alt
-ağacı yeniden inşa ederek yapan, makul görünen ham yaml-cpp kodu ölçülebilen
-hiçbir vakada kardeş alanları koruyamamıştır (0/149, 0/39, 0/116), aynı
-düzenlemeler ComposeMorph'un tip-farkında API'si üzerinden yapıldığında ise
-tüm vakalarda korunmuştur.
+karşılaştırma, korumanın API tasarımıyla ilişkisini gösterir: aynı
+düzenlemeleri ilgili alt ağacı yeniden inşa ederek yapan ham yaml-cpp kodu,
+tasarımı gereği düzenlenen servisin kardeş alanlarını kaybetmiştir (0/149,
+0/39, 0/116); aynı düzenlemeler ComposeMorph'un tip-farkında API'si
+üzerinden yapıldığında tüm vakalarda korunmuştur.
 
 Bu bildirinin katkıları şunlardır:
 \begin{enumerate}
@@ -241,7 +243,7 @@ Bu bildirinin katkıları şunlardır:
     Aynı değerlendirme, kısa sözdizimli \texttt{environment}, \texttt{labels}
     ve \texttt{extra\_hosts} listelerinin düzenleme sırasında eşleme
     (mapping) yapısına dönüştürülmesi biçimindeki ikinci bir hatayı da
-    ortaya çıkarmış ve gidermiştir.
+    ortaya çıkarmış ve gidermiştir (Bölüm~\ref{sec:bulgular}).
   \item İki veri kümesi (38 kontrollü ve 647 gerçek dünya Compose dosyası),
     yedi deney ve tüm sonuçları tek komutla yeniden üreten betiklerden
     oluşan, açık ve tekrarlanabilir bir değerlendirme paketi.
@@ -306,7 +308,7 @@ Buna karşılık yaml-cpp~\cite{yamlcpp} gibi kütüphaneler belgeyi değiştiri
 bir \emph{düğüm ağacına} ayrıştırır: yapı, anahtar sırası ve değerler
 korunur, ancak sunum bilgisinin bir kısmı ayrıştırmada kaybolur ve dosya
 kaydedilirken tüm belge yeniden üretilir. Bu, hedeflenen alanın dışındaki
-satırların da değişmesine (configuration churn) ve --- Bölüm~\ref{sec:giris}'te
+satırların da değişmesine (configuration churn) ve --- giriş bölümünde
 gösterildiği gibi --- değerlerin tipinin sessizce değişmesine yol açabilir.
 
 \subsection{İleriye dönük uyumluluk}
@@ -337,8 +339,11 @@ eksik bir kolaylık API'si değil mimari bir sınırdır~\cite{libyaml_issue42}.
 rapidyaml~\cite{rapidyaml} kaynağı kopyalamayan görünüm tabanlı bir tasarıma
 sahiptir ve yorum koruma iddiası taşımaz; serileştiricisinde skaler tip
 sadakatini bozan bir hata 2020'de bildirilmiş ve düzeltilmiştir~\cite{rapidyaml_issue30}.
-Bu kayıt, bu bildiride ölçtüğümüz hata sınıfının C++ serileştiricilerinde
-daha önce de görüldüğünü göstermesi bakımından anlamlıdır.
+O hatada serileştirici fazla tırnaklama yapmış, \texttt{-1} tam sayısını
+\texttt{'-1'} string'i olarak yazmıştır; bu bildiride ölçtüğümüz tırnak
+kaybının tersi yöndedir. İki durum birlikte, serileştiricinin tırnak
+kararlarının C++ YAML kütüphanelerinde tekrarlayan bir tip hatası kaynağı
+olduğunu göstermektedir.
 fkYAML~\cite{fkyaml} başlık-tabanlı ve hızlıdır, ancak belgelerinde
 round-trip koruma iddiası yoktur.
 
@@ -442,14 +447,15 @@ güncellenmesi gerekmez; alan genel API ile okunup yazılabilir, hiç
 dokunulmasa bile dosyada aynen kalır.
 
 \subsection{Kısa ve uzun sözdizimi}
-\texttt{Environment}, \texttt{ExtraHosts} ve \texttt{Volumes} gibi sınıflar,
-altlarındaki düğümün liste mi yoksa eşleme mi olduğunu çalışma zamanında
-tespit eder ve dosyanın mevcut biçimini korur. Örneğin
+\texttt{Environment} (\texttt{labels} dahil) ve \texttt{ExtraHosts}
+sınıfları, altlarındaki düğümün liste mi yoksa eşleme mi olduğunu çalışma
+zamanında tespit eder ve dosyanın mevcut biçimini korur. Örneğin
 \texttt{environment} kısa sözdiziminde (\texttt{- KEY=value} girdileri)
 yazılmışsa, \texttt{environment().set()} çağrısı ilgili girdiyi yerinde
 günceller ya da listenin sonuna yeni bir girdi ekler; bölümü eşlemeye
-dönüştürmez. \texttt{Ports} ve \texttt{Networks} yardımcılarında bu
-dönüşüm henüz eksiktir (Bölüm~\ref{sec:kisitlamalar}).
+dönüştürmez. \texttt{Ports}, \texttt{Volumes} ve \texttt{Networks}
+yardımcıları ise yalnızca kısa sözdizimli liste girdilerini destekler;
+uzun sözdizimi desteği henüz yoktur (Bölüm~\ref{sec:kisitlamalar}).
 
 \subsection{Hata yönetimi ve güvenli kaydetme}
 Bulunamayan servis, ayrıştırılamayan dosya ve şema ihlali gibi durumlar
@@ -469,13 +475,13 @@ ayrıştırır. Bu bir CST değildir: kaynak metnin karakter aralıkları
 saklanmaz. Ağaçta korunan bilgi şunlardır: belge yapısı, eşlemelerde
 anahtar sırası, koleksiyonların akış/blok stili, skaler değerlerin metni,
 anchor ile paylaşılan düğümlerin kimliği ve --- bu çalışma için kritik
-olan --- skalerin kaynakta tırnaklı yazılıp yazılmadığını gösteren
-\emph{belirtisiz etiket}: tırnaklı skalerler \texttt{!}, tırnaksız
-(plain) skalerler \texttt{?} etiketi taşır. Ayrıştırmada kaybolan bilgi
-ise yorumlar, boş satırlar, girinti genişliği, tek/çift tırnak ayrımı ve
-anchor adlarıdır.
+olan --- skalerin kaynakta tırnaksız yazılıp yazılmadığını gösteren
+\emph{belirtisiz etiket}: tırnaksız (plain) skalerler \texttt{?},
+tırnaklı ve blok (\texttt{|}, \texttt{>}) skalerler ise \texttt{!} etiketi
+taşır. Ayrıştırmada kaybolan bilgi ise yorumlar, boş satırlar, girinti
+genişliği, tek/çift tırnak ayrımı, blok skaler stili ve anchor adlarıdır.
 
-\subsection{Değişiklik izleme: yok}
+\subsection{Değişiklik izleme ve çakışmalar}
 Kütüphane bir değişiklik günlüğü tutmaz. Her düzenleme, ilgili düğüme
 doğrudan yazar; dolayısıyla birleştirilecek iki sürüm ve çözülecek bir
 çakışma durumu oluşmaz. Modellenmemiş alanlar hiçbir aşamada okunmaz,
@@ -486,11 +492,12 @@ ek bir mekanizmanın değil bu tasarım kararının sonucudur.
 \subsection{Serileştirme}
 yaml-cpp'nin varsayılan serileştiricisi bir skaleri tırnaksız yazmanın
 güvenli olup olmadığına yalnızca metnine bakarak karar verir: 0.8.0
-sürümünde \texttt{IsValidPlainScalar} işlevi değeri null benzeri dizgilere
-(\texttt{null}, \texttt{\textasciitilde}, boş dizgi) ve sözdizimsel olarak
-sakıncalı karakterlere karşı sınar, fakat boolean veya sayı gibi
-görünmesini dikkate almaz. Ayrıca ayrıştırmada üretilen \texttt{!} etiketi
-serileştirmede yok sayılır. Sonuç, Bölüm~\ref{sec:giris}'teki davranıştır:
+sürümünde \texttt{IsValidPlainScalar} işlevi değeri null benzeri
+değerlere (\texttt{null}, \texttt{\textasciitilde}, boş string) ve
+sözdizimsel olarak sakıncalı karakterlere karşı sınar, fakat boolean veya
+sayı gibi görünmesini dikkate almaz. Ayrıca ayrıştırmada üretilen
+\texttt{!} etiketi serileştirmede yok sayılır. Sonuç, giriş bölümünde
+örneklenen davranıştır:
 \texttt{version: "3.8"} tırnaksız yazılır ve yeniden okunduğunda artık
 string değil kayan noktalı sayıdır.
 
@@ -510,7 +517,8 @@ aynı anahtar sırası); tek farkı skaler yazma kararıdır:
     ulaşımlarda alias yazılır. Eşlemeler ve diziler için düğümün stili
     (akış/blok) uygulanır.
   \item \textbf{Skaler yazma kuralı.} Düğüm \texttt{!} etiketi taşıyorsa
-    (yani kaynakta tırnaklıydıysa) değer çift tırnakla yazılır; aksi
+    (yani kaynakta tırnaklı ya da blok skaler olarak yazıldıysa) değer çift
+    tırnakla yazılır; aksi
     hâlde yazma kararı yaml-cpp'nin varsayılan davranışına bırakılır.
     Böylece kaynakta tırnaksız yazılmış sayılar ve boolean'lar tırnaksız
     kalır, tırnaklı yazılmış string'ler string olarak kalır.
@@ -539,9 +547,14 @@ Yorumlar ve boş satırlar ayrıştırmada kaybolduğu için çıktıda bulunmaz
 Anchor/alias yapıları korunur --- somut değerlere genişletilmez --- ancak
 anchor adları ayrıştırıcı tarafından saklanmadığından çıktıda otomatik
 üretilmiş sayısal adlarla (\texttt{\&1}, \texttt{*1}) yeniden yazılır.
-Tek tırnaklı skalerler çift tırnakla yazılır. Bu davranışların hepsi
-Bölüm~\ref{sec:bulgular} ve Bölüm~\ref{sec:kisitlamalar}'da ölçülmüş
-biçimde raporlanmaktadır.
+Tek tırnaklı skalerler çift tırnakla yazılır. Blok skalerlerin
+(\texttt{|}, \texttt{>}) içeriği korunur, ancak stil bilgisi
+saklanmadığından değer kaçış dizileri içeren tek satırlık çift tırnaklı bir
+string olarak yazılır (örneğin \texttt{"echo one\textbackslash necho two\textbackslash n"});
+Veri Kümesi B'deki 647 dosyanın 55'inde (\%8,5) en az bir blok skaler
+bulunmaktadır. Bu davranışlar ölçümleriyle birlikte bulgular
+(Bölüm~\ref{sec:bulgular}) ve kısıtlamalar (Bölüm~\ref{sec:kisitlamalar})
+bölümlerinde raporlanmaktadır.
 
 \section{Gerçekleştirim}
 \label{sec:gerceklestirim}
@@ -556,8 +569,8 @@ yazılmış gerileme (regression) testleridir.
 
 Kütüphanenin kendisi yaklaşık 2.100 satırdır (1.495 satır kaynak, 606
 satır başlık). Değerlendirme altyapısı ayrıca beş adet C++ ölçüm aracı
-(toplam 557 satır) ve sekiz Python betiği (toplam yaklaşık 3.970 satır)
-içerir. Depo, görev tanımındaki yapıyı izler: \texttt{src/} ve
+(toplam 557 satır) ve on bir Python betiği (toplam yaklaşık 3.970 satır)
+içerir. Depoda \texttt{src/} ve
 \texttt{include/} kütüphaneyi, \texttt{benchmarks/} ölçüm araçlarını,
 \texttt{datasets/} iki veri kümesini, \texttt{scripts/} deney
 sürücülerini, \texttt{results/} ham çıktıları, tabloları ve figürleri,
@@ -598,14 +611,25 @@ boş değerler, \texttt{external} kaynaklar, \texttt{extends},
 2 dosya ise koruma deneylerinin işaretçi kalıplarını taşır.
 
 \textbf{Veri Kümesi B (gerçek dünya)}, açık kaynak GitHub projelerinden
-otomatik olarak toplanmış 647 Compose dosyasından oluşur. Toplama ve
-analiz betikleri depoda yayımlanmıştır. Korpus, literatürdeki gözlemlerle
-uyumlu biçimde küçük dosyalara eğilimlidir: satır sayısı medyanı 39
-(en büyük dosya 2.591 satır), servis sayısı medyanı 2 (en fazla 56), üst
-seviye bölüm sayısı medyanı 2, YAML iç içelik derinliği medyanı 4 ve
-uzantı alanı sayısı medyanı 0'dır. Son değer, uzantı ve bilinmeyen alan
-deneylerinde neden kontrollü işaretçi enjeksiyonuna başvurduğumuzu
-açıklar: bu alanlar gerçek dosyalarda doğal olarak nadirdir.
+iki adımda otomatik olarak toplanmış 647 Compose dosyasından oluşur.
+İlk adımda GitHub kod arama API'sinin
+\texttt{filename:docker-compose.yml} sorgusundan 597, depo aramasının
+\texttt{topic:docker-compose} sorgusundan 3 dosya alınmıştır; adaylar depo
+ve dosya yolu düzeyinde tekilleştirilmiş, yalnızca geçerli YAML olarak
+ayrıştırılan ve bir \texttt{services} eşlemesi içeren dosyalar
+tutulmuştur. Bu dosyaların satır sayısı medyanı 36, en büyüğü ise 405
+satırdır; büyük dosya grupları hiç temsil edilmemektedir. Bu nedenle
+ikinci adımda, çok servisli yığınlar barındırma olasılığı yüksek depolarda
+(homelab, self-hosted, izleme yığınları) tüm dosya ağacı taranarak 500
+satırın üzerindeki 47 Compose dosyası ayrıca eklenmiştir. Dolayısıyla
+korpus büyük dosyalar yönünden bilinçli olarak zenginleştirilmiştir.
+Toplama ve analiz betikleri depoda yayımlanmıştır. Birleşik korpus yine de
+literatürdeki gözlemlerle uyumlu biçimde küçük dosyalara eğilimlidir:
+satır sayısı medyanı 39 (en büyük dosya 2.591 satır), servis sayısı
+medyanı 2 (en fazla 56), üst seviye bölüm sayısı medyanı 2, YAML iç içelik
+derinliği medyanı 4 ve uzantı alanı sayısı medyanı 0'dır. Son değer, uzantı
+ve bilinmeyen alan deneylerinde neden kontrollü işaretçi enjeksiyonuna
+başvurduğumuzu açıklar: bu alanlar gerçek dosyalarda doğal olarak nadirdir.
 
 \subsection{Deneyler}
 Yedi deney yürütülmüştür: (1) kimlik round-trip (değişiklik yapmadan
@@ -616,6 +640,13 @@ ile karşılaştırma, (7) performans. Her deney her iki veri kümesi üzerinde
 de koşulmuştur. Deney 6'da üç araç karşılaştırılır: ComposeMorph; düğümü
 yerinde değiştiren \emph{dikkatli} ham yaml-cpp kodu; ve aynı düzenlemeyi
 ilgili alt ağacı yeniden inşa ederek yapan \emph{naif} ham yaml-cpp kodu.
+Deney 2'de kütüphane \texttt{ports}, \texttt{extra\_hosts} ve
+\texttt{networks} için yerinde değiştirme değil yalnızca ekleme ve çıkarma
+işlemi sunduğundan, bu üç özellikteki hedefli değişiklik listeye tek bir
+girdi eklemektir. \texttt{volume-source} düzenlemesinde en az bir kısa
+sözdizimli volume girdisi bulunan servisler uygun kabul edilmiş, volume
+girdilerinin tamamı uzun sözdizimli olan servisler deneyden dışlanmıştır
+(Bölüm~\ref{sec:kisitlamalar}).
 Dikkatli araç yaml-cpp'nin varsayılan serileştiricisini kullandığından,
 Deney 5 ve tırnak analizinde aynı zamanda ``düzeltme öncesi'' sütununu
 sağlar; bu eşdeğerlik ölçülmüştür (Bölüm~\ref{sec:bulgular}).
@@ -653,7 +684,8 @@ Bu bölümdeki tüm sayılar \texttt{results/tables/} altındaki üretilmiş
 özetlerden alınmıştır. ``Temel çizgi'' sütunları, aynı düzenlemeleri
 yaml-cpp'nin varsayılan serileştiricisiyle yapan dikkatli ham yaml-cpp
 aracına aittir; bu araç düzeltme öncesi ComposeMorph ile aynı çıktıyı
-üretmektedir (100/100 dosyada bayt düzeyinde özdeş).
+üretmektedir (100/100 dosyada bayt düzeyinde özdeş;
+\texttt{results/pre-fix/tables/}).
 
 \subsection{RQ1 --- Doğruluk}
 Veri Kümesi B'deki 647 dosyanın tamamı ayrıştırılmış (647/647), kaydedilmiş
@@ -691,8 +723,9 @@ Docker'ın YAML ayrıştırıcısı için sözdizimsel olarak dahi geçerli
 değildir: kaynakta \texttt{":80"} biçiminde tırnaklanmış bir değer, akış
 dizisi içinde tırnaksız yazıldığında PyYAML ve go-yaml tarafından
 okunamamaktadır. ComposeMorph'un tırnak koruyan serileştiricisiyle bu
-vakaların tamamı ortadan kalkmıştır. Veri Kümesi A'da da sonuç aynıdır
-(64/64'e karşı 62/64).
+vakaların tamamı ortadan kalkmıştır. Veri Kümesi A'da da ComposeMorph
+çıktılarının tamamı geçerlidir (64/64); temel çizgide yalnızca tırnaklı
+skaler biçimlerini sınayan dosyanın iki çıktısı reddedilmektedir (62/64).
 
 \subsection{RQ2 --- Koruma}
 Koruma üç ayrı düzeyde ölçülmüştür.
@@ -719,38 +752,75 @@ oranı 33/100'den 100/100'e çıkmaktadır.
 \emph{Metinsel koruma.} Buna karşılık çıktı bayt düzeyinde girdinin aynısı
 değildir: değişiklik yapılmadan kaydedilen dosyaların yalnızca \%4,0'ü
 (26/647) özdeştir; değişen satır oranının medyanı 0,167'dir (düzeltme
-öncesi \%0,77 ve 0,250). Kalan farklar yorumların ve boş satırların
-kaybından, girinti normalizasyonundan ve tek tırnağın çift tırnağa
-dönüşmesinden kaynaklanır. Anchor/alias ve birleştirme anahtarı yapıları
+öncesi \%0,77 ve 0,250). Satır düzeyinde Levenshtein uzaklığının medyanı
+7, normalize edilmiş düzenleme uzaklığının medyanı 0,167'dir. Kalan farklar
+yorumların ve boş satırların kaybından, girinti normalizasyonundan, tek
+tırnağın çift tırnağa ve blok skalerlerin tek satırlık çift tırnaklı
+string'e dönüşmesinden kaynaklanır. Anchor/alias ve birleştirme anahtarı yapıları
 somut değerlere genişletilmeden korunur, ancak anchor adları sayısal
 adlarla yeniden yazılır.
 
 \subsection{RQ3 --- Değişiklik Yerelliği}
-On ayrı özellik üzerinde 1.467 düzenleme senaryosu koşulmuştur. Ham
-yerellik oranının medyanı özelliğe göre 0,03--0,13 arasındadır; bu düşük
-değerler düzenlemenin kendisinden değil, kaydetmede yorum ve boş satır
-kaybından doğan taban gürültüden kaynaklanır. Aynı dosyanın değişiklik
-yapılmadan kaydedilmesindeki gürültü düşüldüğünde, on özelliğin dokuzunda
-düzeltilmiş yerellik oranının medyanı 1,0'dır: düzenleme gerçekten de tek
-satırla sınırlı kalmaktadır. Tek istisna \texttt{extra\_hosts}'a girdi
-eklemedir (medyan 0,5). Şekil~\ref{fig:locality} dağılımı göstermektedir.
+On ayrı özellik üzerinde 1.467 düzenleme senaryosu koşulmuştur
+(Tablo~\ref{tab:locality}). Tek alanlık bir düzenleme, ham diff'te
+özelliğe göre medyan 8 ile 36 satırın değişmesine yol açmaktadır; ham
+yerellik oranının medyanı bu nedenle 0,03--0,13 arasındadır. Bu satırların
+neredeyse tamamı düzenlemenin kendisinden değil, kaydetmede yorum ve boş
+satır kaybından ve girinti normalizasyonundan doğan taban gürültüden
+kaynaklanır. Aynı dosyanın değişiklik yapılmadan kaydedilmesindeki gürültü
+düşüldüğünde, on özelliğin tamamında düzeltilmiş yerellik oranının medyanı
+1,0'dır: düzenlemenin kendi katkısı tek satırla sınırlıdır. Buna karşın kod
+incelemesinde görülen ham diff taban gürültüyü de içerdiğinden tek
+satırlık değildir (Bölüm~\ref{sec:tartisma}).
+
+\begin{table}[t]
+\caption{Özelliğe göre değişiklik yerelliği (Veri Kümesi B)}
+\label{tab:locality}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrr}
+\toprule
+Özellik & N & Başarılı & Değişen satır & Ham oran & Düzelt.\ oran \\
+\midrule
+\texttt{image} & 200 & 200 & 9 & 0,11 & 1,0 \\
+\texttt{hostname} & 39 & 39 & 23 & 0,04 & 1,0 \\
+\texttt{restart} & 200 & 200 & 10 & 0,10 & 1,0 \\
+\texttt{env} & 200 & 200 & 9 & 0,11 & 1,0 \\
+\texttt{port} & 200 & 199 & 8 & 0,13 & 1,0 \\
+\texttt{volume-source} & 200 & 200 & 9 & 0,11 & 1,0 \\
+\texttt{extra-host} & 34 & 34 & 36 & 0,03 & 1,0 \\
+\texttt{network} & 200 & 169 & 13 & 0,08 & 1,0 \\
+\texttt{healthcheck-retries} & 185 & 185 & 13 & 0,08 & 1,0 \\
+\texttt{deploy-cpus} & 9 & 9 & 20 & 0,05 & 1,0 \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+\parbox{\columnwidth}{\footnotesize Değişen satır ve oranlar medyandır.
+Düzeltilmiş oran, dosyanın değişiklik yapılmadan kaydedilmesindeki
+değişen satırlar düşüldükten sonra hesaplanır; 1,0 değeri düzenlemenin
+yalnızca hedeflenen satırı eklediği ya da değiştirdiği anlamına gelir.}
+\end{table}
+
+Aynı ölçüm, kısa sözdizimi hatasının etkisini de ortaya koyar. Düzeltme
+öncesinde, liste biçimli \texttt{environment} bölümüne sahip 94 servisin
+83'ünde düzenleme, gürültü düşüldükten sonra da birden fazla satırı
+değiştirmekteydi (medyan 3 satır), çünkü tek bir değişkenin güncellenmesi
+listenin tamamını eşlemeye dönüştürüyordu; \texttt{extra\_hosts}'a girdi
+eklemede bu sayı 9/34'tü. Düzeltmeden sonra her iki özellikte de böyle bir
+vaka kalmamıştır (0/94 ve 0/34). Kısa sözdizimi hatasından etkilenmeyen
+\texttt{image} düzenlemesinde bu sayı önce de sonra da sıfırdır.\footnote{Özet:
+\texttt{results/tables/paper\_supplementary\_stats.md}; düzeltme öncesi ham
+çıktı: \texttt{results/pre-fix/raw/modification\_dataset\_b.csv}.}
 
 Deneyde 32 başarısızlık gözlenmiştir ve bunların tamamı kütüphanenin
 bilinen bir sınırından kaynaklanır: \texttt{Networks::add} hedef düğümün
 dizi olup olmadığını denetlemeden ekleme yapar, bu yüzden uzun sözdizimli
 (eşleme) \texttt{networks} tanımlarında hata verir (31 vaka); benzer
 biçimde \texttt{Ports::has} liste elemanlarının string olduğunu varsayar
-(1 vaka). Bu sınırlar Bölüm~\ref{sec:kisitlamalar}'da açıkça
-raporlanmaktadır.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{modification_change_locality}
-\caption{Özelliğe göre düzeltilmiş değişiklik yerelliği oranı
-(Veri Kümesi B). 1,0 değeri, düzenlemenin yalnızca hedeflenen satırı
-etkilediği anlamına gelir.}
-\label{fig:locality}
-\end{figure}
+(1 vaka). Bu sınırlar Kısıtlamalar bölümünde
+(Bölüm~\ref{sec:kisitlamalar}) ayrıca ele alınmaktadır.
 
 \subsection{RQ4 --- İleriye Dönük Uyumluluk}
 Kütüphanenin nesne modelinde bulunmayan alanlar, hem \texttt{x-} önekli
@@ -768,14 +838,16 @@ eksiksiz desteklemektedir.
 
 \subsection{RQ5 --- Performans}
 Tablo~\ref{tab:perf}, dosya boyutuna göre yükle--değiştir--kaydet
-sürelerinin medyanlarını vermektedir. Değiştirme adımının maliyeti diğer
+sürelerinin medyanlarını vermektedir. Ölçümler, her boyut grubunda
+alfabetik sıradaki ilk 20 dosyadan \texttt{image} düzenlemesine uygun bir
+servis içerenler üzerinde yapılmıştır. Değiştirme adımının maliyeti diğer
 iki adımın yanında ihmal edilebilir düzeydedir; toplam süre en büyük
 dosyalarda bile onlarca milisaniye mertebesindedir. Tepe bellek kullanımı
 4,7 MiB ile 8,2 MiB arasındadır.
 
 \begin{table}[t]
-\caption{Yükle--değiştir--kaydet süreleri, medyan (Veri Kümesi B, dosya
-başına 30 yineleme)}
+\caption{Yükle--değiştir--kaydet süreleri, medyan, ms (Veri Kümesi B'den
+59 dosya: 17/20/20/2; dosya başına 30 yineleme)}
 \label{tab:perf}
 \centering
 \begin{tabular}{lrrrr}
@@ -788,8 +860,6 @@ Büyük (500--2000) & 4,58 & 0,038 & 3,57 & 8,28 \\
 Çok büyük ($>$2000) & 15,83 & 0,139 & 10,85 & 27,17 \\
 \bottomrule
 \end{tabular}
-\smallskip
-\footnotesize Süreler milisaniyedir.
 \end{table}
 
 Tırnak koruyan serileştiricinin bir maliyeti olup olmadığını ölçmek için
@@ -798,11 +868,14 @@ değiştirilerek karşılaştırılmıştır. ComposeMorph'un serileştiricisi t
 boyut gruplarında yaml-cpp'nin kendi serileştiricisinden hızlıdır: medyan
 oran küçük dosyalarda 0,97, orta ve büyük dosyalarda 0,94, çok büyük
 dosyalarda 0,79'dur ve fark her grupta istatistiksel olarak anlamlıdır
-(Wilcoxon işaretli sıralar testi, $p < 10^{-10}$). Tek ek maliyet, API
-üzerinden yazılan değerlerin belirsizlik sınamasında kullanılan düzenli
-ifadenin süreç başına bir kez derlenmesidir (yaklaşık 1,7~ms); bu maliyet
-ölçümlerde ilk yinelemeye düşer ve ortalama ile p95 değerlerini yukarı
-çeker.
+(Wilcoxon işaretli sıralar testi, $p < 10^{-10}$). Her dosyanın ilk
+yinelemesi soğuk başlangıç maliyetini içerir: sayfa hataları, dosya sistemi
+önbelleği ve API üzerinden yazılan değerlerin belirsizlik sınamasında
+kullanılan düzenli ifadenin süreç başına bir kez derlenmesi. İlk yinelemede
+değiştirme adımının medyanı 1,26~ms'dir (59 dosyada en fazla 2,08~ms).
+Bu yinelemeler istatistiklerden çıkarılmamıştır; bu nedenle ortalama ve
+p95 değerleri yukarı çekilmiştir ve tipik maliyeti medyan daha iyi temsil
+eder.
 
 \subsection{Ham yaml-cpp ile karşılaştırma}
 Deney 6, ComposeMorph'u iki ham yaml-cpp kullanımıyla karşılaştırır.
@@ -817,23 +890,37 @@ için 0/39, \texttt{env} için 0/116), ComposeMorph ise tümünü korumuştur
 naif kullanım servis düzeyindeki 200 işaretçinin tamamını kaybederken üst
 seviyedekilerin tamamını korur; hasar, üzerine yazılan alt ağaçla sınırlıdır.
 
+Şekil~\ref{fig:comparison}, dikkatli ham kullanımın da kardeş alanları
+her vakada korumadığını göstermektedir (130/149, 23/39, 100/116). Bu fark
+yapısal bir kayıp değildir. Korunma, kardeş değerlerin düzenleme öncesi ve
+sonrasında PyYAML ile karşılaştırılmasıyla ölçülür; dikkatli araç
+yaml-cpp'nin varsayılan serileştiricisini kullandığından tırnaklı kardeş
+değerler (ör. \texttt{"8022:22"}) tip değiştirir. Bu 51 vakanın 48'inde
+kardeş alanların tümü çıktıda yerindedir ve yalnızca skaler gösterimleri
+değişmiştir; kalan 3 vakada çıktı, RQ1 altında açıklanan \texttt{":80"}
+sorunu nedeniyle ayrıştırılamaz hâle gelmiştir.
+
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{comparison_yamlcpp}
+\includegraphics[width=0.85\textwidth]{comparison_yamlcpp_tr}
 \caption{ComposeMorph ile iki ham yaml-cpp kullanımının karşılaştırması
 (Veri Kümesi B). Solda düzenleme başına değişen satır sayısının medyanı,
 sağda düzenlenen servisin \emph{diğer} alanlarının korunma oranı. Alt
 ağacı yeniden inşa eden naif kullanım hiçbir vakada kardeş alanları
-koruyamamaktadır.}
+koruyamamaktadır (\%0, çubuk görünmez). Dikkatli kullanımdaki eksik,
+tırnak kaybı sonucu tip değişiminden kaynaklanır; kardeş alanlar
+yapısal olarak yerindedir.}
 \label{fig:comparison}
 \end{figure*}
 
 Ergonomi açısından, ComposeMorph'ta on düzenlemenin her biri tek satırdır;
 aynı düzenlemeleri ham yaml-cpp ile doğru yapmak 1 ile 24 satır arasında
 kod gerektirir (\texttt{volume-source} için 24, \texttt{extra-host} için
-22, \texttt{env} için 18 satır). Buna karşılık naif ve hatalı sürüm
-\texttt{image} için 5, \texttt{hostname} için 3 satırdır: yanlış kod,
-doğru koddan daha fazla emek gerektirmemektedir.
+22, \texttt{env} için 18 satır). Satır sayısı hatalı kodu ayırt etmez:
+\texttt{env} düzenlemesinde bölümün tamamını yeniden kuran naif sürüm
+(6 satır), doğru sürümün üçte biri uzunluğundadır. \texttt{image} ve
+\texttt{hostname} için ise doğru sürüm tek satırdır ve naif sürüm (5 ve 3
+satır) daha uzundur.
 
 \section{Tartışma}
 \label{sec:tartisma}
@@ -865,7 +952,8 @@ değiştirme. Bu senaryolarda düzenleme, taban gürültü çıkarıldığında
 gerçekten tek satırda kalmakta, bilinmeyen ve \texttt{x-*} alanlar
 korunmakta ve çıktı Docker tarafından kabul edilmektedir. Buna karşılık
 dosyanın insan tarafından okunan biçimini --- yorumlarını, boş satırlarını,
-girintisini --- olduğu gibi korumak gerekiyorsa, bu kütüphane uygun araç
+girintisini, blok skalerlerini --- olduğu gibi korumak gerekiyorsa, bu
+kütüphane uygun araç
 değildir; bunun için CST tabanlı çözümler (Python'da ruamel.yaml,
 JavaScript'te eemeli/yaml) gerekir. Kod incelemesinde yalnızca
 değiştirilen satırın görünmesi isteniyorsa, mevcut durumda ortaya çıkan
@@ -882,16 +970,20 @@ yeniden yazılmasıdır; bu da onlarca milisaniyeyi aşmaz.
 
 \subsection{Compose'a özgü API neden fark yaratıyor?}
 Deney 6, farkın nerede olduğunu net biçimde ayırır. Doğru yazılmış ham
-yaml-cpp kodu, ComposeMorph ile aynı koruma davranışını üretebilir; yani
-koruma, sihirli bir algoritmanın değil, doğru düzenleme tekniğinin
-sonucudur. Ancak bu tekniği her çağrı yerinde doğru uygulamak
-programcının sorumluluğundadır ve yanlış uygulamak daha fazla emek
-gerektirmez: alt ağacı yeniden inşa eden sürüm hem daha kısadır hem de
-derlenir; kaybı yalnızca çalışma zamanında, üstelik sessizce görülür.
+yaml-cpp kodu, ComposeMorph ile aynı yapısal koruma davranışını üretebilir;
+aradaki tek fark serileştiricinin tırnak kararıdır. Yani koruma, sihirli
+bir algoritmanın değil, doğru düzenleme tekniğinin sonucudur. Ancak bu
+tekniği her çağrı yerinde doğru uygulamak programcının sorumluluğundadır
+ve yanlış uygulamak her zaman daha fazla emek gerektirmez: \texttt{env}
+örneğinde alt ağacı yeniden inşa eden sürüm doğru sürümün üçte biri
+uzunluğundadır ve sorunsuz derlenir; kayıp yalnızca çalışma zamanında,
+üstelik sessizce görülür.
 Tipli API'nin katkısı, doğru olanı varsayılan yol hâline getirmesidir.
 Aynı gözlem kısa sözdizimi hatasında da doğrulanmıştır: liste biçimli
-\texttt{environment} bölümünü eşlemeye çeviren davranış, ham kullanımda
-da kütüphanenin ilk sürümünde de aynı biçimde ortaya çıkmıştır.
+\texttt{environment} bölümünü eşlemeye çeviren davranış, naif ham
+kullanımda da kütüphanenin ilk sürümünde de ortaya çıkmıştır. Dikkatli ham
+sürümün \texttt{env} için 18 satır tutmasının nedeni de liste biçimini
+ayrıca ele almasıdır.
 
 \section{Geçerlilik Tehditleri}
 \label{sec:gecerlilik}
@@ -916,9 +1008,11 @@ oluşur ve tüm gerçek kullanım biçimlerini temsil etmeyebilir; özel
 depolardaki, kurum içi üretim ortamlarındaki dosyalar farklı özellikler
 taşıyabilir. Korpusun küçük dosyalara eğilimli olması, aynı ekosistem
 üzerine yapılan daha geniş ölçekli ampirik çalışmalarla
-uyumludur~\cite{ibrahim2021dockercompose,eng2023patterns}; yine de 2.000
-satırın üzerinde yalnızca iki dosya bulunduğundan, en büyük boyut grubuna
-ait performans sayıları küçük bir örnekleme dayanmaktadır. Veri Kümesi A
+uyumludur~\cite{ibrahim2021dockercompose,eng2023patterns}. Ancak büyük
+dosyalar ayrı bir toplama adımıyla eklendiğinden, korpusun boyut dağılımı
+GitHub'daki doğal dağılımı birebir yansıtmaz. Buna rağmen 2.000 satırın
+üzerinde yalnızca iki dosya bulunduğundan, en büyük boyut grubuna ait
+performans sayıları küçük bir örnekleme dayanmaktadır. Veri Kümesi A
 bu boşluğu kapatmaz; amacı özellik kapsamını denetlemektir.
 
 \subsection{Yapı Geçerliliği}
@@ -938,8 +1032,8 @@ Sonuçlar belirli sürümlere bağlıdır: yaml-cpp 0.8.0, Docker Compose
 2.26.1, GCC 14.2.0 ve ölçüm tarihindeki Compose Specification. Hem
 spesifikasyon hem de \texttt{docker compose} uygulaması zamanla
 değişmektedir; örneğin şemanın \texttt{version} alanına ilişkin
-katılığı değişirse, Bölüm~\ref{sec:bulgular}'daki temel çizgi oranları da
-değişir. Aynı biçimde, yaml-cpp ileride tırnak bilgisini serileştirmede
+katılığı değişirse, bulgulardaki (Bölüm~\ref{sec:bulgular}) temel çizgi
+oranları da değişir. Aynı biçimde, yaml-cpp ileride tırnak bilgisini serileştirmede
 kullanmaya başlarsa temel çizgi ile ComposeMorph arasındaki fark
 kapanacaktır. Tüm deneyler tek komutla yeniden koşulabildiği için bu
 sayılar yeni sürümlerde güncellenebilir.
@@ -958,6 +1052,12 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
     girinti tercihleri korunmaz, tek tırnak çift tırnağa dönüşür;
     dosyaların yalnızca \%4,0'ü değişiklik yapılmadan kaydedildiğinde
     özdeş kalır. Değerlerin YAML tipleri ise korunur.
+  \item \textbf{Blok skaler stili kaybolur.} \texttt{|} ve \texttt{>}
+    ile yazılmış çok satırlı değerlerin içeriği korunur, ancak kaçış
+    dizileri içeren tek satırlık çift tırnaklı string olarak yazılır. Bu,
+    çok satırlı \texttt{command} veya sağlık kontrolü betiklerinin
+    okunabilirliğini düşürür; Veri Kümesi B'deki dosyaların \%8,5'i (55/647)
+    blok skaler içermektedir.
   \item \textbf{Anchor adları kaybolur.} Anchor/alias ve birleştirme
     anahtarı yapıları genişletilmeden korunur, fakat adlar ayrıştırıcıda
     saklanmadığı için çıktıda \texttt{\&1}, \texttt{*1} biçiminde yeniden
@@ -970,7 +1070,9 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
     \texttt{Networks::add} hata verir; uzun sözdizimli \texttt{ports} ve
     \texttt{volumes} girdilerinde \texttt{has}/\texttt{setSource} tip
     dönüşümü hatasına düşer. Deney 2'deki 32 başarısızlığın tamamı bu
-    sınırdan kaynaklanmaktadır.
+    sınırdan kaynaklanmaktadır; aynı nedenle, volume girdilerinin tamamı
+    uzun sözdizimli olan servisler \texttt{volume-source} deneyinin
+    kapsamı dışında bırakılmıştır.
   \item \textbf{\texttt{x-} öneksiz bilinmeyen alanlar şemaya aykırıdır.}
     Kütüphane bu alanları eksiksiz korur, ancak Compose şeması yalnızca
     \texttt{x-} önekli uzantılara izin verdiğinden dosya
@@ -996,7 +1098,8 @@ yedi deneyle ölçtük.
 
 Sonuçlar üç noktada toplanabilir. Birincisi, düzenlemeyi düğüm ağacında
 yerinde yapmak, modellenmemiş alanların korunması için yeterlidir:
-bilinmeyen özelliklerin ve \texttt{x-*} uzantılarının tamamı korunmuştur.
+dosyalara eklenen bilinmeyen özelliklerin ve \texttt{x-*} uzantılarının
+tamamı korunmuştur.
 İkincisi, düğüm ağacı tabanlı serileştirme sessiz bir tip değişimi
 kusuru barındırır; ayrıştırıcının sakladığı tırnak bilgisinin
 serileştirmede kullanılması bu kusuru ortadan kaldırmış ve Docker
