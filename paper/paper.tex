@@ -1,15 +1,29 @@
 \documentclass[conference]{IEEEtran}
 
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
+% pdfLaTeX (Overleaf varsayılanı) 8 bit T1 fontlarla, XeLaTeX/LuaLaTeX ise
+% OpenType fontlarla derlenir; aksi hâlde ı, ş, ğ gibi harfler kutucuk olur.
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+\else
+  \usepackage{fontspec}
+  \setmainfont{texgyretermes}[Extension=.otf, UprightFont=*-regular,
+    BoldFont=*-bold, ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+  \setmonofont{texgyrecursor}[Extension=.otf, UprightFont=*-regular,
+    BoldFont=*-bold, ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+\fi
 \usepackage[english,turkish,shorthands=off]{babel}
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{booktabs}
-\usepackage{url}
+\usepackage[hyphens]{url}
 \usepackage[hidelinks]{hyperref}
 
 \addto\captionsturkish{%
@@ -24,7 +38,6 @@
   \renewcommand{\IEEEkeywordsname}{Keywords}%
 }
 
-\graphicspath{{./figures/}{../results/figures/}{./results/figures/}{./}}
 
 \begin{document}
 
@@ -403,14 +416,31 @@ bunu amaçlamaz (Bölüm~\ref{sec:kisitlamalar}).
 \subsection{Nesne modeli}
 Kütüphanenin giriş noktası \texttt{ComposeFile} sınıfıdır: bir dosyayı
 yükler, servislere ve üst seviye koleksiyonlara erişim verir, dosyayı
-kaydeder. \texttt{ComposeFile::service(ad)} çağrısı bir \texttt{Service}
-nesnesi döndürür; \texttt{Service} de Compose kavramlarını doğrudan
-yansıtan alt nesneler sunar: \texttt{Environment} (ortam değişkenleri ve
-\texttt{labels}), \texttt{Ports}, \texttt{Volumes}, \texttt{Networks},
-\texttt{ExtraHosts}, \texttt{BuildConfig}, \texttt{HealthCheck},
-\texttt{DependsOn} ve \texttt{DeployConfig}. Üst seviyede ayrıca
-\texttt{NetworkCollection}, \texttt{VolumeCollection},
-\texttt{ConfigCollection} ve \texttt{SecretCollection} bulunur.
+kaydeder. \texttt{service(ad)} çağrısı bir \texttt{Service} nesnesi
+döndürür; \texttt{Service} de Compose kavramlarını doğrudan yansıtan alt
+nesneler sunar (\texttt{Environment} sınıfı \texttt{labels} için de
+kullanılır). Şekil~\ref{fig:model} sınıflar arasındaki ilişkiyi
+göstermektedir.
+
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.8\columnwidth}
+\footnotesize
+\begin{verbatim}
+ComposeFile
+ +-- Service  (service(ad))
+ |    +-- Environment, ExtraHosts
+ |    +-- Ports, Volumes, Networks
+ |    +-- BuildConfig, HealthCheck
+ |    +-- DependsOn, DeployConfig
+ +-- NetworkCollection, VolumeCollection
+ +-- ConfigCollection, SecretCollection
+\end{verbatim}
+\end{minipage}
+\caption{ComposeMorph nesne modeli. Her sınıf, YAML düğüm ağacındaki
+ilgili düğüme tutunan ince bir görünümdür.}
+\label{fig:model}
+\end{figure}
 
 Bu sınıfların hiçbiri veriyi kendi içinde kopyalamaz; her biri, altta yatan
 YAML düğüm ağacının ilgili düğümüne tutunan ince bir görünümdür. Bir
@@ -423,21 +453,24 @@ yeniden yazılmaz.
 Tipli API, spesifikasyonun sık kullanılan alanlarını adlandırılmış
 işlemlerle sunar; örneğin bir imaj etiketini güncellemek tek satırdır:
 
-\begin{quote}\ttfamily\footnotesize
-compose.service("api")\\
-\quad .setImage("company/api:2.0");
-\end{quote}
+{\footnotesize
+\begin{verbatim}
+compose.service("api")
+    .setImage("company/api:2.0");
+\end{verbatim}
+}
 
 Modellenmemiş her alan için aynı nesne, nokta-yollu genel bir özellik
 API'si sağlar:
 
-\begin{quote}\ttfamily\footnotesize
-api.set("x-company-security.hsm",\\
-\quad "enabled");\\
-auto v = api.get<std::string>(\\
-\quad "logging.options.max-file");\\
+{\footnotesize
+\begin{verbatim}
+api.set("x-company-security.hsm", "enabled");
+auto v = api.get<std::string>(
+    "logging.options.max-file");
 api.remove("deploy.placement.constraints");
-\end{quote}
+\end{verbatim}
+}
 
 İki API aynı ağaç üzerinde çalışır ve birbirinin yerine geçebilir: tipli
 işlemler, genel API'nin yapacağı düğüm yazma işleminin adlandırılmış ve
@@ -447,20 +480,20 @@ güncellenmesi gerekmez; alan genel API ile okunup yazılabilir, hiç
 dokunulmasa bile dosyada aynen kalır.
 
 \subsection{Kısa ve uzun sözdizimi}
-\texttt{Environment} (\texttt{labels} dahil) ve \texttt{ExtraHosts}
-sınıfları, altlarındaki düğümün liste mi yoksa eşleme mi olduğunu çalışma
-zamanında tespit eder ve dosyanın mevcut biçimini korur. Örneğin
-\texttt{environment} kısa sözdiziminde (\texttt{- KEY=value} girdileri)
-yazılmışsa, \texttt{environment().set()} çağrısı ilgili girdiyi yerinde
-günceller ya da listenin sonuna yeni bir girdi ekler; bölümü eşlemeye
-dönüştürmez. \texttt{Ports}, \texttt{Volumes} ve \texttt{Networks}
+Ortam değişkenleri, etiketler ve ek host kayıtları için kullanılan
+sınıflar, altlarındaki düğümün liste mi yoksa eşleme mi olduğunu çalışma
+zamanında tespit eder ve dosyanın mevcut biçimini korur. Örneğin ortam
+değişkenleri kısa sözdiziminde, yani \texttt{KEY=value} biçimindeki liste
+girdileri olarak yazılmışsa, bir değişkeni güncelleyen çağrı ilgili
+girdiyi yerinde değiştirir ya da listenin sonuna yeni bir girdi ekler;
+bölümü eşlemeye dönüştürmez. \texttt{Ports}, \texttt{Volumes} ve \texttt{Networks}
 yardımcıları ise yalnızca kısa sözdizimli liste girdilerini destekler;
 uzun sözdizimi desteği henüz yoktur (Bölüm~\ref{sec:kisitlamalar}).
 
 \subsection{Hata yönetimi ve güvenli kaydetme}
-Bulunamayan servis, ayrıştırılamayan dosya ve şema ihlali gibi durumlar
-ayrı istisna türleriyle (\texttt{ParseException},
-\texttt{ServiceNotFoundException}, \texttt{ValidationException}) bildirilir.
+Ayrıştırılamayan dosya, bulunamayan servis ve iş kuralı ihlali, her biri
+kendi istisna türüyle bildirilir; örneğin olmayan bir servise erişim
+\texttt{ServiceNotFoundException} fırlatır.
 Kaydetme varsayılan olarak atomiktir: içerik önce geçici bir dosyaya
 yazılır, ardından hedefin üzerine \texttt{rename} ile taşınır; böylece
 yazma sırasında oluşan bir kesinti mevcut dosyayı yarım bırakmaz.
@@ -597,18 +630,16 @@ az birini taşıması). Asıl doğrulama ise dış araçla yapılır: üretilen 
 
 \subsection{Veri kümeleri}
 \textbf{Veri Kümesi A (kontrollü)}, elle yazılmış 38 dosyadan oluşur:
-24 dosya Compose özelliklerini tek tek (\texttt{build}, kısa ve uzun
-sözdizimli \texttt{environment}/\texttt{ports}/\texttt{volumes},
-\texttt{networks}, \texttt{depends\_on}, \texttt{healthcheck},
-\texttt{deploy}, \texttt{configs}, \texttt{secrets}, \texttt{labels},
-\texttt{profiles}, \texttt{logging}, \texttt{sysctls}, \texttt{ulimits},
-\texttt{devices}, \texttt{x-*} uzantıları, bilinmeyen özellikler ve iç içe
-genel özellikler) izole eder; 2 dosya bunları birlikte içerir; 10 dosya
-sınır durumlarını (anchor/alias ve birleştirme anahtarı, tırnaklı skaler
-biçimleri, yalnızca \texttt{build} içeren servis, Unicode içerik, null ve
-boş değerler, \texttt{external} kaynaklar, \texttt{extends},
-\texttt{include}, yalnızca büyük/küçük harfle ayrışan anahtarlar) sınar;
-2 dosya ise koruma deneylerinin işaretçi kalıplarını taşır.
+24 dosya Compose özelliklerini tek tek (build, kısa ve uzun sözdizimli
+environment/ports/volumes, networks, depends\_on, healthcheck, deploy,
+configs, secrets, labels, profiles, logging, sysctls, ulimits, devices,
+\texttt{x-*} uzantıları, bilinmeyen özellikler ve iç içe genel özellikler)
+izole eder; 2 dosya bunları birlikte içerir; 10 dosya sınır durumlarını
+(anchor/alias ve birleştirme anahtarı, tırnaklı skaler biçimleri, yalnızca
+build içeren servis, Unicode içerik, null ve boş değerler, external
+kaynaklar, extends, include, yalnızca büyük/küçük harfle ayrışan
+anahtarlar) sınar; 2 dosya ise koruma deneylerinin işaretçi kalıplarını
+taşır.
 
 \textbf{Veri Kümesi B (gerçek dünya)}, açık kaynak GitHub projelerinden
 iki adımda otomatik olarak toplanmış 647 Compose dosyasından oluşur.
@@ -778,10 +809,12 @@ satırlık değildir (Bölüm~\ref{sec:tartisma}).
 \label{tab:locality}
 \centering
 \footnotesize
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{lrrrrr}
 \toprule
-Özellik & N & Başarılı & Değişen satır & Ham oran & Düzelt.\ oran \\
+ & & & Değişen & \multicolumn{2}{c}{Yerellik oranı} \\
+\cmidrule(l){5-6}
+Özellik & N & Başarılı & satır & Ham & Düzelt. \\
 \midrule
 \texttt{image} & 200 & 200 & 9 & 0,11 & 1,0 \\
 \texttt{hostname} & 39 & 39 & 23 & 0,04 & 1,0 \\
@@ -811,8 +844,8 @@ listenin tamamını eşlemeye dönüştürüyordu; \texttt{extra\_hosts}'a girdi
 eklemede bu sayı 9/34'tü. Düzeltmeden sonra her iki özellikte de böyle bir
 vaka kalmamıştır (0/94 ve 0/34). Kısa sözdizimi hatasından etkilenmeyen
 \texttt{image} düzenlemesinde bu sayı önce de sonra da sıfırdır.\footnote{Özet:
-\texttt{results/tables/paper\_supplementary\_stats.md}; düzeltme öncesi ham
-çıktı: \texttt{results/pre-fix/raw/modification\_dataset\_b.csv}.}
+\url{results/tables/paper_supplementary_stats.md}; düzeltme öncesi ham
+çıktı: \url{results/pre-fix/raw/modification_dataset_b.csv}.}
 
 Deneyde 32 başarısızlık gözlenmiştir ve bunların tamamı kütüphanenin
 bilinen bir sınırından kaynaklanır: \texttt{Networks::add} hedef düğümün
@@ -902,12 +935,52 @@ sorunu nedeniyle ayrıştırılamaz hâle gelmiştir.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.85\textwidth]{comparison_yamlcpp_tr}
+% Şekil kaynağın içinde çizilir; dış dosya gerekmez. Değerler:
+% results/tables/comparison_summary.md, bölüm 2 (medyan değişen satır;
+% korunan kardeş alan oranı = 130/149, 23/39, 100/116 vb.).
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=1.8cm},
+  width=0.44\textwidth, height=4.4cm,
+  ybar, /pgf/bar width=8pt, ymin=0,
+  symbolic x coords={image,hostname,env}, xtick=data,
+  enlarge x limits=0.25,
+  xticklabel style={font=\ttfamily\footnotesize},
+  yticklabel style={font=\footnotesize},
+  ylabel style={font=\footnotesize},
+  nodes near coords,
+  nodes near coords style={font=\tiny},
+  /pgf/number format/fixed, /pgf/number format/precision=0,
+  /pgf/number format/use comma,
+  cycle list={
+    {fill=blue!65!black, draw=blue!65!black},
+    {fill=orange!85!black, draw=orange!85!black},
+    {fill=green!45!black!70, draw=green!45!black}},
+  area legend,
+  legend style={font=\footnotesize, draw=none, fill=none,
+    legend columns=3, /tikz/every even column/.append style={column sep=6pt}},
+]
+\nextgroupplot[ylabel={Değişen satır (medyan)}, ymax=58,
+  legend to name=cmplegend]
+\addplot coordinates {(image,10) (hostname,23) (env,10)};
+\addplot coordinates {(image,13) (hostname,31) (env,14)};
+\addplot coordinates {(image,23) (hostname,48) (env,17)};
+\legend{ComposeMorph, yaml-cpp (dikkatli), yaml-cpp (naif)}
+\nextgroupplot[ylabel={Korunan kardeş alanlar (\%)}, ymax=118,
+  ytick={0,20,40,60,80,100}]
+\addplot coordinates {(image,100) (hostname,100) (env,100)};
+\addplot coordinates {(image,87.25) (hostname,58.97) (env,86.21)};
+\addplot coordinates {(image,0) (hostname,0) (env,0)};
+\end{groupplot}
+\end{tikzpicture}
+
+\smallskip
+\ref{cmplegend}
 \caption{ComposeMorph ile iki ham yaml-cpp kullanımının karşılaştırması
 (Veri Kümesi B). Solda düzenleme başına değişen satır sayısının medyanı,
 sağda düzenlenen servisin \emph{diğer} alanlarının korunma oranı. Alt
 ağacı yeniden inşa eden naif kullanım hiçbir vakada kardeş alanları
-koruyamamaktadır (\%0, çubuk görünmez). Dikkatli kullanımdaki eksik,
+koruyamamaktadır (\%0). Dikkatli kullanımdaki eksik,
 tırnak kaybı sonucu tip değişiminden kaynaklanır; kardeş alanlar
 yapısal olarak yerindedir.}
 \label{fig:comparison}
@@ -1078,9 +1151,9 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
     \texttt{x-} önekli uzantılara izin verdiğinden dosya
     \texttt{docker compose config} tarafından reddedilir. Bu, kütüphaneden
     bağımsız bir spesifikasyon kısıtıdır.
-  \item \textbf{Doğrulama yüzeyseldir.} Kütüphane içindeki
-    \texttt{validate()} yalnızca birkaç iş kuralını denetler; şema
-    doğrulaması dış araca (\texttt{docker compose config}) bırakılmıştır.
+  \item \textbf{Doğrulama yüzeyseldir.} Kütüphanenin kendi doğrulama
+    işlevi yalnızca birkaç iş kuralını denetler; şema doğrulaması dış
+    araca, yani \texttt{docker compose config} komutuna bırakılmıştır.
   \item \textbf{Platform.} Geliştirme ve ölçümler Linux üzerinde
     yapılmıştır; Windows ve macOS'ta test edilmemiştir.
 \end{itemize}
@@ -1118,6 +1191,10 @@ yardımcılarına genişletilmesi ve şema farkındalıklı doğrulamanın
 kütüphane içine taşınması. Üçüncüsü, nesne modelinin Compose
 Specification ile otomatik eşitlenmesi ve aynı yaklaşımın Kubernetes
 manifestoları gibi diğer yapılandırma biçimlerine uygulanması.
+
+% Son sayfada iki sütunu dengelemek için bu kaynaktan önce sütun kırılır;
+% metin uzunluğu değişirse numarayı yeniden ayarlayın.
+\IEEEtriggeratref{13}
 
 \begin{thebibliography}{99}
 \bibitem{composespec}

@@ -19,7 +19,8 @@ and the placeholder results ("preliminary validation ... currently
 underway") are replaced by the measured ones.
 
 `paper.tex` -- IEEEtran-format paper source (`babel[turkish]`), complete:
-abstract plus twelve sections, three tables and one figure. The
+abstract plus twelve sections, three tables and two figures (the object
+model is drawn in the source itself). The
 bibliography is embedded as a `thebibliography` block, so the source
 compiles on its own with no BibTeX pass.
 
@@ -29,17 +30,18 @@ connecting text), kept as the editable source of record (see
 `paper.tex` any more: if you change a reference, change it in both places,
 or switch `paper.tex` back to `\bibliography{references}`.
 
-`figures/` -- the paper's figure with Turkish axis labels and no in-figure
-title (`comparison_yamlcpp_tr.pdf`), re-plotted from `../results/raw/` by
-`../scripts/make_paper_figures.py` (also run at the end of
-`../scripts/run-all-experiments.sh`). The English figures under
-`../results/figures/` stay the repository's record. `\graphicspath` looks in
-`figures/` first, then `../results/figures/`, then next to `paper.tex`, so a
-flat upload works.
+The paper has no external image files: Figure 1 (object model) is a
+`verbatim` block and Figure 2 (Experiment 6) is drawn with `pgfplots`
+from the numbers in `../results/tables/comparison_summary.md`, section 2.
+If that table changes, update the coordinates in `paper.tex`. The English
+figures under `../results/figures/` stay the repository's record.
 
 ## Building
 
-This repo's dev environment has no TeX toolchain installed. To build:
+The source compiles with pdfLaTeX (Overleaf's default) and with
+XeLaTeX/LuaLaTeX: an `iftex` switch loads `inputenc`/`fontenc` for
+pdfLaTeX and `fontspec` with TeX Gyre Termes/Cursor otherwise, so Turkish
+letters never render as empty boxes. To build:
 
 ```
 pdflatex paper.tex
@@ -52,9 +54,12 @@ pdflatex paper.tex
 latexmk -pdf paper.tex
 ```
 
-For Overleaf: upload `paper.tex` together with
-`figures/comparison_yamlcpp_tr.pdf` (or its `.png` variant), and pick the
-"IEEE Conference" template.
+For Overleaf: `paper.tex` alone is enough -- no figures to upload, and
+`IEEEtran.cls` and `pgfplots` are part of Overleaf's TeX Live.
+
+`\IEEEtriggeratref{13}` just before the bibliography balances the two
+columns on the last page; if the text length changes, move it to the
+reference that sits about halfway down the last page's references.
 
 ## Status
 
@@ -82,6 +87,6 @@ Known pre-submission items:
   Re-run Experiment 7 (`scripts/run_performance_experiment.py`) on an
   otherwise idle machine before submitting; the paired serializer
   comparison in the same table is in-process and unaffected.
-- Length is roughly 7,000 words plus three tables and one figure (the
-  attached PDF of the earlier draft ran to 10 pages). Check it
+- Length is roughly 7,000 words plus three tables and two figures, 11
+  pages in IEEE two-column format. Check it
   against the venue's page limit.

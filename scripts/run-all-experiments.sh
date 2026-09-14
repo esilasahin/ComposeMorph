@@ -139,8 +139,7 @@ run_dataset_a() {
 run_dataset_b
 run_dataset_a
 
-log "Paper figures (Turkish labels) and supplementary statistics, from results/raw/"
-python3 scripts/make_paper_figures.py
+log "Supplementary statistics quoted in the paper, from results/raw/"
 python3 scripts/paper_supplementary_stats.py
 
 log "Done. Tables: results/tables/  Figures: results/figures/  Raw data: results/raw/"
