@@ -41,6 +41,9 @@ enable_testing()
 # Google Test çalıştırılabilir hedefi
 add_executable(unit_tests tests/UnitTests.cpp)
 target_link_libraries(unit_tests PRIVATE composemorph GTest::GTest GTest::Main)
+# Test verisinin mutlak yolu: testler hangi derleme dizininden çalışırsa çalışsın bulunur.
+target_compile_definitions(unit_tests PRIVATE
+    TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test-data")
 
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

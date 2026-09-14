@@ -119,7 +119,7 @@ TEST_F(ComposeMorphTest, ExceptionsAndValidation) {
 
 TEST_F(ComposeMorphTest, RoundTripPreservationAndModification) {
     // 1. Load full-compose
-    compose::ComposeFile compose("../test-data/full-compose.yml");
+    compose::ComposeFile compose(TEST_DATA_DIR "/full-compose.yml");
     ASSERT_TRUE(compose.hasService("custody-crypto"));
 
     auto crypto = compose.service("custody-crypto");
