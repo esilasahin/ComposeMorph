@@ -1,44 +1,8 @@
-% ComposeMorph bildirisi -- IEEEtran iskeleti (Türkçe).
-%
-% Bu ortamda derlenip doğrulanmadı (TeX araç zinciri kurulu değil, kurma
-% iznim de yok). Standart bir TeX Live / MiKTeX kurulumuyla veya
-% Overleaf'te (şablon: IEEEtran / "IEEE Conference") derleyin.
-% Bibliyografya: pdflatex -> bibtex -> pdflatex -> pdflatex,
-% ya da latexmk -pdf paper.tex.
-%
-% Bölüm iskeleti görev dosyasının 15. bölümüne (Bildiri Yapısı) göredir.
-% Tüm bölümler yazılmıştır. Metindeki her sayı results/tables/ altındaki
-% üretilmiş özetlerden alınmıştır; sayı değiştirilecekse önce
-% ./scripts/run-all-experiments.sh koşulmalıdır.
-%
-% TERİM SÖZLÜĞÜ -- tüm bölümler bu karşılıkları kullanır:
-%   round-trip             -> round-trip (ilk geçişte "gidiş-dönüş (round-trip)")
-%   preservation           -> koruma
-%   change locality        -> değişiklik yerelliği
-%   forward compatibility  -> ileriye dönük uyumluluk
-%   unknown property       -> bilinmeyen özellik
-%   extension field (x-*)  -> uzantı alanı (x-*)
-%   configuration churn    -> gereksiz değişiklik (configuration churn)
-%   quote normalization    -> tırnak normalizasyonu
-%   scalar                 -> skaler değer
-%   type-aware API         -> tip-farkında API
-%   node tree              -> düğüm ağacı
-%   emitter / serializer   -> serileştirici
-%   dataset                -> veri kümesi (Veri Kümesi A = kontrollü, 38 dosya;
-%                             Veri Kümesi B = gerçek dünya, 647 dosya)
-%   research question      -> araştırma sorusu; etiketler RQ1--RQ5 olarak kalır
-%   benchmark suite        -> değerlendirme paketi
-% Sayı biçimi: ondalık virgül (%37,6), binlik nokta (1.203), yüzde işareti
-% sayıdan önce (\%97,3). Tüm sayılar results/tables/ altındaki commit'lenmiş
-% özetlerden alınır; metne yeni bir sayı eklenirken kaynağı yorumda belirtilir.
-
 \documentclass[conference]{IEEEtran}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-% shorthands=off: babel-turkish'in olası etkin karakterleri (: ! =)
-% \texttt/\url/anahtar=değer argümanlarını bozmasın diye kapatılıyor.
-\usepackage[turkish,shorthands=off]{babel}
+\usepackage[english,turkish,shorthands=off]{babel}
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
@@ -48,25 +12,31 @@
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
 
-% IEEEtran babel'in dil dizgilerini her zaman doğru miras almayabiliyor;
-% garantiye almak için elle yeniden tanımlanıyor.
-\renewcommand{\abstractname}{Özet}
-\renewcommand{\IEEEkeywordsname}{Anahtar Kelimeler}
+\addto\captionsturkish{%
+  \renewcommand{\abstractname}{Özet}%
+  \renewcommand{\IEEEkeywordsname}{Anahtar Kelimeler}%
+  \renewcommand{\refname}{Kaynaklar}%
+  \renewcommand{\figurename}{Şekil}%
+  \renewcommand{\tablename}{TABLO}%
+}
+\addto\captionsenglish{%
+  \renewcommand{\abstractname}{Abstract}%
+  \renewcommand{\IEEEkeywordsname}{Keywords}%
+}
 
-% Figürler results/figures/ içinde yaşıyor (tek doğruluk kaynağı,
-% scripts/run-all-experiments.sh ile yeniden üretiliyor) -- paper/
-% altında ayrı bir kopya tutulmuyor.
-\graphicspath{{../results/figures/}}
+\graphicspath{{../results/figures/}{./results/figures/}{./}}
 
 \begin{document}
 
-\title{C++ Ortamında Docker Compose Yapılandırmalarının Yapı-Koruyucu Dönüşümü\\
-\large \textit{(geçici başlık -- Bulgular/Tartışma yazıldıktan sonra gözden geçirilecek; alternatifler için README.md'deki Research bölümüne ve docs/related-work.md'nin sonuç kısmına bakınız)}}
+\title{C++ Ortamında Konteyner Servis Yapılandırmalarının\\
+Güvenli Round-Trip Düzenlenmesi\\[3pt]
+{\large\textit{Safe Round-Trip Editing of Container Service Configurations in C++}}}
 
 \author{
-\IEEEauthorblockN{Yazar Adı (TBD)}
-\IEEEauthorblockA{Kurum (TBD)\\
-E-posta (TBD)}
+\IEEEauthorblockN{Esila Şahin\textsuperscript{*,1}, Ömer Yıldız\textsuperscript{2}, Mehmet Berk Kartal\textsuperscript{3}, Ahmet Batuhan Canlı\textsuperscript{4}}
+\IEEEauthorblockA{\textsuperscript{1}Yazılım Mühendisliği Bölümü, Fatih Sultan Mehmet Vakıf Üniversitesi, İstanbul, Türkiye}
+\IEEEauthorblockA{\textsuperscript{2,3,4}TÜBİTAK BİLGEM UEKAE, Kocaeli, Türkiye}
+\IEEEauthorblockA{\textsuperscript{*}Sorumlu yazar: esila.sahin@stu.fsm.edu.tr, ORCID: 0009-0007-8858-9540}
 }
 
 \maketitle
@@ -97,10 +67,54 @@ komutla yeniden üretilebilir biçimde yayımlanmıştır.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Docker Compose, YAML, kod olarak yapılandırma (configuration-as-code), round-trip düzenleme, C++
+Docker Compose; YAML round-trip düzenleme; kod olarak yapılandırma
+(configuration-as-code); yapı koruma; C++
 \end{IEEEkeywords}
 
-% ---------------------------------------------------------------------
+\begin{otherlanguage}{english}
+\begin{abstract}
+Docker Compose files are increasingly modified programmatically by
+deployment automation, continuous integration and delivery (CI/CD)
+pipelines, and configuration-as-code tooling. Treating these files as
+generic YAML documents is error-prone: naive parse--modify--serialize
+cycles discard user-defined extension fields (\texttt{x-*}), unrecognized
+properties introduced by newer Compose Specification versions, and
+configuration structure unrelated to the intended change, producing
+configuration churn that complicates code review. To the best of our
+knowledge, no existing C++ library combines a Compose-aware, class-based
+API with forward-compatible preservation of unknown and extension
+properties validated through systematic round-trip testing. We present
+ComposeMorph, a C++20 library that exposes typed accessors for Compose
+services (image, environment, ports, volumes, networks, health checks,
+deployment) while editing the underlying document tree in place, so that
+untouched nodes---including unrecognized fields and \texttt{x-*}
+extensions---remain structurally intact, and that writes files
+atomically. We evaluate ComposeMorph in seven experiments over a
+controlled corpus of 38 files and a real-world corpus of 647 Compose
+files collected from GitHub, measuring round-trip correctness,
+preservation, change locality, Docker Compose CLI validation success and
+performance against a baseline built directly on yaml-cpp. All 802
+injected unknown properties and all 1,203 \texttt{x-*} extension fields
+survive a targeted single-property edit, and once the baseline save noise
+is subtracted, edits stay confined to the single intended line for nine
+of ten properties. The evaluation also exposes a silent type-coercion
+defect in yaml-cpp-based serialization: when quoted scalars are re-emitted
+unquoted, \texttt{docker compose config} accepts only 38.1\% of the
+outputs. Serialization driven by the quote information the parser already
+records raises this to 100\% (892/892) at no measurable performance
+cost---in a paired in-process comparison the quote-preserving emitter is
+3--21\% faster. Preservation is structural rather than textual: comments
+and blank lines are not retained, so only 4.0\% of files are
+byte-identical after an unmodified save. All datasets, scripts and raw
+results are published and reproducible with a single command.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Docker Compose; YAML round-trip editing; configuration as code;
+structure preservation; C++
+\end{IEEEkeywords}
+\end{otherlanguage}
+
 \section{Giriş}
 \label{sec:giris}
 
@@ -126,7 +140,6 @@ servisinin imajını yeni sürüme yükseltmekte, donanım güvenlik modülüne
 sürümün çalıştırılabilir dosyalarını gösteren volume kaynağını
 değiştirmektedir. Bu değişikliklerin her biri kavramsal olarak dosyadaki
 tek bir alana dokunur.
-% Senaryo kaynağı: examples/change-volume.cpp, test-data/full-compose.yml
 
 İlk bakışta bu tür bir düzenleme basittir: dosyayı ayrıştır, ilgili alanı
 değiştir, geri yaz. Ancak bir Compose dosyası, onu düzenleyen programın
@@ -207,14 +220,6 @@ ağacı yeniden inşa ederek yapan, makul görünen ham yaml-cpp kodu ölçüleb
 hiçbir vakada kardeş alanları koruyamamıştır (0/149, 0/39, 0/116), aynı
 düzenlemeler ComposeMorph'un tip-farkında API'si üzerinden yapıldığında ise
 tüm vakalarda korunmuştur.
-% Sayı kaynakları: results/tables/preservation_summary.md (802/802,
-% 1203/1203); validation_summary.md (892/892 vs 340/892);
-% quote_normalization_analysis.md (9807 tırnaklı skaler, 0 vs 2570/452);
-% comparison_summary.md (PyYAML özdeşliği 100/100 vs 33/100; naive
-% 0/149, 0/39, 0/116); roundtrip_dataset_b_summary.md (26/647 = %4,02);
-% performance_summary.md (serileştirici oranları 0,966/0,944/0,944/0,785).
-% NOT: mutlak süreler makine yüküne duyarlı; gönderim öncesi Deney 7
-% sakin bir makinede yeniden koşulmalı (bkz. Bölüm~\ref{sec:yontem}).
 
 Bu bildirinin katkıları şunlardır:
 \begin{enumerate}
@@ -253,7 +258,6 @@ tartışır; Bölüm~\ref{sec:gecerlilik} ve Bölüm~\ref{sec:kisitlamalar}
 geçerlilik tehditlerini ve kısıtlamaları ele alır; Bölüm~\ref{sec:sonuc}
 çalışmayı sonuçlandırır.
 
-% ---------------------------------------------------------------------
 \section{Altyapı ve Motivasyon}
 \label{sec:altyapi}
 
@@ -314,7 +318,6 @@ modellenmemiş her yapıyı olduğu gibi taşıması pratik bir gerekliliktir.
 dezavantajlıdır: model, tanımadığı bir alanı saklayacak bir yere sahip
 değilse serileştirmede o alan kaybolur.
 
-% ---------------------------------------------------------------------
 \section{İlgili Çalışmalar}
 \label{sec:ilgili-calismalar}
 
@@ -389,7 +392,6 @@ sınırlar içinde kullanıyoruz: ComposeMorph yorum veya tam biçim koruma
 konusunda diğer ekosistemlerdeki olgun araçlardan daha iyi değildir ve
 bunu amaçlamaz (Bölüm~\ref{sec:kisitlamalar}).
 
-% ---------------------------------------------------------------------
 \section{Tasarım}
 \label{sec:tasarim}
 
@@ -416,16 +418,19 @@ yeniden yazılmaz.
 Tipli API, spesifikasyonun sık kullanılan alanlarını adlandırılmış
 işlemlerle sunar; örneğin bir imaj etiketini güncellemek tek satırdır:
 
-\begin{quote}\ttfamily\small
-compose.service("api").setImage("company/api:2.0");
+\begin{quote}\ttfamily\footnotesize
+compose.service("api")\\
+\quad .setImage("company/api:2.0");
 \end{quote}
 
 Modellenmemiş her alan için aynı nesne, nokta-yollu genel bir özellik
 API'si sağlar:
 
-\begin{quote}\ttfamily\small
-api.set("x-company-security.hsm", "enabled");\\
-auto v = api.get<std::string>("logging.options.max-file");\\
+\begin{quote}\ttfamily\footnotesize
+api.set("x-company-security.hsm",\\
+\quad "enabled");\\
+auto v = api.get<std::string>(\\
+\quad "logging.options.max-file");\\
 api.remove("deploy.placement.constraints");
 \end{quote}
 
@@ -455,7 +460,6 @@ yazılır, ardından hedefin üzerine \texttt{rename} ile taşınır; böylece
 yazma sırasında oluşan bir kesinti mevcut dosyayı yarım bırakmaz.
 İsteğe bağlı olarak \texttt{.bak} yedeği alınabilir.
 
-% ---------------------------------------------------------------------
 \section{Round-Trip Dönüşüm Yaklaşımı}
 \label{sec:yaklasim}
 
@@ -539,7 +543,6 @@ Tek tırnaklı skalerler çift tırnakla yazılır. Bu davranışların hepsi
 Bölüm~\ref{sec:bulgular} ve Bölüm~\ref{sec:kisitlamalar}'da ölçülmüş
 biçimde raporlanmaktadır.
 
-% ---------------------------------------------------------------------
 \section{Gerçekleştirim}
 \label{sec:gerceklestirim}
 
@@ -567,23 +570,17 @@ az birini taşıması). Asıl doğrulama ise dış araçla yapılır: üretilen 
 çıktı \texttt{docker compose config} komutundan geçirilir
 (Bölüm~\ref{sec:yontem}).
 
-% ---------------------------------------------------------------------
 \section{Deneysel Yöntem}
 \label{sec:yontem}
 
 \subsection{Araştırma soruları}
-\begin{description}
-  \item[RQ1 (Doğruluk)] Kütüphane gerçek Compose dosyalarını ayrıştırıp
-    değiştirdikten sonra geçerli Compose dosyaları üretiyor mu?
-  \item[RQ2 (Koruma)] Yalnızca belirli bir alan değiştirildiğinde,
-    değişiklikle ilgisi olmayan yapılandırma bilgisinin ne kadarı korunuyor?
-  \item[RQ3 (Değişiklik yerelliği)] Hedeflenen alan değiştirilirken dosyada
-    ne kadar gereksiz değişiklik oluşuyor?
-  \item[RQ4 (İleriye dönük uyumluluk)] Nesne modelinde tanımlanmamış
-    Compose özellikleri kaybedilmeden taşınıyor mu?
-  \item[RQ5 (Performans)] Yükleme, değiştirme ve serileştirme maliyeti
-    gerçek kullanım için kabul edilebilir mi?
-\end{description}
+\begin{itemize}
+  \item \textbf{RQ1 (Doğruluk):} Kütüphane gerçek Compose dosyalarını ayrıştırıp değiştirdikten sonra geçerli Compose dosyaları üretiyor mu?
+  \item \textbf{RQ2 (Koruma):} Yalnızca belirli bir alan değiştirildiğinde, değişiklikle ilgisi olmayan yapılandırma bilgisinin ne kadarı korunuyor?
+  \item \textbf{RQ3 (Değişiklik yerelliği):} Hedeflenen alan değiştirilirken dosyada ne kadar gereksiz değişiklik oluşuyor?
+  \item \textbf{RQ4 (İleriye dönük uyumluluk):} Nesne modelinde tanımlanmamış Compose özellikleri kaybedilmeden taşınıyor mu?
+  \item \textbf{RQ5 (Performans):} Yükleme, değiştirme ve serileştirme maliyeti gerçek kullanım için kabul edilebilir mi?
+\end{itemize}
 
 \subsection{Veri kümeleri}
 \textbf{Veri Kümesi A (kontrollü)}, elle yazılmış 38 dosyadan oluşur:
@@ -649,7 +646,6 @@ deneyler depodaki tek bir komutla yeniden üretilebilir:
 figürler \texttt{results/} altında yayımlanmıştır; düzeltme öncesi
 tablolar karşılaştırma için \texttt{results/pre-fix/} altında saklanmıştır.
 
-% ---------------------------------------------------------------------
 \section{Bulgular}
 \label{sec:bulgular}
 
@@ -839,7 +835,6 @@ kod gerektirir (\texttt{volume-source} için 24, \texttt{extra-host} için
 \texttt{image} için 5, \texttt{hostname} için 3 satırdır: yanlış kod,
 doğru koddan daha fazla emek gerektirmemektedir.
 
-% ---------------------------------------------------------------------
 \section{Tartışma}
 \label{sec:tartisma}
 
@@ -898,7 +893,6 @@ Aynı gözlem kısa sözdizimi hatasında da doğrulanmıştır: liste biçimli
 \texttt{environment} bölümünü eşlemeye çeviren davranış, ham kullanımda
 da kütüphanenin ilk sürümünde de aynı biçimde ortaya çıkmıştır.
 
-% ---------------------------------------------------------------------
 \section{Geçerlilik Tehditleri}
 \label{sec:gecerlilik}
 
@@ -950,7 +944,6 @@ kullanmaya başlarsa temel çizgi ile ComposeMorph arasındaki fark
 kapanacaktır. Tüm deneyler tek komutla yeniden koşulabildiği için bu
 sayılar yeni sürümlerde güncellenebilir.
 
-% ---------------------------------------------------------------------
 \section{Kısıtlamalar}
 \label{sec:kisitlamalar}
 
@@ -990,7 +983,6 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
     yapılmıştır; Windows ve macOS'ta test edilmemiştir.
 \end{itemize}
 
-% ---------------------------------------------------------------------
 \section{Sonuç}
 \label{sec:sonuc}
 
@@ -1024,8 +1016,75 @@ kütüphane içine taşınması. Üçüncüsü, nesne modelinin Compose
 Specification ile otomatik eşitlenmesi ve aynı yaklaşımın Kubernetes
 manifestoları gibi diğer yapılandırma biçimlerine uygulanması.
 
-% ---------------------------------------------------------------------
-\bibliographystyle{IEEEtran}
-\bibliography{references}
+\begin{thebibliography}{99}
+\bibitem{composespec}
+``The Compose specification,'' \url{https://github.com/compose-spec/compose-spec}, 2026.
+
+\bibitem{ibrahim2021dockercompose}
+M.~H. Ibrahim, M.~Sayagh ve A.~E. Hassan, ``A study of how {Docker Compose} is used to compose multi-component systems,'' \emph{Empirical Software Engineering}, vol.~26, 2021.
+
+\bibitem{yamlcpp}
+J.~Beder ve katkıda bulunanlar, ``yaml-cpp: A {YAML} parser and emitter in {C++},'' \url{https://github.com/jbeder/yaml-cpp}, 2026.
+
+\bibitem{ruamelyaml}
+A.~van~der Neut, ``ruamel.yaml: {YAML} 1.2 loader/dumper package for {Python},'' \url{https://pypi.org/project/ruamel.yaml/}, 2026.
+
+\bibitem{eemeliyaml}
+E.~Aro, ``yaml: {YAML} parser and serialiser for {JavaScript},'' \url{https://github.com/eemeli/yaml}, 2026.
+
+\bibitem{composego}
+``compose-go: Reference library for parsing and loading {Compose YAML} files,'' \url{https://github.com/compose-spec/compose-go}, 2026.
+
+\bibitem{kyaml}
+``kyaml: {YAML} processing for {Kubernetes} resource configuration,'' \url{https://pkg.go.dev/sigs.k8s.io/kustomize/kyaml}, 2026.
+
+\bibitem{yamlcpp_issue154}
+``option to not eat comments (\#154),'' \url{https://github.com/jbeder/yaml-cpp/issues/154}, yaml-cpp hata kayıt sistemi, 2015.
+
+\bibitem{yamlcpp_issue457}
+``Preserve comments after parsing and re-emit them (\#457),'' \url{https://github.com/jbeder/yaml-cpp/issues/457}, yaml-cpp hata kayıt sistemi, 2026.
+
+\bibitem{libyaml}
+``libyaml: A {C} library for parsing and emitting {YAML},'' \url{https://github.com/yaml/libyaml}, 2026.
+
+\bibitem{libyaml_issue42}
+``Support for emitting and parsing comments (\#42),'' \url{https://github.com/yaml/libyaml/issues/42}, libyaml hata kayıt sistemi, 2016.
+
+\bibitem{rapidyaml}
+P.~R.~M.~J. (biojppm) ve katkıda bulunanlar, ``rapidyaml (ryml): A library to parse and emit {YAML}, fast,'' \url{https://github.com/biojppm/rapidyaml}, 2026.
+
+\bibitem{rapidyaml_issue30}
+``Preserving scalar type information when emitting (\#30),'' \url{https://github.com/biojppm/rapidyaml/issues/30}, rapidyaml hata kayıt sistemi, 2020.
+
+\bibitem{fkyaml}
+``fk{YAML}: A {C++} header-only {YAML} library,'' \url{https://fktn-k.github.io/fkYAML/}, 2026.
+
+\bibitem{yamledit_rust}
+``yaml-edit: A formatting-preserving {YAML} editor for {Rust},'' \url{https://docs.rs/yaml-edit/latest/yaml_edit/}, 2026.
+
+\bibitem{libcst}
+Instagram Engineering, ``{LibCST}: A concrete syntax tree parser and serializer library for {Python},'' \url{https://github.com/Instagram/LibCST}, 2026.
+
+\bibitem{cstree}
+D.~Quirl, ``cstree: Concrete syntax tree library,'' \url{https://github.com/domenicquirl/cstree}, 2026.
+
+\bibitem{kustomize_issue259}
+``Preserving comments and other human-readable syntax in output yaml (\#259),'' \url{https://github.com/kubernetes-sigs/kustomize/issues/259}, kustomize hata kayıt sistemi, 2026.
+
+\bibitem{fishfinger}
+T.~Tosi, ``fishfinger: A {Go} docker-compose programmatic library,'' \url{https://github.com/TimTosi/fishfinger}, 2026.
+
+\bibitem{composepy}
+``compose-py: {Python} library for parsing and loading compose files,'' \url{https://github.com/bonprosoft/compose-py}, 2026.
+
+\bibitem{dockercomposeyamlparser}
+``docker-compose-yaml-parser: Parse and modify docker-compose.yaml files,'' \url{https://github.com/WisdomSky/docker-compose-yaml-parser}, 2026.
+
+\bibitem{eng2023patterns}
+K.~Eng, A.~Hindle ve E.~Stroulia, ``Patterns of multi-container composition for service orchestration with {Docker Compose},'' 2023.
+
+\bibitem{predoaia2024yaml}
+I.~Predoaia, D.~Kolovos, A.~Garcia-Dominguez, M.~Lenk, W.~Ebel ve J.~Burkl, ``Towards processing {YAML} documents with model management languages,'' \emph{Companion Proceedings of MODELS '24} içinde, Linz, Avusturya, 2024.
+\end{thebibliography}
 
 \end{document}
