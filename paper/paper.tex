@@ -42,21 +42,24 @@ Güvenli Round-Trip Düzenlenmesi\\[3pt]
 \maketitle
 
 \begin{abstract}
-Docker Compose dosyaları yalnızca insanlar tarafından değil, dağıtım
-otomasyonu tarafından da düzenlenmektedir. Böyle bir düzenleme yalnızca
-YAML ayrıştırmaktan ibaret değildir: dosyada aracın modellemediği alanlar,
-kullanıcı tanımlı \texttt{x-*} uzantıları, kısa ve uzun sözdizimi
-varyantları ve anlam taşıyan tırnak tercihleri bulunur; naif bir
-ayrıştır--değiştir--serileştir akışı hedeflenen alanın ötesinde değişiklik
-ya da bilgi kaybı üretir. Python ve JavaScript ekosistemlerinde biçim
-koruyan YAML kütüphaneleri bulunmasına karşın, C++ tarafında Compose'a
-özgü bir düzenleme API'si ve koruma garantisi belgelenmiş bir YAML
-kütüphanesi bulamadık. Bu bildiride, Compose kavramlarını yansıtan tipli
-bir C++ API sunan ve düzenlemeleri düğüm ağacında yerinde yapan
-ComposeMorph'u sunuyoruz. 647 gerçek dünya ve 38 kontrollü Compose dosyası
+Docker Compose dosyaları, geliştiricilerin yanı sıra CI/CD hatları ve
+dağıtım araçları tarafından da programatik olarak değiştirilmektedir. Bu
+işlem yalnızca bir YAML belgesini ayrıştırıp yeniden yazmaktan ibaret
+değildir. Compose dosyaları, düzenleyici aracın modellemediği alanları,
+kullanıcı tanımlı \texttt{x-*} alanlarını, kısa ve uzun sözdizimi
+biçimlerini ve YAML değerlerinin tipini etkileyebilen tırnak kullanımını
+içerebilir. Bu nedenle saf bir ayrıştır--değiştir--serileştir yaklaşımı,
+hedeflenen değişikliğin dışında gereksiz farklar oluşturabilir veya
+yapılandırma bilgisinin kaybolmasına neden olabilir. Python ve JavaScript
+ekosistemlerinde biçimi korumaya yönelik YAML araçları bulunsa da, C++
+tarafında Docker Compose yapılarını doğrudan ele alan ve modellenmemiş
+alanların korunmasını hedefleyen ortak bir düzenleme kütüphanesi
+bulunmamaktadır. Bu bildiride, Compose yapısını doğrudan temsil eden sınıf
+tabanlı bir C++ API sunan ve değişiklikleri mevcut YAML düğüm ağacı üzerinde
+gerçekleştiren ComposeMorph'u sunuyoruz. 647 gerçek dünya ve 38 kontrollü Compose dosyası
 üzerinde yedi deneyle doğruluk, koruma, değişiklik yerelliği, ileriye
 dönük uyumluluk ve performansı ölçtük. Dosyalara eklenen 802 bilinmeyen
-özelliğin ve 1.203 \texttt{x-*} uzantı alanının tamamı korunmaktadır.
+özelliğin ve 1.203 \texttt{x-*} alanının tamamı korunmaktadır.
 Değerlendirme ayrıca
 yaml-cpp tabanlı serileştirmede sessiz bir tip değişimi kusuru ortaya
 çıkarmıştır: tırnaklı skalerler tırnaksız yazıldığında
@@ -130,25 +133,24 @@ Bu dosyalar, kaynak kodla birlikte sürüm kontrolünde tutulan, elle yazılıp
 bakımı yapılan birer \emph{kod olarak yapılandırma} (configuration-as-code)
 varlığıdır.
 
-Compose dosyaları giderek yalnızca insanlar tarafından değil, programlar
-tarafından da değiştirilmektedir. Sürekli entegrasyon ve dağıtım hatları
-yeni bir sürüm çıktığında servis imajının etiketini günceller; kurum içi
-(on-premise) kurulum ve dağıtım araçları hedef ortama göre ortam
-değişkenlerini, ek host kayıtlarını ya da volume kaynaklarını ayarlar.
-Bu çalışmayı motive eden senaryoda bir C++ dağıtım aracı, bir kriptografi
-servisinin imajını yeni sürüme yükseltmekte, donanım güvenlik modülüne
-(HSM) erişim için bir \texttt{extra\_hosts} kaydı eklemekte ve yeni
-sürümün çalıştırılabilir dosyalarını gösteren volume kaynağını
-değiştirmektedir. Bu değişikliklerin her biri kavramsal olarak dosyadaki
-tek bir alana dokunur.
+Compose dosyaları artık yalnızca geliştiriciler tarafından elle
+düzenlenmemekte; CI/CD hatları, kurulum araçları ve diğer dağıtım
+yazılımları tarafından da programatik olarak güncellenmektedir. Örneğin
+bu araçlar bir servisin \texttt{image} değerini değiştirebilir,
+\texttt{environment} veya \texttt{extra\_hosts} girdileri ekleyebilir ya
+da \texttt{volumes} tanımlarını hedef ortama göre güncelleyebilir. Buna
+karşın C++ ekosisteminde, farklı Docker Compose yapılandırmalarını ortak ve
+yeniden kullanılabilir bir API üzerinden güvenli biçimde değiştirmeye
+yönelik yerleşik bir kütüphane bulunmamaktadır. Bu eksiklik çalışmanın temel
+motivasyonunu oluşturmaktadır.
 
 İlk bakışta bu tür bir düzenleme basittir: dosyayı ayrıştır, ilgili alanı
 değiştir, geri yaz. Ancak bir Compose dosyası, onu düzenleyen programın
 bildiği alanlardan ibaret değildir. Dosyada kullanıcı tarafından
-tanımlanmış \texttt{x-*} uzantı alanları, düzenleyici aracın henüz
+tanımlanmış \texttt{x-*} alanları, düzenleyici aracın henüz
 modellemediği daha yeni Compose Specification alanları, aynı bilginin kısa
 ve uzun sözdizimi (short/long syntax) gibi farklı gösterimleri, yazarın
-tırnak kullanımı ve düzen tercihleri bulunabilir. Bu nedenle naif bir
+tırnak kullanımı ve düzen tercihleri bulunabilir. Bu nedenle saf bir
 \emph{ayrıştır $\rightarrow$ değiştir $\rightarrow$ serileştir} akışı,
 hedeflenen alanın çok ötesine taşan gereksiz değişikliklere
 (configuration churn) ya da bilgi kaybına yol açabilir.
@@ -176,37 +178,37 @@ kütüphanelerinin hiçbiri yorum veya biçim koruyan round-trip düzenlemeyi
 desteklenen bir özellik olarak belgelememektedir: yaml-cpp'de yorumların
 korunmasına yönelik talep 2015'ten beri açıktır ve kütüphanenin geliştiricisi
 2026'da hâlâ böyle bir seçenek bulunmadığını belirtmiştir~\cite{yamlcpp_issue154,yamlcpp_issue457}.
-Bildiğimiz kadarıyla, Docker Compose'a özgü tip-farkında düzenlemeyi ve
-ölçülmüş ileriye dönük uyumlu bilinmeyen-özellik korumasını bir arada sunan
-bir C++ kütüphanesi bulunmamaktadır (Bölüm~\ref{sec:ilgili-calismalar}).
+İncelediğimiz C++ kütüphaneleri arasında, Docker Compose yapılarını doğrudan
+modelleyen bir düzenleme API'si sunarken aynı zamanda kütüphanenin
+tanımadığı Compose alanlarını korumayı sistematik olarak değerlendiren bir
+çalışmaya rastlanmamıştır (Bölüm~\ref{sec:ilgili-calismalar}).
 
 Bu bildiride, Docker Compose yapılandırmalarının C++ uygulamalarından
-güvenli ve en az yan etkiyle değiştirilmesi için ComposeMorph adlı bir
-kütüphane sunuyor ve bu problemin gerçekte ne kadarının çözülebildiğini
-sistematik olarak ölçüyoruz. ComposeMorph, yaml-cpp'nin düğüm ağacı
-üzerine, Compose kavramlarını (servis, ortam değişkenleri, portlar,
-volume'lar, ağlar, sağlık kontrolü, dağıtım kaynakları vb.) doğrudan
-yansıtan sınıf tabanlı, tip-farkında bir API kurar. Her düzenleme yalnızca
-hedef düğümü yerinde değiştirir; kütüphanenin modellemediği alanlar hiçbir
-zaman yeniden inşa edilmez, bu yüzden bilinmeyen özellikler ve
-\texttt{x-*} uzantı alanları dokunulmadan kalır. Kaydetme, kaynakta tırnaklı
-yazılmış skalerleri tırnaklı olarak yeniden üreten ve böylece değerlerin
-YAML tiplerini koruyan bir serileştirici üzerinden yapılır. Modellenmemiş
-alanlar için nokta-yollu (dot-path) genel bir özellik API'si, dosya
-bütünlüğü için de geçici dosya üzerinden atomik kaydetme sağlanır.
+güvenli ve öngörülebilir biçimde değiştirilmesi için ComposeMorph adlı bir
+kütüphane sunuyor ve yaklaşımın davranışını sistematik olarak
+değerlendiriyoruz. ComposeMorph, yaml-cpp'nin düğüm ağacı üzerinde
+\texttt{services}, \texttt{environment}, \texttt{ports},
+\texttt{volumes}, \texttt{networks}, \texttt{healthcheck} ve
+\texttt{deploy} gibi Compose alanlarına yönelik sınıf tabanlı bir API
+sağlar. Her işlem yalnızca hedeflenen YAML düğümünü değiştirir; kütüphanenin
+modellemediği alanlar yeniden oluşturulmadığı için tanınmayan Compose
+alanları ve \texttt{x-*} alanları korunur. Kaydetme sırasında kaynak
+dosyada tırnaklı olan skalerler yine tırnaklı yazılarak YAML tiplerinin
+istemsiz biçimde değişmesi önlenir. Doğrudan modellenmeyen alanlara nokta
+gösterimli yol (dot-path) üzerinden erişim sağlanır. Dosya güncellemesi ise
+geçici dosyaya yazma ve atomik \texttt{rename} işlemiyle tamamlanır.
 
 Değerlendirme; doğruluk, koruma, değişiklik yerelliği, ileriye dönük
 uyumluluk ve performans başlıklı beş araştırma sorusu etrafında, 647 gerçek
 dünya GitHub Compose dosyasından oluşan bir veri kümesi ile 38 kontrollü
 dosyadan oluşan ikinci bir veri kümesi üzerinde yedi deneyle yapılmıştır.
-Gerçek dosyalara kontrollü olarak eklenen bilinmeyen özellikler ve
-\texttt{x-*} uzantı alanları, ilgisiz bir alan değiştirildikten sonra tüm
-vakalarda korunmuştur (802/802 bilinmeyen özellik ve 1.203/1.203 uzantı
-alanı örneği). \texttt{docker compose config} tarafından geçerli kabul
+Gerçek dosyalara kontrollü olarak eklenen 802 modellenmemiş Compose alanının
+ve 1.203 \texttt{x-*} alanının tamamı, başka bir alan değiştirildikten sonra
+da korunmuştur. \texttt{docker compose config} tarafından geçerli kabul
 edilen girdilerden üretilen çıktıların tamamı (892/892) yeniden geçerli
 bulunmuştur; aynı düzenlemeleri yaml-cpp'nin varsayılan serileştiricisiyle
-yapan temel çizgide bu oran \%38,1'de (340/892) kalmaktadır. Korpustaki
-9.807 tırnaklı skaler değerin hiçbiri tip değiştirmemiş, temel çizgide ise
+yapan karşılaştırma sürümünde bu oran \%38,1'de (340/892) kalmaktadır. Korpustaki
+9.807 tırnaklı skaler değerin hiçbiri tip değiştirmemiş, karşılaştırma sürümünde ise
 452 dosyada 2.570 değer tip değiştirmiştir; 100 dosyalık bir örneklemde
 çıktının girdiyle aynı veriye çözümlenme oranı 33/100'den 100/100'e
 çıkmaktadır. Tırnak koruyan serileştirici
@@ -220,33 +222,36 @@ kaydedildiğinde bayt düzeyinde aynı kalır. Ham yaml-cpp ile yapılan
 karşılaştırma, korumanın API tasarımıyla ilişkisini gösterir: aynı
 düzenlemeleri ilgili alt ağacı yeniden inşa ederek yapan ham yaml-cpp kodu,
 tasarımı gereği düzenlenen servisin kardeş alanlarını kaybetmiştir (0/149,
-0/39, 0/116); aynı düzenlemeler ComposeMorph'un tip-farkında API'si
-üzerinden yapıldığında tüm vakalarda korunmuştur.
+0/39, 0/116); aynı düzenlemeler ComposeMorph API'si ile hedef düğüm üzerinde yerinde
+yapıldığında kardeş alanlar tüm vakalarda korunmuştur.
 
 Bu bildirinin katkıları şunlardır:
 \begin{enumerate}
   \item Docker Compose yapılandırmalarının C++ uygulamalarından sınıf
-    tabanlı ve tip-farkında biçimde değiştirilmesini sağlayan, modellenmemiş
-    alanlar için genel bir özellik API'si ve atomik kaydetme içeren,
-    yeniden kullanılabilir bir kütüphane (ComposeMorph).
-  \item Hedef düğümün yerinde değiştirilmesine dayanan, gelecekteki Compose
-    Specification alanlarına karşı ileriye dönük uyumluluk sağlayan
-    bilinmeyen-özellik ve uzantı alanı koruma mekanizması ile bu
-    mekanizmanın gerçek dünya dosyaları üzerindeki ölçümü.
-  \item C++ YAML serileştirmesinde sessiz tip değişimine yol açan bir hata
-    sınıfının teşhisi ve giderilmesi: yaml-cpp'nin serileştiricisi, tırnaklı
-    bir skalerin taşıdığı \texttt{!} etiketini yok sayarak değeri tırnaksız
-    yazmakta, böylece string değerler sayıya veya boolean'a dönüşmekte ve
-    dosya \texttt{docker compose config} tarafından reddedilmektedir.
-    Etiketi dikkate alan serileştirme bu davranışı ortadan kaldırmakta,
-    etkisi önce/sonra ölçülmektedir (geçerlilik \%38,1 $\rightarrow$ \%100).
-    Aynı değerlendirme, kısa sözdizimli \texttt{environment}, \texttt{labels}
-    ve \texttt{extra\_hosts} listelerinin düzenleme sırasında eşleme
-    (mapping) yapısına dönüştürülmesi biçimindeki ikinci bir hatayı da
-    ortaya çıkarmış ve gidermiştir (Bölüm~\ref{sec:bulgular}).
-  \item İki veri kümesi (38 kontrollü ve 647 gerçek dünya Compose dosyası),
-    yedi deney ve tüm sonuçları tek komutla yeniden üreten betiklerden
-    oluşan, açık ve tekrarlanabilir bir değerlendirme paketi.
+    tabanlı bir API ile düzenlenmesini sağlayan; doğrudan modellenmeyen
+    alanlara genel bir erişim API'si ve atomik kaydetme desteği sunan yeniden
+    kullanılabilir bir kütüphane (ComposeMorph).
+  \item Hedef YAML düğümünün yerinde değiştirilmesine dayanan ve kütüphanenin
+    modellemediği yeni Compose alanları ile \texttt{x-*} alanlarının
+    korunmasını sağlayan yaklaşımın gerçek dünya dosyaları üzerinde
+    deneysel olarak değerlendirilmesi.
+  \item yaml-cpp tabanlı serileştirmede YAML değerlerinin tipini sessizce
+    değiştirebilen bir problemin belirlenmesi ve giderilmesi. yaml-cpp,
+    ayrıştırma sırasında tırnaklı skalerler için tuttuğu \texttt{!}
+    etiketini varsayılan serileştirmede dikkate almadığından bazı string
+    değerleri tırnaksız yazabilmektedir. Böyle bir değer sayı veya boolean
+    olarak yeniden yorumlandığında üretilen Compose dosyası
+    \texttt{docker compose config} doğrulamasından geçmeyebilmektedir.
+    ComposeMorph'un tırnak bilgisini dikkate alan serileştirmesiyle doğrulama
+    başarısı \%38,1'den \%100'e çıkmıştır. Aynı deneyler, kısa sözdizimiyle
+    tanımlanmış \texttt{environment}, \texttt{labels} ve
+    \texttt{extra\_hosts} girdilerinin düzenleme sırasında istemeden mapping
+    biçimine dönüştürülmesi sorununu da ortaya çıkarmış; mevcut sözdizimini
+    koruyan yerinde düzenleme ile bu davranış giderilmiştir
+    (Bölüm~\ref{sec:bulgular}).
+  \item 38 kontrollü ve 647 gerçek dünya Compose dosyasından oluşan iki veri
+    kümesi, yedi deney ve sonuçların tek komutla yeniden üretilebilmesini
+    sağlayan betiklerden oluşan tekrarlanabilir bir değerlendirme paketi.
 \end{enumerate}
 
 Bildirinin geri kalanı şöyle düzenlenmiştir. Bölüm~\ref{sec:altyapi} Docker
@@ -268,7 +273,7 @@ Compose Specification~\cite{composespec}, bir uygulamanın servislerini ve
 bunların ağlarını, volume'larını, config ve secret tanımlarını YAML
 biçiminde tanımlar. Belgenin üst seviyesinde \texttt{services},
 \texttt{networks}, \texttt{volumes}, \texttt{configs}, \texttt{secrets} gibi
-bölümler ile \texttt{x-} önekli \emph{uzantı alanları} bulunur. Uzantı
+bölümler ile \texttt{x-} önekli \texttt{x-*} alanları bulunur. Uzantı
 alanları spesifikasyonun araçlara ayırdığı resmî genişletme noktasıdır:
 şema bunları serbest bırakır, ancak \texttt{x-} öneki taşımayan tanınmayan
 anahtarları reddeder. Spesifikasyon ayrıca aynı bilgiyi iki biçimde ifade
@@ -298,18 +303,21 @@ belgenin veri içeriğine değil sunumuna ait öğeler barındırır. Bu öğele
 bir kısmı ayrıştırma sırasında veri modeline hiç taşınmaz.
 
 \subsection{Round-trip düzenleme problemi}
-Bir yapılandırma dosyasını programatik olarak değiştirmenin olağan yolu
-\emph{ayrıştır $\rightarrow$ değiştir $\rightarrow$ serileştir} akışıdır.
-Bu akışın sadakati, kullanılan ara temsile bağlıdır. Somut sözdizimi ağacı
-(CST) tutan araçlar kaynağın her karakterini saklar ve yalnızca dokunulan
-aralığı yeniden yazar; ruamel.yaml~\cite{ruamelyaml} ve
-eemeli/yaml~\cite{eemeliyaml} bu yaklaşımla yorumları ve biçimi korur.
-Buna karşılık yaml-cpp~\cite{yamlcpp} gibi kütüphaneler belgeyi değiştirilebilir
-bir \emph{düğüm ağacına} ayrıştırır: yapı, anahtar sırası ve değerler
-korunur, ancak sunum bilgisinin bir kısmı ayrıştırmada kaybolur ve dosya
-kaydedilirken tüm belge yeniden üretilir. Bu, hedeflenen alanın dışındaki
-satırların da değişmesine (configuration churn) ve --- giriş bölümünde
-gösterildiği gibi --- değerlerin tipinin sessizce değişmesine yol açabilir.
+Bir yapılandırma dosyasını programatik olarak düzenlemenin temel akışı
+\emph{ayrıştır $\rightarrow$ değiştir $\rightarrow$ serileştir} biçimindedir.
+Dosyanın bu döngü sonunda ne ölçüde korunacağı, ayrıştırıcı tarafından
+tutulan ara temsile bağlıdır. Somut sözdizimi ağacı (CST) kullanan araçlar,
+kaynak metindeki sözdizimsel ayrıntıları da saklayabildiği için yalnızca
+değiştirilen bölümü yeniden yazabilir. ruamel.yaml~\cite{ruamelyaml} ve
+eemeli/yaml~\cite{eemeliyaml} bu yaklaşım sayesinde yorum ve biçim
+bilgisinin önemli bölümünü korur. yaml-cpp~\cite{yamlcpp} ise belgeyi
+düzenlenebilir bir YAML düğüm ağacına dönüştürür. Bu model belge yapısını,
+anahtar sırasını ve değerleri korusa da yorum, boş satır, girinti ve bazı
+skaler gösterim ayrıntılarını tam olarak saklamaz. Bu nedenle dosya
+kaydedilirken belgenin tamamı yeniden serileştirilir ve hedeflenen
+değişikliğin dışındaki satırlarda da fark oluşabilir. Daha önemlisi,
+serileştirme sırasında tırnak bilgisinin kaybedilmesi bazı skalerlerin YAML
+tipinin sessizce değişmesine neden olabilir.
 
 \subsection{İleriye dönük uyumluluk}
 Compose Specification gelişmeye devam etmektedir. Bir düzenleme
@@ -390,12 +398,14 @@ seviyesinde ele alır; bu bildirinin odağı ise mevcut bir dosyanın en az yan
 etkiyle düzenlenmesidir.
 
 \subsection{Konumlandırma}
-Bildiğimiz kadarıyla, Docker Compose'a özgü tip-farkında düzenlemeyi ve
-ölçülmüş ileriye dönük uyumlu bilinmeyen-özellik korumasını bir arada sunan
-bir C++ kütüphanesi bulunmamaktadır. Bu ifadeyi, taramamızın desteklediği
-sınırlar içinde kullanıyoruz: ComposeMorph yorum veya tam biçim koruma
-konusunda diğer ekosistemlerdeki olgun araçlardan daha iyi değildir ve
-bunu amaçlamaz (Bölüm~\ref{sec:kisitlamalar}).
+İncelediğimiz çalışmalar içinde, Docker Compose yapılarını C++ tarafından
+sınıf tabanlı bir API ile düzenlerken aynı zamanda araç tarafından
+modellenmeyen Compose alanlarını ve \texttt{x-*} alanlarını korumayı
+deneysel olarak değerlendiren bir kütüphaneye rastlanmamıştır. ComposeMorph
+bu boşluğu hedeflemektedir. Bununla birlikte kütüphane, kaynak dosyanın
+yorumlarını ve tüm biçimsel ayrıntılarını koruyan bir CST düzenleyicisi
+değildir; bu sınırlama Bölüm~\ref{sec:kisitlamalar}'da ayrıca ele
+alınmaktadır.
 
 \section{Tasarım}
 \label{sec:tasarim}
@@ -419,7 +429,7 @@ yapılan her değişiklik doğrudan ağaçta gerçekleşir. Böylece kütüphane
 modellemediği kardeş alanlar, düzenleme sırasında hiçbir zaman okunup
 yeniden yazılmaz.
 
-\subsection{Tipli API ile genel API'nin ilişkisi}
+\subsection{Tipli API ile genel alan API'nin ilişkisi}
 Tipli API, spesifikasyonun sık kullanılan alanlarını adlandırılmış
 işlemlerle sunar; örneğin bir imaj etiketini güncellemek tek satırdır:
 
@@ -428,7 +438,7 @@ compose.service("api")\\
 \quad .setImage("company/api:2.0");
 \end{quote}
 
-Modellenmemiş her alan için aynı nesne, nokta-yollu genel bir özellik
+Modellenmemiş her alan için aynı nesne, nokta gösterimli genel bir özellik
 API'si sağlar:
 
 \begin{quote}\ttfamily\footnotesize
@@ -440,10 +450,10 @@ api.remove("deploy.placement.constraints");
 \end{quote}
 
 İki API aynı ağaç üzerinde çalışır ve birbirinin yerine geçebilir: tipli
-işlemler, genel API'nin yapacağı düğüm yazma işleminin adlandırılmış ve
+işlemler, genel alan API'nin yapacağı düğüm yazma işleminin adlandırılmış ve
 tip kontrollü bir kısayoludur. Bu ilişki, ileriye dönük uyumluluğun
 kaynağıdır. Spesifikasyona yarın eklenecek bir alan için kütüphanenin
-güncellenmesi gerekmez; alan genel API ile okunup yazılabilir, hiç
+güncellenmesi gerekmez; alan genel alan API ile okunup yazılabilir, hiç
 dokunulmasa bile dosyada aynen kalır.
 
 \subsection{Kısa ve uzun sözdizimi}
@@ -602,7 +612,7 @@ sözdizimli \texttt{environment}/\texttt{ports}/\texttt{volumes},
 \texttt{networks}, \texttt{depends\_on}, \texttt{healthcheck},
 \texttt{deploy}, \texttt{configs}, \texttt{secrets}, \texttt{labels},
 \texttt{profiles}, \texttt{logging}, \texttt{sysctls}, \texttt{ulimits},
-\texttt{devices}, \texttt{x-*} uzantıları, bilinmeyen özellikler ve iç içe
+\texttt{devices}, \texttt{x-*} alanları, modellenmemiş alanlar ve iç içe
 genel özellikler) izole eder; 2 dosya bunları birlikte içerir; 10 dosya
 sınır durumlarını (anchor/alias ve birleştirme anahtarı, tırnaklı skaler
 biçimleri, yalnızca \texttt{build} içeren servis, Unicode içerik, null ve
@@ -627,19 +637,19 @@ Toplama ve analiz betikleri depoda yayımlanmıştır. Birleşik korpus yine de
 literatürdeki gözlemlerle uyumlu biçimde küçük dosyalara eğilimlidir:
 satır sayısı medyanı 39 (en büyük dosya 2.591 satır), servis sayısı
 medyanı 2 (en fazla 56), üst seviye bölüm sayısı medyanı 2, YAML iç içelik
-derinliği medyanı 4 ve uzantı alanı sayısı medyanı 0'dır. Son değer, uzantı
-ve bilinmeyen alan deneylerinde neden kontrollü işaretçi enjeksiyonuna
+derinliği medyanı 4 ve \texttt{x-*} alanı sayısı medyanı 0'dır. Son değer, \texttt{x-*}
+ve modellenmemiş alan deneylerinde neden kontrollü işaretçi enjeksiyonuna
 başvurduğumuzu açıklar: bu alanlar gerçek dosyalarda doğal olarak nadirdir.
 
 \subsection{Deneyler}
 Yedi deney yürütülmüştür: (1) kimlik round-trip (değişiklik yapmadan
 yükle--kaydet), (2) hedefli değişiklik ve değişiklik yerelliği (on ayrı
-özellik üzerinde), (3--4) bilinmeyen özellik ve \texttt{x-*} uzantı
+özellik üzerinde), (3--4) modellenmemiş alan ve \texttt{x-*} alan
 koruma, (5) \texttt{docker compose config} ile doğrulama, (6) ham yaml-cpp
 ile karşılaştırma, (7) performans. Her deney her iki veri kümesi üzerinde
 de koşulmuştur. Deney 6'da üç araç karşılaştırılır: ComposeMorph; düğümü
 yerinde değiştiren \emph{dikkatli} ham yaml-cpp kodu; ve aynı düzenlemeyi
-ilgili alt ağacı yeniden inşa ederek yapan \emph{naif} ham yaml-cpp kodu.
+ilgili alt ağacı yeniden inşa ederek yapan \emph{saf} ham yaml-cpp kodu.
 Deney 2'de kütüphane \texttt{ports}, \texttt{extra\_hosts} ve
 \texttt{networks} için yerinde değiştirme değil yalnızca ekleme ve çıkarma
 işlemi sunduğundan, bu üç özellikteki hedefli değişiklik listeye tek bir
@@ -659,7 +669,7 @@ düzenleme uzaklığı ile ölçülür. Değişiklik yerelliği için
 beklenen değer tek alanlık bir düzenleme için 1'dir. Aynı dosyanın
 değişiklik yapılmadan kaydedilmesindeki taban gürültü, düzeltilmiş oranda
 gerçekleşen satır sayısından düşülür. Anlamsal koruma iki bağımsız
-oracle ile ölçülür: \texttt{docker compose config} (Compose şemasının
+doğrulama mekanizmasıyla ölçülür: \texttt{docker compose config} (Compose şemasının
 kendi doğrulayıcısı) ve PyYAML ile yeniden yükleme (değerlerin YAML
 tiplerinin korunup korunmadığı). Performans ölçümleri her dosya için 30
 yinelemeyle yapılır; medyan, ortalama, standart sapma ve p95 raporlanır.
@@ -681,7 +691,7 @@ tablolar karşılaştırma için \texttt{results/pre-fix/} altında saklanmışt
 \label{sec:bulgular}
 
 Bu bölümdeki tüm sayılar \texttt{results/tables/} altındaki üretilmiş
-özetlerden alınmıştır. ``Temel çizgi'' sütunları, aynı düzenlemeleri
+özetlerden alınmıştır. ``Karşılaştırma sürümü'' sütunları, aynı düzenlemeleri
 yaml-cpp'nin varsayılan serileştiricisiyle yapan dikkatli ham yaml-cpp
 aracına aittir; bu araç düzeltme öncesi ComposeMorph ile aynı çıktıyı
 üretmektedir (100/100 dosyada bayt düzeyinde özdeş;
@@ -706,7 +716,7 @@ doğrulama sonuçlarını göstermektedir.
 \centering
 \begin{tabular}{lcc}
 \toprule
-Çıktı & ComposeMorph & Temel çizgi \\
+Çıktı & ComposeMorph & Karşılaştırma sürümü \\
 \midrule
 Kimlik round-trip & 491/491 (\%100) & 187/491 (\%38,1) \\
 Hedefli \texttt{image} düzenlemesi & 401/401 (\%100) & 153/401 (\%38,2) \\
@@ -716,7 +726,7 @@ Hedefli \texttt{image} düzenlemesi & 401/401 (\%100) & 153/401 (\%38,2) \\
 \end{tabular}
 \end{table}
 
-Temel çizgide geçersizleşen 552 çıktının 548'i, tırnaklı bir skalerin
+Karşılaştırma sürümüde geçersizleşen 552 çıktının 548'i, tırnaklı bir skalerin
 tırnaksız yazılması sonucu string olması gereken bir alanın sayıya veya
 boolean'a dönüşmesinden kaynaklanmaktadır. Kalan 4 vakada çıktı,
 Docker'ın YAML ayrıştırıcısı için sözdizimsel olarak dahi geçerli
@@ -724,7 +734,7 @@ değildir: kaynakta \texttt{":80"} biçiminde tırnaklanmış bir değer, akış
 dizisi içinde tırnaksız yazıldığında PyYAML ve go-yaml tarafından
 okunamamaktadır. ComposeMorph'un tırnak koruyan serileştiricisiyle bu
 vakaların tamamı ortadan kalkmıştır. Veri Kümesi A'da da ComposeMorph
-çıktılarının tamamı geçerlidir (64/64); temel çizgide yalnızca tırnaklı
+çıktılarının tamamı geçerlidir (64/64); karşılaştırma sürümünde yalnızca tırnaklı
 skaler biçimlerini sınayan dosyanın iki çıktısı reddedilmektedir (62/64).
 
 \subsection{RQ2 --- Koruma}
@@ -732,8 +742,8 @@ Koruma üç ayrı düzeyde ölçülmüştür.
 
 \emph{Yapısal koruma.} Gerçek dosyalara kontrollü olarak eklenen ve
 kütüphanenin modellemediği alanlar, ilgisiz bir alan değiştirildikten
-sonra tüm vakalarda korunmuştur: 802/802 bilinmeyen özellik ve
-1.203/1.203 \texttt{x-*} uzantı alanı örneği (Veri Kümesi A'da 96/96 ve
+sonra tüm vakalarda korunmuştur: 802/802 modellenmemiş alan ve
+1.203/1.203 \texttt{x-*} alanı örneği (Veri Kümesi A'da 96/96 ve
 144/144). Kontrollü sınır durumlarının altısı da (null değerli
 \texttt{x-*}, skaler değerli \texttt{x-*}, liste değerli \texttt{x-*},
 liste biçiminde bilinmeyen üst seviye bölüm, tipli bir bölümün içine
@@ -742,7 +752,7 @@ gömülü \texttt{x-*}) korunmuştur.
 
 \emph{Değer tipleri.} Korpustaki 617 dosyada açıkça tırnaklanmış 9.807
 skaler değer tespit edilmiştir. ComposeMorph ile round-trip sonrasında
-bunların hiçbiri tip değiştirmemiştir. Temel çizgide ise 452 dosyada
+bunların hiçbiri tip değiştirmemiştir. Karşılaştırma sürümüde ise 452 dosyada
 (tırnaklı skaler içeren dosyaların \%73,3'ü) 2.570 değer tip
 değiştirmektedir: tam sayı görünümlü değerlerin \%99,9'u, kayan nokta
 görünümlülerin \%100'ü ve boolean kelimelerinin \%99,5'i. Buna bağlı
@@ -824,8 +834,8 @@ biçimde \texttt{Ports::has} liste elemanlarının string olduğunu varsayar
 
 \subsection{RQ4 --- İleriye Dönük Uyumluluk}
 Kütüphanenin nesne modelinde bulunmayan alanlar, hem \texttt{x-} önekli
-uzantılar hem de gelecekteki spesifikasyon alanlarını temsil eden
-\texttt{x-} öneksiz bilinmeyen özellikler için tam olarak korunmuştur
+\texttt{x-*} alanları hem de gelecekteki spesifikasyon alanlarını temsil eden
+\texttt{x-} öneksiz modellenmemiş alanlar için tam olarak korunmuştur
 (RQ2). Ancak koruma ile geçerlilik aynı şey değildir. Yalnızca
 \texttt{x-*} alanları eklenen dosyaların tamamı
 \texttt{docker compose config} tarafından kabul edilirken (83/83; temel
@@ -833,7 +843,7 @@ uzantılar hem de gelecekteki spesifikasyon alanlarını temsil eden
 hiçbiri kabul edilmemiştir (0/83). Bunun nedeni kütüphane değil, Compose
 şemasının tanınmayan anahtarlara yalnızca \texttt{x-} öneki taşıdıklarında
 izin vermesidir. Pratik sonuç şudur: ileriye dönük uyumluluk için ayrılmış
-resmî mekanizma \texttt{x-*} uzantılarıdır ve kütüphane bu mekanizmayı
+resmî mekanizma \texttt{x-*} alanlarıdır ve kütüphane bu mekanizmayı
 eksiksiz desteklemektedir.
 
 \subsection{RQ5 --- Performans}
@@ -883,11 +893,11 @@ Serileştirme düzeyinde ComposeMorph ile dikkatli ham kullanım arasındaki
 çıktı farkı 100 dosyanın 96'sında yalnızca tırnak karakterlerinden
 ibarettir, 4'ünde çıktı zaten özdeştir; tırnak dışında farklılık yoktur.
 Düzenleme güvenliği düzeyinde ise fark büyüktür (Şekil~\ref{fig:comparison}):
-alt ağacı yeniden inşa eden naif kullanım, ölçülebilen hiçbir vakada
+alt ağacı yeniden inşa eden saf kullanım, ölçülebilen hiçbir vakada
 düzenlenen servisin diğer alanlarını koruyamamıştır (\texttt{image} için 0/149, \texttt{hostname}
 için 0/39, \texttt{env} için 0/116), ComposeMorph ise tümünü korumuştur
-(149/149, 39/39, 116/116). Aynı desen işaretçi alanlarında da görülür:
-naif kullanım servis düzeyindeki 200 işaretçinin tamamını kaybederken üst
+(149/149, 39/39, 116/116). Aynı durum işaretçi alanlarında da görülür:
+saf kullanım servis düzeyindeki 200 işaretçinin tamamını kaybederken üst
 seviyedekilerin tamamını korur; hasar, üzerine yazılan alt ağaçla sınırlıdır.
 
 Şekil~\ref{fig:comparison}, dikkatli ham kullanımın da kardeş alanları
@@ -906,7 +916,7 @@ sorunu nedeniyle ayrıştırılamaz hâle gelmiştir.
 \caption{ComposeMorph ile iki ham yaml-cpp kullanımının karşılaştırması
 (Veri Kümesi B). Solda düzenleme başına değişen satır sayısının medyanı,
 sağda düzenlenen servisin \emph{diğer} alanlarının korunma oranı. Alt
-ağacı yeniden inşa eden naif kullanım hiçbir vakada kardeş alanları
+ağacı yeniden inşa eden saf kullanım hiçbir vakada kardeş alanları
 koruyamamaktadır (\%0, çubuk görünmez). Dikkatli kullanımdaki eksik,
 tırnak kaybı sonucu tip değişiminden kaynaklanır; kardeş alanlar
 yapısal olarak yerindedir.}
@@ -917,9 +927,9 @@ Ergonomi açısından, ComposeMorph'ta on düzenlemenin her biri tek satırdır;
 aynı düzenlemeleri ham yaml-cpp ile doğru yapmak 1 ile 24 satır arasında
 kod gerektirir (\texttt{volume-source} için 24, \texttt{extra-host} için
 22, \texttt{env} için 18 satır). Satır sayısı hatalı kodu ayırt etmez:
-\texttt{env} düzenlemesinde bölümün tamamını yeniden kuran naif sürüm
+\texttt{env} düzenlemesinde bölümün tamamını yeniden kuran saf sürüm
 (6 satır), doğru sürümün üçte biri uzunluğundadır. \texttt{image} ve
-\texttt{hostname} için ise doğru sürüm tek satırdır ve naif sürüm (5 ve 3
+\texttt{hostname} için ise doğru sürüm tek satırdır ve saf sürüm (5 ve 3
 satır) daha uzundur.
 
 \section{Tartışma}
@@ -937,13 +947,13 @@ Düzeltme, yeni bir ara temsil gerektirmez: mevcut etiketin okunması
 yeterlidir. Bu nedenle aynı teknik, yaml-cpp üzerine kurulu diğer
 yapılandırma araçlarına da doğrudan uygulanabilir.
 
-Bulgunun ikinci yüzü, hangi oracle ile bakıldığının sonucu değiştirmesidir.
+Bulgunun ikinci yüzü, hangi doğrulama mekanizmasının kullanıldığının sonucu değiştirmesidir.
 PyYAML'ın YAML 1.1 çözümleme kurallarına göre tip değiştiren her değer,
 Docker'ın kullandığı go-yaml için sorun oluşturmaz; örneğin altmışlık
 sayı biçimi go-yaml'da desteklenmez. Buna karşılık \texttt{version} ya da
 \texttt{command} elemanları gibi şemanın string dayattığı alanlarda hata
 kesindir. Bu yüzden ölçümü tek bir doğrulayıcıya bağlamak yerine iki
-bağımsız oracle kullandık.
+bağımsız doğrulama mekanizması kullandık.
 
 \subsection{Hangi senaryoda ne beklenmeli}
 Kütüphane, otomasyonun dosyaya tek bir alanla dokunduğu senaryolar için
@@ -971,16 +981,15 @@ yeniden yazılmasıdır; bu da onlarca milisaniyeyi aşmaz.
 \subsection{Compose'a özgü API neden fark yaratıyor?}
 Deney 6, farkın nerede olduğunu net biçimde ayırır. Doğru yazılmış ham
 yaml-cpp kodu, ComposeMorph ile aynı yapısal koruma davranışını üretebilir;
-aradaki tek fark serileştiricinin tırnak kararıdır. Yani koruma, sihirli
-bir algoritmanın değil, doğru düzenleme tekniğinin sonucudur. Ancak bu
-tekniği her çağrı yerinde doğru uygulamak programcının sorumluluğundadır
+aradaki tek fark serileştiricinin tırnak kararıdır. Yani koruma davranışı özel bir algoritmadan değil, YAML ağacının doğru biçimde düzenlenmesinden kaynaklanır. Ancak bu
+tekniği her çağrı yerinde doğru uygulamak uygulama geliştiricisinin sorumluluğundadır
 ve yanlış uygulamak her zaman daha fazla emek gerektirmez: \texttt{env}
 örneğinde alt ağacı yeniden inşa eden sürüm doğru sürümün üçte biri
 uzunluğundadır ve sorunsuz derlenir; kayıp yalnızca çalışma zamanında,
 üstelik sessizce görülür.
-Tipli API'nin katkısı, doğru olanı varsayılan yol hâline getirmesidir.
+ComposeMorph API'sinin temel katkısı, güvenli düzenleme biçimini varsayılan kullanım modeli hâline getirmesidir.
 Aynı gözlem kısa sözdizimi hatasında da doğrulanmıştır: liste biçimli
-\texttt{environment} bölümünü eşlemeye çeviren davranış, naif ham
+\texttt{environment} bölümünü eşlemeye çeviren davranış, saf ham
 kullanımda da kütüphanenin ilk sürümünde de ortaya çıkmıştır. Dikkatli ham
 sürümün \texttt{env} için 18 satır tutmasının nedeni de liste biçimini
 ayrıca ele almasıdır.
@@ -996,9 +1005,9 @@ interpolasyon içeren imaj adlarını bozmuş ve 11 dosyada kütüphaneye ait
 olmayan bir hata üretmişti; bu, doğrulama çıktılarında ayrı bir kategori
 olarak görünmüş ve düzeltilmiştir. Koruma deneylerinde kullanılan
 bilinmeyen ve \texttt{x-*} alanlar sentetiktir; gerçek dosyalarda bu
-alanların nadir olması (uzantı alanı sayısı medyanı 0) nedeniyle
+alanların nadir olması (\texttt{x-*} alanı sayısı medyanı 0) nedeniyle
 enjeksiyona başvurulmuştur, dolayısıyla ölçülen koruma oranı bu kalıplar
-için geçerlidir. Karşılaştırmadaki ``naif'' ham yaml-cpp kodu da bizim
+için geçerlidir. Karşılaştırmadaki ``saf'' ham yaml-cpp kodu da bizim
 yazdığımız bir temsildir; gerçek projelerdeki hatalı kullanımların
 dağılımını temsil ettiği iddia edilmemektedir.
 
@@ -1020,7 +1029,7 @@ Değişen satır sayısı, kullanıcının algıladığı koruma kalitesini tam 
 temsil etmez: aynı sayıda satır değişikliği, bir dosyada zararsız bir
 yeniden girintileme, başka bir dosyada anlam değiştiren bir düzenleme
 olabilir. Bu riski azaltmak için metinsel ölçümleri iki bağımsız anlamsal
-oracle ile birlikte raporladık: \texttt{docker compose config} ve PyYAML
+doğrulama mekanizmasıyla birlikte raporladık: \texttt{docker compose config} ve PyYAML
 ile yeniden yükleme. Tip değişimi ölçümünde PyYAML'ın YAML 1.1 çözümleme
 kuralları bir vekil olarak kullanılmıştır; Docker'ın kullandığı go-yaml
 bazı biçimleri farklı çözümlediğinden, PyYAML'a göre tip değiştiren her
@@ -1032,9 +1041,9 @@ Sonuçlar belirli sürümlere bağlıdır: yaml-cpp 0.8.0, Docker Compose
 2.26.1, GCC 14.2.0 ve ölçüm tarihindeki Compose Specification. Hem
 spesifikasyon hem de \texttt{docker compose} uygulaması zamanla
 değişmektedir; örneğin şemanın \texttt{version} alanına ilişkin
-katılığı değişirse, bulgulardaki (Bölüm~\ref{sec:bulgular}) temel çizgi
+katılığı değişirse, bulgulardaki (Bölüm~\ref{sec:bulgular}) karşılaştırma sürümü
 oranları da değişir. Aynı biçimde, yaml-cpp ileride tırnak bilgisini serileştirmede
-kullanmaya başlarsa temel çizgi ile ComposeMorph arasındaki fark
+kullanmaya başlarsa karşılaştırma sürümüyle ComposeMorph arasındaki fark
 kapanacaktır. Tüm deneyler tek komutla yeniden koşulabildiği için bu
 sayılar yeni sürümlerde güncellenebilir.
 
@@ -1075,7 +1084,7 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
     kapsamı dışında bırakılmıştır.
   \item \textbf{\texttt{x-} öneksiz bilinmeyen alanlar şemaya aykırıdır.}
     Kütüphane bu alanları eksiksiz korur, ancak Compose şeması yalnızca
-    \texttt{x-} önekli uzantılara izin verdiğinden dosya
+    \texttt{x-} önekli alanlara izin verdiğinden dosya
     \texttt{docker compose config} tarafından reddedilir. Bu, kütüphaneden
     bağımsız bir spesifikasyon kısıtıdır.
   \item \textbf{Doğrulama yüzeyseldir.} Kütüphane içindeki
@@ -1090,7 +1099,7 @@ Aşağıdaki sınırlar ölçülmüş ve gizlenmemiştir.
 
 Docker Compose dosyalarının programatik olarak değiştirilmesi, YAML
 sözdizimini ayrıştırmaktan ibaret değildir: dosyada aracın modellemediği
-alanlar, kullanıcı uzantıları, farklı sözdizimi gösterimleri ve anlam
+alanlar, kullanıcı tanımlı \texttt{x-*} alanları, farklı sözdizimi gösterimleri ve anlam
 taşıyan tırnak tercihleri bulunur. Bu bildiride, bu problemi C++ tarafında
 ele alan ComposeMorph kütüphanesini sunduk ve çözülebilen ile
 çözülemeyeni 647 gerçek dünya ve 38 kontrollü Compose dosyası üzerinde
@@ -1098,7 +1107,7 @@ yedi deneyle ölçtük.
 
 Sonuçlar üç noktada toplanabilir. Birincisi, düzenlemeyi düğüm ağacında
 yerinde yapmak, modellenmemiş alanların korunması için yeterlidir:
-dosyalara eklenen bilinmeyen özelliklerin ve \texttt{x-*} uzantılarının
+dosyalara eklenen modellenmemiş alanların ve \texttt{x-*} alanlarının
 tamamı korunmuştur.
 İkincisi, düğüm ağacı tabanlı serileştirme sessiz bir tip değişimi
 kusuru barındırır; ayrıştırıcının sakladığı tırnak bilgisinin
