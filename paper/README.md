@@ -36,6 +36,31 @@ from the numbers in `../results/tables/comparison_summary.md`, section 2.
 If that table changes, update the coordinates in `paper.tex`. The English
 figures under `../results/figures/` stay the repository's record.
 
+## GLOBCER'26 sürümü
+
+`paper.tex` is the source of record. GLOBCER's full-paper template is a
+single-column Word layout (A4, Times New Roman 12pt, run-in bold abstract,
+Roman section numbers, table captions above and figure captions below), so
+two generated variants are kept in step with it:
+
+`paper_globcer.tex` -- the same text re-wrapped in that layout.
+Regenerate with `python3 scripts/make_globcer_version.py`. Compiles
+stand-alone (19 pages at 12pt).
+
+`paper_globcer.docx` -- Word version of the same text, produced by
+`python3 scripts/make_globcer_docx.py` (LaTeX -> HTML -> LibreOffice).
+Figure 2 is redrawn with matplotlib and embedded; Figure 1 stays a
+monospaced block. LibreOffice's own "Body Text" defaults (1.15 line
+spacing, 6pt after each paragraph, no first-line indent) do not match the
+template, so the script rewrites `word/styles.xml` afterwards: 1.05 line
+spacing, no space between paragraphs, 0.5 cm first-line indent, with the
+indent cleared on abstract, caption, figure and reference paragraphs. Paste its contents into the official GLOBCER template
+file so the conference header, logo and page frame come from the template
+itself -- this file carries the text, not those decorations.
+
+Both are generated; do not edit them by hand, edit `paper.tex` and re-run
+the scripts.
+
 ## Building
 
 The source compiles with pdfLaTeX (Overleaf's default) and with
