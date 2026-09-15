@@ -76,7 +76,18 @@ yaml-cpp tabanlı serileştirmede sessiz bir tip değişimi kusuru ortaya
 \texttt{docker compose config} çıktıların yalnızca \%38,1'ini kabul
 etmektedir. Ayrıştırıcının sakladığı tırnak bilgisini kullanan
 serileştirme bu oranı \%100'e çıkarmakta ve ölçülebilir bir performans
-bedeli getirmemektedir. Tüm veri kümeleri, betikler ve ham sonuçlar tek
+bedeli getirmemektedir: eşleşik ölçümde tırnak koruyan serileştirici
+yaml-cpp'nin kendi serileştiricisinden \%3--21 daha hızlıdır ve en büyük
+dosyalarda bile yükle--değiştir--kaydet toplamı 27 milisaniyenin altında
+kalmaktadır. Kaydetmenin taban gürültüsü düşüldüğünde, ölçülen on
+özelliğin tamamında düzenlemenin kendi katkısı tek satırla sınırlıdır.
+Buna karşılık sağlanan koruma yapısaldır, tam anlamıyla metinsel
+değildir: yorumlar ve boş satırlar korunmadığı için dosyaların yalnızca
+\%4,0'ü değişiklik yapılmadan kaydedildiğinde bayt düzeyinde aynı kalır.
+Ham yaml-cpp ile yapılan karşılaştırma, korumanın kaynağının bir algoritma
+değil API tasarımı olduğunu göstermektedir: düzenlenen alt ağacı yeniden
+inşa eden, makul görünümlü ham kod ölçülen hiçbir vakada servisin kardeş
+alanlarını koruyamamıştır. Tüm veri kümeleri, betikler ve ham sonuçlar tek
 komutla yeniden üretilebilir biçimde yayımlanmıştır.
 \end{abstract}
 
@@ -394,7 +405,7 @@ Ibrahim ve arkadaşları 4.103 GitHub projesinde Compose kullanımını
 incelemiş, dosyaların büyük bölümünün küçük ve seyrek değiştirilen
 yapılandırmalar olduğunu raporlamıştır~\cite{ibrahim2021dockercompose};
 Eng ve arkadaşları gerçek projelerden çok konteynerli kompozisyon
-örüntülerini kataloglamıştır~\cite{eng2023patterns}. Bu çalışmalar,
+örüntülerini kataloglamıştır~\cite{eng2024patterns}. Bu çalışmalar,
 GitHub kaynaklı Compose korpuslarının bu tür değerlendirmeler için
 yerleşik bir veri kaynağı olduğunu göstermesi bakımından yöntemimizi
 destekler. Daha geniş çerçevede, YAML'ın model yönetimi dilleriyle
@@ -602,7 +613,7 @@ yazılmış gerileme (regression) testleridir.
 
 Kütüphanenin kendisi yaklaşık 2.100 satırdır (1.495 satır kaynak, 606
 satır başlık). Değerlendirme altyapısı ayrıca beş adet C++ ölçüm aracı
-(toplam 557 satır) ve on bir Python betiği (toplam yaklaşık 3.970 satır)
+(toplam 557 satır) ve on iki Python betiği (toplam yaklaşık 4.140 satır)
 içerir. Depoda \texttt{src/} ve
 \texttt{include/} kütüphaneyi, \texttt{benchmarks/} ölçüm araçlarını,
 \texttt{datasets/} iki veri kümesini, \texttt{scripts/} deney
@@ -1081,7 +1092,7 @@ oluşur ve tüm gerçek kullanım biçimlerini temsil etmeyebilir; özel
 depolardaki, kurum içi üretim ortamlarındaki dosyalar farklı özellikler
 taşıyabilir. Korpusun küçük dosyalara eğilimli olması, aynı ekosistem
 üzerine yapılan daha geniş ölçekli ampirik çalışmalarla
-uyumludur~\cite{ibrahim2021dockercompose,eng2023patterns}. Ancak büyük
+uyumludur~\cite{ibrahim2021dockercompose,eng2024patterns}. Ancak büyük
 dosyalar ayrı bir toplama adımıyla eklendiğinden, korpusun boyut dağılımı
 GitHub'daki doğal dağılımı birebir yansıtmaz. Buna rağmen 2.000 satırın
 üzerinde yalnızca iki dosya bulunduğundan, en büyük boyut grubuna ait
@@ -1201,7 +1212,7 @@ manifestoları gibi diğer yapılandırma biçimlerine uygulanması.
 ``The Compose specification,'' \url{https://github.com/compose-spec/compose-spec}, 2026.
 
 \bibitem{ibrahim2021dockercompose}
-M.~H. Ibrahim, M.~Sayagh ve A.~E. Hassan, ``A study of how {Docker Compose} is used to compose multi-component systems,'' \emph{Empirical Software Engineering}, vol.~26, 2021.
+M.~H. Ibrahim, M.~Sayagh ve A.~E. Hassan, ``A study of how {Docker Compose} is used to compose multi-component systems,'' \emph{Empirical Software Engineering}, vol.~26, 2021. \url{https://doi.org/10.1007/s10664-021-10025-1}
 
 \bibitem{yamlcpp}
 J.~Beder ve katkıda bulunanlar, ``yaml-cpp: A {YAML} parser and emitter in {C++},'' \url{https://github.com/jbeder/yaml-cpp}, 2026.
@@ -1231,7 +1242,7 @@ E.~Aro, ``yaml: {YAML} parser and serialiser for {JavaScript},'' \url{https://gi
 ``Support for emitting and parsing comments (\#42),'' \url{https://github.com/yaml/libyaml/issues/42}, libyaml hata kayıt sistemi, 2016.
 
 \bibitem{rapidyaml}
-P.~R.~M.~J. (biojppm) ve katkıda bulunanlar, ``rapidyaml (ryml): A library to parse and emit {YAML}, fast,'' \url{https://github.com/biojppm/rapidyaml}, 2026.
+J.~P. Magalhães ve katkıda bulunanlar, ``rapidyaml (ryml): A library to parse and emit {YAML}, fast,'' \url{https://github.com/biojppm/rapidyaml}, 2026.
 
 \bibitem{rapidyaml_issue30}
 ``Preserving scalar type information when emitting (\#30),'' \url{https://github.com/biojppm/rapidyaml/issues/30}, rapidyaml hata kayıt sistemi, 2020.
@@ -1260,8 +1271,8 @@ T.~Tosi, ``fishfinger: A {Go} docker-compose programmatic library,'' \url{https:
 \bibitem{dockercomposeyamlparser}
 ``docker-compose-yaml-parser: Parse and modify docker-compose.yaml files,'' \url{https://github.com/WisdomSky/docker-compose-yaml-parser}, 2026.
 
-\bibitem{eng2023patterns}
-K.~Eng, A.~Hindle ve E.~Stroulia, ``Patterns of multi-container composition for service orchestration with {Docker Compose},'' 2023.
+\bibitem{eng2024patterns}
+K.~Eng, A.~Hindle ve E.~Stroulia, ``Patterns of multi-container composition for service orchestration with {Docker Compose},'' \emph{Empirical Software Engineering}, vol.~29, no.~3, makale 65, 2024. \url{https://doi.org/10.1007/s10664-024-10462-8}
 
 \bibitem{predoaia2024yaml}
 I.~Predoaia, D.~Kolovos, A.~Garcia-Dominguez, M.~Lenk, W.~Ebel ve J.~Burkl, ``Towards processing {YAML} documents with model management languages,'' \emph{Companion Proceedings of MODELS '24} içinde, Linz, Avusturya, 2024.
