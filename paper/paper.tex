@@ -68,9 +68,10 @@ tarafında Docker Compose yapılarını doğrudan ele alan ve modellenmemiş
 alanların korunmasını hedefleyen ortak bir düzenleme kütüphanesi
 bulunmamaktadır. Bu bildiride, Compose yapısını doğrudan temsil eden sınıf
 tabanlı bir C++ API sunan ve değişiklikleri mevcut YAML düğüm ağacı üzerinde
-gerçekleştiren ComposeMorph'u sunuyoruz. 647 gerçek dünya ve 38 kontrollü Compose dosyası
-üzerinde yedi deneyle doğruluk, koruma, değişiklik yerelliği, ileriye
-dönük uyumluluk ve performansı ölçtük. Dosyalara eklenen 802 bilinmeyen
+gerçekleştiren ComposeMorph'u sunuyoruz. 647 gerçek dünya ve 38 kontrollü 
+Compose dosyasından oluşan veri kümesi üzerinde gerçekleştirilen yedi 
+deneyle; doğruluk, yapı koruma, değişikliklerin yerelliği, ileriye dönük 
+uyumluluk ve performans değerlendirildi. Dosyalara eklenen 802 bilinmeyen
 özelliğin ve 1.203 \texttt{x-*} alanının tamamı korunmaktadır.
 Değerlendirme ayrıca
 yaml-cpp tabanlı serileştirmede sessiz bir tip değişimi kusuru ortaya
@@ -89,8 +90,8 @@ değildir: yorumlar ve boş satırlar korunmadığı için dosyaların yalnızca
 Ham yaml-cpp ile yapılan karşılaştırma, korumanın kaynağının bir algoritma
 değil API tasarımı olduğunu göstermektedir: düzenlenen alt ağacı yeniden
 inşa eden, makul görünümlü ham kod ölçülen hiçbir vakada servisin kardeş
-alanlarını koruyamamıştır. Tüm veri kümeleri, betikler ve ham sonuçlar tek
-komutla yeniden üretilebilir biçimde yayımlanmıştır.
+alanlarını koruyamamıştır. Tüm veri kümeleri, betikler ve ham sonuçlar 
+yeniden üretilebilirlik gözetilerek yayımlanmıştır.
 \end{abstract}
 
 \begin{IEEEkeywords}
