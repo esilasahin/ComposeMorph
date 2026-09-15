@@ -19,7 +19,8 @@ and the placeholder results ("preliminary validation ... currently
 underway") are replaced by the measured ones.
 
 `paper.tex` -- IEEEtran-format paper source (`babel[turkish]`), complete:
-abstract plus twelve sections, three tables and one figure. The
+abstract plus twelve sections, three tables and two figures (the object
+model is drawn in the source itself). The
 bibliography is embedded as a `thebibliography` block, so the source
 compiles on its own with no BibTeX pass.
 
@@ -29,17 +30,43 @@ connecting text), kept as the editable source of record (see
 `paper.tex` any more: if you change a reference, change it in both places,
 or switch `paper.tex` back to `\bibliography{references}`.
 
-`figures/` -- the paper's figure with Turkish axis labels and no in-figure
-title (`comparison_yamlcpp_tr.pdf`), re-plotted from `../results/raw/` by
-`../scripts/make_paper_figures.py` (also run at the end of
-`../scripts/run-all-experiments.sh`). The English figures under
-`../results/figures/` stay the repository's record. `\graphicspath` looks in
-`figures/` first, then `../results/figures/`, then next to `paper.tex`, so a
-flat upload works.
+The paper has no external image files: Figure 1 (object model) is a
+`verbatim` block and Figure 2 (Experiment 6) is drawn with `pgfplots`
+from the numbers in `../results/tables/comparison_summary.md`, section 2.
+If that table changes, update the coordinates in `paper.tex`. The English
+figures under `../results/figures/` stay the repository's record.
+
+## GLOBCER'26 sürümü
+
+`paper.tex` is the source of record. GLOBCER's full-paper template is a
+single-column Word layout (A4, Times New Roman 12pt, run-in bold abstract,
+Roman section numbers, table captions above and figure captions below), so
+two generated variants are kept in step with it:
+
+`paper_globcer.tex` -- the same text re-wrapped in that layout.
+Regenerate with `python3 scripts/make_globcer_version.py`. Compiles
+stand-alone (19 pages at 12pt).
+
+`paper_globcer.docx` -- Word version of the same text, produced by
+`python3 scripts/make_globcer_docx.py` (LaTeX -> HTML -> LibreOffice).
+Figure 2 is redrawn with matplotlib and embedded; Figure 1 stays a
+monospaced block. LibreOffice's own "Body Text" defaults (1.15 line
+spacing, 6pt after each paragraph, no first-line indent) do not match the
+template, so the script rewrites `word/styles.xml` afterwards: 1.05 line
+spacing, no space between paragraphs, 0.5 cm first-line indent, with the
+indent cleared on abstract, caption, figure and reference paragraphs. Paste its contents into the official GLOBCER template
+file so the conference header, logo and page frame come from the template
+itself -- this file carries the text, not those decorations.
+
+Both are generated; do not edit them by hand, edit `paper.tex` and re-run
+the scripts.
 
 ## Building
 
-This repo's dev environment has no TeX toolchain installed. To build:
+The source compiles with pdfLaTeX (Overleaf's default) and with
+XeLaTeX/LuaLaTeX: an `iftex` switch loads `inputenc`/`fontenc` for
+pdfLaTeX and `fontspec` with TeX Gyre Termes/Cursor otherwise, so Turkish
+letters never render as empty boxes. To build:
 
 ```
 pdflatex paper.tex
@@ -52,9 +79,12 @@ pdflatex paper.tex
 latexmk -pdf paper.tex
 ```
 
-For Overleaf: upload `paper.tex` together with
-`figures/comparison_yamlcpp_tr.pdf` (or its `.png` variant), and pick the
-"IEEE Conference" template.
+For Overleaf: `paper.tex` alone is enough -- no figures to upload, and
+`IEEEtran.cls` and `pgfplots` are part of Overleaf's TeX Live.
+
+`\IEEEtriggeratref{13}` just before the bibliography balances the two
+columns on the last page; if the text length changes, move it to the
+reference that sits about halfway down the last page's references.
 
 ## Status
 
@@ -82,6 +112,6 @@ Known pre-submission items:
   Re-run Experiment 7 (`scripts/run_performance_experiment.py`) on an
   otherwise idle machine before submitting; the paired serializer
   comparison in the same table is in-process and unaffected.
-- Length is roughly 7,000 words plus three tables and one figure (the
-  attached PDF of the earlier draft ran to 10 pages). Check it
+- Length is roughly 7,000 words plus three tables and two figures, 11
+  pages in IEEE two-column format. Check it
   against the venue's page limit.
