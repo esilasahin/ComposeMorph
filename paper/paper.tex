@@ -1,8 +1,17 @@
 \documentclass[conference]{IEEEtran}
 
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
+\usepackage{fontspec}
+
+\setmainfont{texgyretermes}[
+    Extension = .otf,
+    UprightFont = *-regular,
+    ItalicFont = *-italic,
+    BoldFont = *-bold,
+    BoldItalicFont = *-bolditalic
+]
+
 \usepackage[english,turkish,shorthands=off]{babel}
+
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
