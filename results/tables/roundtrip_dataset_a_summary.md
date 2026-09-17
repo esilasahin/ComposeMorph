@@ -19,4 +19,4 @@ Files evaluated: **38**
 
 ## Performance (informational, see Experiment 7 for the full benchmark)
 
-- Load+save+reload wall time per file: mean=0.0033, median=0.0032, stdev=0.0005, max=0.0047 seconds
+- Load+save+reload wall time per file: mean=0.0030, median=0.0031, stdev=0.0006, max=0.0039 seconds

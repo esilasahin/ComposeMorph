@@ -35,11 +35,19 @@ target_link_libraries(composemorph PUBLIC yaml-cpp)
 # dış projeler için alias (Milestone 2 sonrası eklenen tüketiciler kırılmasın diye).
 add_library(compose-editor ALIAS composemorph)
 
+# Kapsam ölçümü (Madde 25): -DCOMPOSEMORPH_COVERAGE=ON ile gcov verisi üretilir.
+option(COMPOSEMORPH_COVERAGE "Enable gcov instrumentation for coverage reports" OFF)
+if(COMPOSEMORPH_COVERAGE)
+    target_compile_options(composemorph PUBLIC --coverage -O0 -g)
+    target_link_options(composemorph PUBLIC --coverage)
+endif()
+
 # Testleri etkinleştir
 enable_testing()
 
 # Google Test çalıştırılabilir hedefi
-add_executable(unit_tests tests/UnitTests.cpp)
+file(GLOB COMPOSE_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+add_executable(unit_tests ${COMPOSE_TEST_SOURCES})
 target_link_libraries(unit_tests PRIVATE composemorph GTest::GTest GTest::Main)
 # Test verisinin mutlak yolu: testler hangi derleme dizininden çalışırsa çalışsın bulunur.
 target_compile_definitions(unit_tests PRIVATE
@@ -69,3 +77,10 @@ add_executable(perf_tool benchmarks/performance/perf_tool.cpp)
 target_link_libraries(perf_tool PRIVATE composemorph)
 # Serializer-only overhead measurement needs the library's internal header.
 target_include_directories(perf_tool PRIVATE src)
+# Görev tanımı Madde 26: örnek kullanım programları
+file(GLOB COMPOSE_EXAMPLES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/examples/*.cpp)
+foreach(example_file ${COMPOSE_EXAMPLES})
+    get_filename_component(example_name ${example_file} NAME_WE)
+    add_executable(${example_name} ${example_file})
+    target_link_libraries(${example_name} PRIVATE composemorph)
+endforeach()

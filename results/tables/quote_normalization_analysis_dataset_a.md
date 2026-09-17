@@ -63,8 +63,8 @@ Each cell gives the resolved type after the round-trip in an `environment:` valu
 | healthcheck | 8 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
 | ports element | 8 | 2 (25.0%) | 0/1 | 0 (0.0%) | n/a |
 | labels value | 5 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
-| version | 4 | 4 (100.0%) | 1/1 | 0 (0.0%) | n/a |
 | deploy resources (cpus/memory/replicas) | 4 | 4 (100.0%) | 0/1 | 0 (0.0%) | n/a |
+| version | 4 | 4 (100.0%) | 1/1 | 0 (0.0%) | n/a |
 | command/entrypoint element | 4 | 1 (25.0%) | 1/1 | 0 (0.0%) | n/a |
 | build args/context | 2 | 0 (0.0%) | n/a | 0 (0.0%) | n/a |
 

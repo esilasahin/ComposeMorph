@@ -26,4 +26,4 @@ Derived from committed datasets and raw outputs; see the script docstring (`scri
 
 ## 4. Experiment 7: cold first iteration of the modify step
 
-- Files: 59; modify_ms at iteration 0: median=1.26ms, max=2.08ms.
+- Files: 59; modify_ms at iteration 0: median=0.80ms, max=1.07ms.

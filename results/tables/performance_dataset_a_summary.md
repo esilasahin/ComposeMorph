@@ -16,20 +16,20 @@
 
 ### Small (<100 lines) -- 35 file(s)
 
-- load_ms: mean=0.095ms, median=0.085ms, stdev=0.048ms, p95=0.211ms
-- modify_ms: mean=0.053ms, median=0.004ms, stdev=0.259ms, p95=0.012ms
-- save_ms: mean=0.140ms, median=0.123ms, stdev=0.076ms, p95=0.272ms
-- total_ms: mean=0.288ms, median=0.212ms, stdev=0.323ms, p95=0.526ms
-- peak RSS: mean=4.671MiB, median=4.664MiB, stdev=0.033MiB, p95=4.719MiB
+- load_ms: mean=0.058ms, median=0.052ms, stdev=0.026ms, p95=0.121ms
+- modify_ms: mean=0.031ms, median=0.003ms, stdev=0.155ms, p95=0.007ms
+- save_ms: mean=0.101ms, median=0.088ms, stdev=0.249ms, p95=0.183ms
+- total_ms: mean=0.190ms, median=0.143ms, stdev=0.314ms, p95=0.315ms
+- peak RSS: mean=4.625MiB, median=4.613MiB, stdev=0.038MiB, p95=4.676MiB
 - file line count range: 3-32
 
 ### Medium (100-500 lines) -- 1 file(s)
 
-- load_ms: mean=0.639ms, median=0.636ms, stdev=0.023ms, p95=0.678ms
-- modify_ms: mean=0.048ms, median=0.010ms, stdev=0.204ms, p95=0.013ms
-- save_ms: mean=0.521ms, median=0.518ms, stdev=0.037ms, p95=0.543ms
-- total_ms: mean=1.208ms, median=1.160ms, stdev=0.241ms, p95=1.252ms
-- peak RSS: mean=4.824MiB, median=4.824MiB, stdev=0.000MiB, p95=4.824MiB
+- load_ms: mean=0.356ms, median=0.333ms, stdev=0.055ms, p95=0.448ms
+- modify_ms: mean=0.032ms, median=0.006ms, stdev=0.141ms, p95=0.011ms
+- save_ms: mean=0.314ms, median=0.290ms, stdev=0.065ms, p95=0.411ms
+- total_ms: mean=0.702ms, median=0.627ms, stdev=0.224ms, p95=0.851ms
+- peak RSS: mean=4.809MiB, median=4.809MiB, stdev=0.000MiB, p95=4.809MiB
 - file line count range: 118-118
 
 ### Large (500-2000 lines) -- 0 file(s)
@@ -46,8 +46,8 @@ Both serializers write the same loaded tree to memory inside the same process, i
 
 | Bucket | Pairs | yaml-cpp median (ms) | quote-preserving median (ms) | median ratio | Wilcoxon z | p |
 |---|---|---|---|---|---|---|
-| Small (<100 lines) | 1050 | 0.050 | 0.049 | 0.974 | -5.39 | 7.14e-08 |
-| Medium (100-500 lines) | 30 | 0.484 | 0.453 | 0.930 | -4.78 | 1.73e-06 |
+| Small (<100 lines) | 1050 | 0.028 | 0.028 | 0.956 | -3.57 | 0.000351 |
+| Medium (100-500 lines) | 30 | 0.252 | 0.237 | 0.944 | -3.77 | 0.00016 |
 
 Ratio < 1 means the quote-preserving serializer is faster; z < 0 means its times are systematically lower.
 
