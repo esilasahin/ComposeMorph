@@ -16,38 +16,38 @@
 
 ### Small (<100 lines) -- 17 file(s)
 
-- load_ms: mean=0.335ms, median=0.286ms, stdev=0.161ms, p95=0.633ms
-- modify_ms: mean=0.048ms, median=0.006ms, stdev=0.242ms, p95=0.012ms
-- save_ms: mean=0.348ms, median=0.309ms, stdev=0.370ms, p95=0.650ms
-- total_ms: mean=0.732ms, median=0.605ms, stdev=0.540ms, p95=1.388ms
-- peak RSS: mean=4.738MiB, median=4.742MiB, stdev=0.065MiB, p95=4.805MiB
+- load_ms: mean=0.166ms, median=0.148ms, stdev=0.078ms, p95=0.328ms
+- modify_ms: mean=0.026ms, median=0.003ms, stdev=0.134ms, p95=0.006ms
+- save_ms: mean=0.166ms, median=0.146ms, stdev=0.080ms, p95=0.293ms
+- total_ms: mean=0.357ms, median=0.306ms, stdev=0.227ms, p95=0.638ms
+- peak RSS: mean=4.691MiB, median=4.680MiB, stdev=0.057MiB, p95=4.801MiB
 - file line count range: 16-93
 
 ### Medium (100-500 lines) -- 20 file(s)
 
-- load_ms: mean=1.355ms, median=1.307ms, stdev=0.548ms, p95=2.291ms
-- modify_ms: mean=0.059ms, median=0.015ms, stdev=0.242ms, p95=0.033ms
-- save_ms: mean=1.175ms, median=1.115ms, stdev=0.494ms, p95=2.007ms
-- total_ms: mean=2.589ms, median=2.457ms, stdev=1.095ms, p95=4.343ms
-- peak RSS: mean=5.020MiB, median=4.990MiB, stdev=0.174MiB, p95=5.352MiB
+- load_ms: mean=0.662ms, median=0.635ms, stdev=0.252ms, p95=1.093ms
+- modify_ms: mean=0.032ms, median=0.007ms, stdev=0.140ms, p95=0.012ms
+- save_ms: mean=0.576ms, median=0.554ms, stdev=0.228ms, p95=0.982ms
+- total_ms: mean=1.271ms, median=1.208ms, stdev=0.525ms, p95=2.110ms
+- peak RSS: mean=4.981MiB, median=4.971MiB, stdev=0.166MiB, p95=5.246MiB
 - file line count range: 101-384
 
 ### Large (500-2000 lines) -- 20 file(s)
 
-- load_ms: mean=5.594ms, median=4.579ms, stdev=2.982ms, p95=13.820ms
-- modify_ms: mean=0.082ms, median=0.038ms, stdev=0.222ms, p95=0.106ms
-- save_ms: mean=4.685ms, median=3.567ms, stdev=3.187ms, p95=13.185ms
-- total_ms: mean=10.362ms, median=8.281ms, stdev=6.181ms, p95=26.998ms
-- peak RSS: mean=6.007MiB, median=5.711MiB, stdev=0.824MiB, p95=7.488MiB
+- load_ms: mean=2.849ms, median=2.247ms, stdev=1.550ms, p95=6.797ms
+- modify_ms: mean=0.041ms, median=0.019ms, stdev=0.118ms, p95=0.057ms
+- save_ms: mean=2.420ms, median=1.963ms, stdev=1.655ms, p95=6.341ms
+- total_ms: mean=5.311ms, median=4.256ms, stdev=3.211ms, p95=13.369ms
+- peak RSS: mean=5.966MiB, median=5.666MiB, stdev=0.819MiB, p95=7.434MiB
 - file line count range: 505-1870
 
 ### XLarge (>2000 lines) -- 2 file(s)
 
-- load_ms: mean=15.438ms, median=15.828ms, stdev=1.725ms, p95=17.357ms
-- modify_ms: mean=0.165ms, median=0.139ms, stdev=0.194ms, p95=0.151ms
-- save_ms: mean=11.090ms, median=10.848ms, stdev=1.017ms, p95=12.310ms
-- total_ms: mean=26.692ms, median=27.166ms, stdev=2.122ms, p95=29.952ms
-- peak RSS: mean=8.201MiB, median=8.201MiB, stdev=0.088MiB, p95=8.289MiB
+- load_ms: mean=8.559ms, median=8.624ms, stdev=0.999ms, p95=9.702ms
+- modify_ms: mean=0.089ms, median=0.076ms, stdev=0.108ms, p95=0.090ms
+- save_ms: mean=6.255ms, median=6.167ms, stdev=0.502ms, p95=6.829ms
+- total_ms: mean=14.903ms, median=15.227ms, stdev=1.127ms, p95=16.502ms
+- peak RSS: mean=8.154MiB, median=8.154MiB, stdev=0.143MiB, p95=8.297MiB
 - file line count range: 2057-2591
 
 ## Serializer cost: yaml-cpp's emitter vs. ComposeMorph's quote-preserving serializer
@@ -56,10 +56,10 @@ Both serializers write the same loaded tree to memory inside the same process, i
 
 | Bucket | Pairs | yaml-cpp median (ms) | quote-preserving median (ms) | median ratio | Wilcoxon z | p |
 |---|---|---|---|---|---|---|
-| Small (<100 lines) | 510 | 0.225 | 0.204 | 0.966 | -11.98 | 4.74e-33 |
-| Medium (100-500 lines) | 600 | 1.059 | 0.997 | 0.944 | -17.60 | 2.47e-69 |
-| Large (500-2000 lines) | 600 | 4.480 | 3.427 | 0.944 | -16.84 | 1.19e-63 |
-| XLarge (>2000 lines) | 60 | 15.025 | 10.659 | 0.785 | -6.74 | 1.63e-11 |
+| Small (<100 lines) | 510 | 0.114 | 0.115 | 0.965 | -10.53 | 5.98e-26 |
+| Medium (100-500 lines) | 600 | 0.522 | 0.511 | 0.945 | -17.55 | 6.2e-69 |
+| Large (500-2000 lines) | 600 | 2.190 | 1.868 | 0.960 | -15.53 | 2.33e-54 |
+| XLarge (>2000 lines) | 60 | 8.287 | 6.001 | 0.821 | -6.52 | 7.27e-11 |
 
 Ratio < 1 means the quote-preserving serializer is faster; z < 0 means its times are systematically lower.
 

@@ -12,10 +12,10 @@ Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. Adjus
 | hostname | 1 | 1/1 | 15.0 | 0.0667 | 1.0000 |
 | restart | 3 | 3/3 | 5.0 | 0.2000 | 1.0000 |
 | env | 11 | 11/11 | 2.0 | 0.5000 | 1.0000 |
-| port | 5 | 3/5 | 4.0 | 0.2500 | 1.0000 |
-| volume-source | 4 | 3/4 | 3.0 | 0.3333 | 1.0000 |
+| port | 5 | 5/5 | 4.0 | 0.2500 | 1.0000 |
+| volume-source | 4 | 4/4 | 3.5 | 0.2917 | 1.0000 |
 | extra-host | 1 | 1/1 | 15.0 | 0.0667 | 1.0000 |
-| network | 4 | 1/4 | 2.0 | 0.5000 | 1.0000 |
+| network | 4 | 4/4 | 3.0 | 0.3750 | 1.0000 |
 | healthcheck-retries | 2 | 2/2 | 8.0 | 0.5333 | 1.0000 |
 | deploy-cpus | 3 | 3/3 | 7.0 | 0.1429 | 1.0000 |
 
@@ -25,12 +25,3 @@ Change Locality Ratio = Expected Changed Lines (1) / Actual Changed Lines. Adjus
 - `volume-source`: only short-syntax volume entries (`source:target[:mode]`) are eligible -- `Volumes::setSource` calls `.as<std::string>()` on each entry and throws on long-syntax (mapping) volume definitions, so files using only long syntax are skipped.
 - `port`: `Ports::has` (called by `add` to avoid duplicates) runs `.as<std::string>()` over every existing entry, so a service whose `ports` list mixes short-syntax strings with a long-syntax (mapping) port definition throws a yaml-cpp bad-conversion error -- the same short-syntax-only assumption seen in `Volumes` and `Networks`.
 - `network`: eligibility only requires a `networks` key to exist, but `Networks::add` pushes onto it without checking the node is a sequence. Services using the long (mapping) `networks:` syntax cause `add` to throw ("appending to a non-sequence") -- a real library bug surfaced by this experiment, left visible below rather than filtered out.
-
-## Failures (6)
-
-- `port` / `full-featured.yml` (service `web`): APPLY_FAILED: yaml-cpp: error at line 23, column 9: bad conversion
-- `port` / `ports-long.yml` (service `web`): APPLY_FAILED: yaml-cpp: error at line 5, column 9: bad conversion
-- `volume-source` / `full-featured.yml` (service `api`): APPLY_FAILED: yaml-cpp: error at line 64, column 9: bad conversion
-- `network` / `full-featured.yml` (service `api`): APPLY_FAILED: appending to a non-sequence
-- `network` / `null-and-empty-values.yml` (service `app`): APPLY_FAILED: appending to a non-sequence
-- `network` / `networks.yml` (service `backend`): APPLY_FAILED: appending to a non-sequence
