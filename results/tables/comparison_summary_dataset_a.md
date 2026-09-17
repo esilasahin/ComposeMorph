@@ -54,7 +54,7 @@ Counted by brace-matching each `if (op == "X") { ... }` branch body in the tool'
 | restart | 1 | 1 | not modeled |
 | volume-source | 1 | 24 | not modeled |
 
-The destructive naive version is no longer than the correct careful one for: `env`; it is longer for: `hostname`, `image`. Line count therefore gives no reliable code-review signal that distinguishes the two.
+The destructive naive version is no longer than the correct careful one for: `env`, `noop`; it is longer for: `hostname`, `image`. Line count therefore gives no reliable code-review signal that distinguishes the two.
 
 ## 5. Capability matrix (PDF section 9)
 

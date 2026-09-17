@@ -35,7 +35,7 @@ None observed.
 - `roundtrip_output` / `0xSh4dy__hackentine_archives__reversing_rev1_firstchallrevbasic_docker-compose.yml.yml`: validating /home/user/ComposeMorph/results/raw/validation/output/yamlcpp-baseline/roundtrip/0xSh4dy__hackentine_archives__reversing_rev1_firstchallrevbasic_docker-compose.yml.yml: version must be a st
 - `roundtrip_output` / `1qzxc__infra__shared-files_docker_gitlabci_docker-compose.yml.yml`: validating /home/user/ComposeMorph/results/raw/validation/output/yamlcpp-baseline/roundtrip/1qzxc__infra__shared-files_docker_gitlabci_docker-compose.yml.yml: version must be a string
 - `roundtrip_output` / `3PillarGlobal__engineering-playbook__dockerized-automation_docker-compose.yml.yml`: validating /home/user/ComposeMorph/results/raw/validation/output/yamlcpp-baseline/roundtrip/3PillarGlobal__engineering-playbook__dockerized-automation_docker-compose.yml.yml: version must be a string 
-- `roundtrip_output` / `3bsolutionsltd__transconnect-app__docker-compose.yml.yml`: validating /home/user/ComposeMorph/results/raw/validation/output/yamlcpp-baseline/roundtrip/3bsolutionsltd__transconnect-app__docker-compose.yml.yml: version must be a string | time="2026-09-11T16:25:
+- `roundtrip_output` / `3bsolutionsltd__transconnect-app__docker-compose.yml.yml`: validating /home/user/ComposeMorph/results/raw/validation/output/yamlcpp-baseline/roundtrip/3bsolutionsltd__transconnect-app__docker-compose.yml.yml: version must be a string | time="2026-09-17T10:04:
 - ... and 543 more (see raw CSV)
 
 ### syntax: output is not valid YAML for docker compose's parser -- 4 case(s)
