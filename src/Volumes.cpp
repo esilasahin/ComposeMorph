@@ -3,6 +3,54 @@
 #include <sstream>
 
 namespace compose {
+namespace {
+
+// Kısa sözdizimli girdiyi ("kaynak:hedef[:mod]") parçalarına ayırır.
+struct ShortSyntax {
+    std::string source;
+    std::string target;
+    std::string mode;
+};
+
+ShortSyntax splitShort(const std::string& mapping) {
+    std::stringstream ss(mapping);
+    ShortSyntax parts;
+    std::getline(ss, parts.source, ':');
+    std::getline(ss, parts.target, ':');
+    std::getline(ss, parts.mode, ':');
+    return parts;
+}
+
+// Uzun sözdizimli girdi bir eşlemedir:
+//   - type: bind
+//     source: /host/path
+//     target: /container/path
+// Hedef yol her iki biçimde de bu işlevle okunur.
+std::string volumeTarget(const YAML::Node& entry) {
+    if (entry.IsScalar()) {
+        return splitShort(entry.as<std::string>()).target;
+    }
+    if (entry.IsMap() && entry["target"] && entry["target"].IsScalar()) {
+        return entry["target"].as<std::string>();
+    }
+    return {};
+}
+
+std::string volumeToString(const YAML::Node& entry) {
+    if (entry.IsScalar()) {
+        return entry.as<std::string>();
+    }
+    if (!entry.IsMap() || !entry["target"] || !entry["target"].IsScalar()) {
+        return {};
+    }
+    std::string target = entry["target"].as<std::string>();
+    if (entry["source"] && entry["source"].IsScalar()) {
+        return entry["source"].as<std::string>() + ":" + target;
+    }
+    return target;
+}
+
+}  // namespace
 
 Volumes::Volumes(YAML::Node serviceNode) : serviceNode_(serviceNode) {}
 
@@ -31,15 +79,7 @@ void Volumes::removeByTarget(const std::string& target) {
 
     YAML::Node newVolumes(YAML::NodeType::Sequence);
     for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
-        std::string current = serviceNode_["volumes"][i].as<std::string>();
-        
-        // "source:target" veya "source:target:mode" formatını ayrıştır
-        std::stringstream ss(current);
-        std::string src, tgt;
-        std::getline(ss, src, ':');
-        std::getline(ss, tgt, ':');
-
-        if (tgt != target) {
+        if (volumeTarget(serviceNode_["volumes"][i]) != target) {
             newVolumes.push_back(serviceNode_["volumes"][i]);
         }
     }
@@ -52,22 +92,23 @@ void Volumes::setSource(const std::string& target, const std::string& newSource)
     }
 
     for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
-        std::string current = serviceNode_["volumes"][i].as<std::string>();
-        
-        std::stringstream ss(current);
-        std::string src, tgt, mode;
-        std::getline(ss, src, ':');
-        std::getline(ss, tgt, ':');
-        std::getline(ss, mode, ':');
-
-        if (tgt == target) {
-            std::string updated = newSource + ":" + tgt;
-            if (!mode.empty()) {
-                updated += ":" + mode;
-            }
-            detail::assignString(serviceNode_["volumes"][i], updated);
-            return;
+        YAML::Node entry = serviceNode_["volumes"][i];
+        if (volumeTarget(entry) != target) {
+            continue;
         }
+
+        if (entry.IsMap()) {
+            // Uzun sözdizimi: yalnızca source alanı yerinde güncellenir.
+            detail::assignString(entry["source"], newSource);
+        } else {
+            ShortSyntax parts = splitShort(entry.as<std::string>());
+            std::string updated = newSource + ":" + parts.target;
+            if (!parts.mode.empty()) {
+                updated += ":" + parts.mode;
+            }
+            detail::assignString(entry, updated);
+        }
+        return;
     }
 
     // Eğer hedef henüz yoksa yeni ekle
@@ -81,8 +122,7 @@ void Volumes::remove(const std::string& volumeMapping) {
 
     YAML::Node newVolumes(YAML::NodeType::Sequence);
     for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
-        std::string current = serviceNode_["volumes"][i].as<std::string>();
-        if (current != volumeMapping) {
+        if (volumeToString(serviceNode_["volumes"][i]) != volumeMapping) {
             newVolumes.push_back(serviceNode_["volumes"][i]);
         }
     }
@@ -95,7 +135,7 @@ bool Volumes::has(const std::string& volumeMapping) const {
     }
 
     for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
-        if (serviceNode_["volumes"][i].as<std::string>() == volumeMapping) {
+        if (volumeToString(serviceNode_["volumes"][i]) == volumeMapping) {
             return true;
         }
     }
@@ -112,7 +152,10 @@ std::vector<std::string> Volumes::toVector() const {
     std::vector<std::string> result;
     if (serviceNode_["volumes"] && serviceNode_["volumes"].IsSequence()) {
         for (std::size_t i = 0; i < serviceNode_["volumes"].size(); ++i) {
-            result.push_back(serviceNode_["volumes"][i].as<std::string>());
+            std::string text = volumeToString(serviceNode_["volumes"][i]);
+            if (!text.empty()) {
+                result.push_back(text);
+            }
         }
     }
     return result;

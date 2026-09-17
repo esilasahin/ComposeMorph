@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -44,7 +45,8 @@ private:
     std::string filepath_;
     YAML::Node rootNode_;
 
-    void validateService(const std::string& name, const YAML::Node& node) const;
+    void validateService(const std::string& name, const YAML::Node& node,
+                         const std::set<std::string>* declaredNetworks) const;
 };
 
 } // namespace compose

@@ -26,6 +26,25 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Run Tests
+        run: ctest --test-dir build --output-on-failure
+
+      # Görev tanımı Madde 24: üretilen dosya yalnızca YAML olarak değil,
+      # Compose dosyası olarak da geçerli olmalı.
+      - name: Docker Compose integration test
         run: |
-          cd build
-          ctest --output-on-failure
+          set -euo pipefail
+          cp test-data/full-compose.yml generated-compose.yml
+          ./build/change-image generated-compose.yml custody-crypto custody/cus-crypto:0.17.0
+          ./build/change-extra-host generated-compose.yml custody-crypto hsm01 10.10.10.20
+          docker compose -f generated-compose.yml config > /dev/null
+          echo "docker compose config accepted the generated file"
+
+      # Görev tanımı Madde 25: satır kapsamı raporu (eşik %80).
+      - name: Coverage
+        run: ./scripts/coverage.sh 80
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: results/coverage/coverage.csv
